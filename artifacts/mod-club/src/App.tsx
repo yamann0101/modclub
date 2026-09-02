@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Bell, CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Gamepad2, Home as HomeIcon, ImagePlus, LockKeyhole, Menu, MessageCircle, Megaphone, MoreVertical, Palette, Paperclip, PanelRightOpen, Reply, Search, Send, Server, ShieldCheck, Smile, Sparkles, Trophy, UserRound, UsersRound, X, Zap } from 'lucide-react';
+import { Bell, CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Gamepad2, Home as HomeIcon, LayoutDashboard, LockKeyhole, Menu, MessageCircle, Megaphone, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Shield, ShieldCheck, Smile, Sparkles, Trash2, Trophy, UserRound, Users, UsersRound, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -19,9 +19,9 @@ const quickItems: { label: string; sublabel: string; icon: LucideIcon; tone: str
 ];
 
 const slides = [
-  { eyebrow: 'YENİ SEZON', title: 'MOD CLUB', accent: 'SEZON 2', rest: 'BAŞLADI!', copy: 'Turnuvalar, ödüller ve daha fazlası seni bekliyor!', action: 'Hemen Katıl' },
-  { eyebrow: 'TOPLULUK GÜNÜ', title: 'BİRLİKTE', accent: 'DAHA GÜÇLÜYÜZ', rest: '', copy: 'Yeni arkadaşlar, yeni oyunlar ve unutulmaz anlar.', action: 'Keşfet' },
-  { eyebrow: 'HAFTANIN MEYDAN OKUMASI', title: 'SAHNE', accent: 'SENİN!', rest: '', copy: 'Skorunu yükselt, topluluk sıralamasında yerini al.', action: 'Sıralamayı Gör' },
+  { id: 'banner-1', eyebrow: 'YENİ SEZON', title: 'MOD CLUB', accent: 'SEZON 2', rest: 'BAŞLADI!', copy: 'Turnuvalar, ödüller ve daha fazlası seni bekliyor!', action: 'Hemen Katıl', hasButton: true },
+  { id: 'banner-2', eyebrow: 'TOPLULUK GÜNÜ', title: 'BİRLİKTE', accent: 'DAHA GÜÇLÜYÜZ', rest: '', copy: 'Yeni arkadaşlar, yeni oyunlar ve unutulmaz anlar.', action: 'Keşfet', hasButton: true },
+  { id: 'banner-3', eyebrow: 'HAFTANIN MEYDAN OKUMASI', title: 'SAHNE', accent: 'SENİN!', rest: '', copy: 'Skorunu yükselt, topluluk sıralamasında yerini al.', action: 'Sıralamayı Gör', hasButton: false },
 ];
 
 const announcements = [
@@ -42,21 +42,37 @@ type ChatMessage = {
   author: string;
   initials: string;
   avatar: string;
+  photo: string;
   message: string;
   time: string;
   mine?: boolean;
+  role?: string;
   replyTo?: { author: string; message: string };
 };
 
 const initialChatMessages: ChatMessage[] = [
-  { id: 'chat-1', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
-  { id: 'chat-2', author: 'Sude Y.', initials: 'SY', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
-  { id: 'chat-3', author: 'Arda Demir', initials: 'AD', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
-  { id: 'chat-4', author: 'Ece', initials: 'ED', avatar: 'bg-[#a15be9] text-white', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
-  { id: 'chat-5', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
+  { id: 'chat-1', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
+  { id: 'chat-2', author: 'Sude Y.', initials: 'SY', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', photo: 'https://i.pravatar.cc/96?img=47', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
+  { id: 'chat-3', author: 'Arda Demir', initials: 'AD', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', photo: 'https://i.pravatar.cc/96?img=68', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
+  { id: 'chat-4', author: 'Ece', initials: 'ED', avatar: 'bg-[#a15be9] text-white', photo: 'https://i.pravatar.cc/96?img=32', role: 'MODERATOR', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
+  { id: 'chat-5', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
 ];
 
 const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
+
+const initialAdminUsers = [
+  { id: 'user-1', name: 'Mert Kaya', email: 'mert@modclub.com', role: 'MODERATOR', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=12' },
+  { id: 'user-2', name: 'Sude Y.', email: 'sude@modclub.com', role: 'ÜYE', status: 'Çevrimdışı', photo: 'https://i.pravatar.cc/96?img=47' },
+  { id: 'user-3', name: 'Arda Demir', email: 'arda@modclub.com', role: 'ÜYE', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=68' },
+  { id: 'user-4', name: 'Ece Demir', email: 'ece@modclub.com', role: 'ADMIN', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=32' },
+];
+
+const initialManagedPages = [
+  { name: 'Ana Sayfa', description: 'Banner, duyurular ve topluluk özeti', enabled: true },
+  { name: 'Etkinlikler', description: 'Turnuvalar ve yaklaşan etkinlikler', enabled: true },
+  { name: 'Menü', description: 'Topluluk araçları ve hızlı erişim', enabled: true },
+  { name: 'Profil', description: 'Üye profili ve hesap ayarları', enabled: true },
+];
 
 function WrenchIcon({ size = 20, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2.12 2.12 0 1 0 3 3l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.6 2.6-3-3 2.6-2.6Z" /><path d="m16 16 5 5" /></svg>;
@@ -74,17 +90,26 @@ function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [banners, setBanners] = useState(slides);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1');
+  const [adminSection, setAdminSection] = useState('Genel Bakış');
+  const [adminUsers, setAdminUsers] = useState(initialAdminUsers);
+  const [managedPages, setManagedPages] = useState(initialManagedPages);
+  const [bannerTitle, setBannerTitle] = useState('');
+  const [bannerCopy, setBannerCopy] = useState('');
+  const [bannerHasButton, setBannerHasButton] = useState(true);
+  const isAdmin = true;
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState('Hoş geldin, Ece');
 
-  const currentSlide = slides[slide];
+  const currentSlide = banners[slide % banners.length] ?? slides[0];
   const upcomingEvents = useMemo(() => events.slice(0, 4), []);
 
   const changeSlide = (direction: number) => {
-    setSlide((current) => (current + direction + slides.length) % slides.length);
+    setSlide((current) => (current + direction + banners.length) % banners.length);
   };
 
   const handleQuickSelect = (label: string) => {
@@ -101,6 +126,10 @@ function Home() {
     }
     if (label === 'Profil') {
       setNotice('Profil alanı yakında seninle');
+      return;
+    }
+    if (label === 'Menü') {
+      setMenuOpen((open) => !open);
       return;
     }
     setNotice(`${label} alanına geçtin`);
@@ -126,6 +155,7 @@ function Home() {
       author: 'Ece',
       initials: 'ED',
       avatar: 'bg-[#a15be9] text-white',
+      photo: 'https://i.pravatar.cc/96?img=32',
       message,
       time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
       mine: true,
@@ -135,6 +165,35 @@ function Home() {
     setReplyTo(null);
     setEmojiPickerOpen(false);
     setNotice('Mesajın topluluğa gönderildi');
+  };
+
+  const clearChatHistory = () => {
+    if (!window.confirm('Tüm sohbet geçmişi silinsin mi? Bu işlem geri alınamaz.')) return;
+    setChatMessages([]);
+    setReplyTo(null);
+    setNotice('Sohbet geçmişi admin tarafından silindi');
+  };
+
+  const addBanner = () => {
+    const title = bannerTitle.trim();
+    const copy = bannerCopy.trim();
+    if (!title || !copy) {
+      setNotice('Banner başlığı ve açıklaması gerekli');
+      return;
+    }
+    setBanners((items) => [...items, {
+      id: `banner-${Date.now()}`,
+      eyebrow: 'YENİ DUYURU',
+      title,
+      accent: 'MOD CLUB',
+      rest: '',
+      copy,
+      action: 'Keşfet',
+      hasButton: bannerHasButton,
+    }]);
+    setBannerTitle('');
+    setBannerCopy('');
+    setNotice('Yeni banner yayınlandı');
   };
 
   return (
@@ -169,10 +228,10 @@ function Home() {
                 </div>
               )}
             </div>
-            <button data-testid="button-profile" aria-label="Profili aç" onClick={() => handleNav('Profil')} className="relative grid size-10 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#26104b,#9d42f5)] text-white shadow-md shadow-violet-200/50"><span className="font-display text-sm font-bold">ED</span><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-white bg-[#56d47e]" /></button>
+            <button data-testid="button-profile" aria-label="Profili aç" onClick={() => handleNav('Profil')} className="relative grid size-10 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#26104b,#9d42f5)] text-white shadow-md shadow-violet-200/50"><img src="https://i.pravatar.cc/96?img=32" alt="Ece profil fotoğrafı" className="size-full object-cover" /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-white bg-[#56d47e]" /></button>
           </div>
         </div>
-        {menuOpen && <div data-testid="panel-menu" className="absolute left-4 top-[4.7rem] z-20 w-56 rounded-2xl border border-[hsl(var(--border))] bg-white p-2 shadow-2xl sm:left-6 lg:left-[max(2rem,calc((100vw-1340px)/2))]"><button data-testid="button-menu-community" onClick={() => { handleNav('Topluluk'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><UsersRound size={17} className="text-[hsl(var(--primary))]" />Topluluk keşfi</button><button data-testid="button-menu-settings" onClick={() => { setNotice('Ayarlar alanı yakında seninle'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><PanelRightOpen size={17} className="text-[hsl(var(--primary))]" />Hesap ayarları</button></div>}
+        {menuOpen && <div data-testid="panel-menu" className="absolute left-4 top-[4.7rem] z-20 w-60 rounded-2xl border border-[hsl(var(--border))] bg-white p-2 shadow-2xl sm:left-6 lg:left-[max(2rem,calc((100vw-1340px)/2))]"><button data-testid="button-menu-community" onClick={() => { handleNav('Topluluk'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><UsersRound size={17} className="text-[hsl(var(--primary))]" />Topluluk keşfi</button><button data-testid="button-menu-settings" onClick={() => { setNotice('Ayarlar alanı yakında seninle'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><PanelRightOpen size={17} className="text-[hsl(var(--primary))]" />Hesap ayarları</button><div className="my-1 border-t border-[hsl(var(--border))]" /><button data-testid="button-menu-admin" onClick={() => { setAdminPanelOpen(true); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl bg-[hsl(var(--secondary)/.6)] px-3 py-3 text-left text-sm font-bold text-[hsl(var(--primary))] hover:bg-[hsl(var(--secondary))]"><Shield size={17} />Admin paneli <span className="ml-auto rounded-full bg-[hsl(var(--primary))] px-1.5 py-0.5 font-mono text-[.5rem] text-white">ADMIN</span></button></div>}
       </header>
 
       <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">
@@ -191,9 +250,9 @@ function Home() {
             <p className="mb-3 font-mono text-[.58rem] font-bold tracking-[.2em] text-[#d8a8ff] sm:text-[.65rem]">{currentSlide.eyebrow}</p>
             <h2 className="font-display text-[clamp(1.35rem,4vw,2.45rem)] font-bold leading-[.96] tracking-[-.06em]">{currentSlide.title}<br /><span className="text-[#bf56ff]">{currentSlide.accent}</span>{currentSlide.rest && <> <span>{currentSlide.rest}</span></>}</h2>
             <p className="mt-3 max-w-[20rem] text-[.69rem] leading-relaxed text-white/70 sm:text-xs">{currentSlide.copy}</p>
-            <button data-testid="button-hero-action" onClick={() => setNotice(`${currentSlide.action} seçildi`)} className="mt-4 flex w-fit items-center gap-2 rounded-lg bg-[linear-gradient(105deg,#a329ff,#6d20d8)] px-4 py-2.5 text-xs font-bold shadow-lg shadow-purple-950/30 transition-transform hover:-translate-y-0.5">{currentSlide.action}<ChevronRight size={15} /></button>
+            {currentSlide.hasButton && <button data-testid="button-hero-action" onClick={() => setNotice(`${currentSlide.action} seçildi`)} className="mt-4 flex w-fit items-center gap-2 rounded-lg bg-[linear-gradient(105deg,#a329ff,#6d20d8)] px-4 py-2.5 text-xs font-bold shadow-lg shadow-purple-950/30 transition-transform hover:-translate-y-0.5">{currentSlide.action}<ChevronRight size={15} /></button>}
           </div>
-          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">{slides.map((item, index) => <button data-testid={`button-slide-dot-${index}`} aria-label={`${index + 1}. banner`} key={item.eyebrow} onClick={() => setSlide(index)} className={`h-1.5 rounded-full transition-all ${slide === index ? 'w-5 bg-white' : 'w-1.5 bg-white/45'}`} />)}</div>
+          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">{banners.map((item, index) => <button data-testid={`button-slide-dot-${index}`} aria-label={`${index + 1}. banner`} key={item.id} onClick={() => setSlide(index)} className={`h-1.5 rounded-full transition-all ${slide === index ? 'w-5 bg-white' : 'w-1.5 bg-white/45'}`} />)}</div>
           <button data-testid="button-banner-previous" aria-label="Önceki banner" onClick={() => changeSlide(-1)} className="absolute left-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-white/25 bg-black/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 sm:left-4"><ChevronLeft size={17} /></button>
           <button data-testid="button-banner-next" aria-label="Sonraki banner" onClick={() => changeSlide(1)} className="absolute right-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-white/25 bg-black/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 sm:right-4"><ChevronRight size={17} /></button>
         </section>
@@ -239,32 +298,51 @@ function Home() {
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-[hsl(var(--border)/.9)] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_25px_rgba(54,27,101,.07)] backdrop-blur-xl">
         <div className="mx-auto flex h-[4.35rem] max-w-[40rem] items-center justify-around px-2">
-          {([{ label: 'Ana Sayfa', icon: HomeIcon }, { label: 'Sohbet', icon: MessageCircle }, { label: 'Enerji', icon: Zap }, { label: 'Oyunlar', icon: Gamepad2 }, { label: 'Profil', icon: UserRound }]).map(({ label, icon: Icon }) => <button data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`} key={label} onClick={() => label === 'Enerji' ? setNotice('Enerji merkezindesin') : handleNav(label)} className={`relative flex min-w-[3.5rem] flex-col items-center justify-center gap-1 text-[.55rem] font-bold transition-colors ${activeNav === label ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))]'}`}>{label === 'Enerji' ? <span className="grid size-11 -translate-y-3 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_7px_18px_rgba(117,36,218,.35)]"><Icon size={21} fill="currentColor" /></span> : <Icon size={18} strokeWidth={activeNav === label ? 2.5 : 1.8} />}{label !== 'Enerji' && <span>{label}</span>}{label === 'Enerji' && <span className="-mt-2">ENERJİ</span>}{activeNav === label && label !== 'Enerji' && <span className="absolute -bottom-1 size-1 rounded-full bg-[hsl(var(--primary))]" />}</button>)}
+          {([{ label: 'Ana Sayfa', icon: HomeIcon }, { label: 'Etkinlikler', icon: CalendarDays }, { label: 'Menü', icon: Menu }, { label: 'Oyunlar', icon: Gamepad2 }, { label: 'Profil', icon: UserRound }]).map(({ label, icon: Icon }) => <button data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`} key={label} onClick={() => handleNav(label)} className={`relative flex min-w-[3.5rem] flex-col items-center justify-center gap-1 text-[.55rem] font-bold transition-colors ${activeNav === label ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))]'}`}>{label === 'Menü' ? <span className="nav-menu-orb grid size-11 -translate-y-3 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_7px_18px_rgba(117,36,218,.35)]"><Icon size={21} /></span> : <Icon size={18} strokeWidth={activeNav === label ? 2.5 : 1.8} />}{label !== 'Menü' && <span>{label}</span>}{label === 'Menü' && <span className="-mt-2">MENÜ</span>}{activeNav === label && label !== 'Menü' && <span className="absolute -bottom-1 size-1 rounded-full bg-[hsl(var(--primary))]" />}</button>)}
         </div>
       </nav>
+
+      {adminPanelOpen && <div data-testid="panel-admin" className="fixed inset-0 z-[60] overflow-y-auto bg-[#170b28]/55 p-3 backdrop-blur-sm sm:p-6">
+        <div className="mx-auto min-h-[calc(100dvh-1.5rem)] max-w-6xl overflow-hidden rounded-[1.5rem] border border-white/70 bg-[hsl(var(--background))] shadow-[0_30px_100px_rgba(27,10,50,.3)] sm:min-h-[calc(100dvh-3rem)]">
+          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] bg-white px-4 py-3 sm:px-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[linear-gradient(135deg,#8b2ce4,#5c1dab)] text-white shadow-md shadow-purple-200"><Shield size={19} /></div><div><p className="font-mono text-[.56rem] font-bold tracking-[.15em] text-[hsl(var(--primary))]">MOD CLUB YÖNETİMİ</p><h2 className="font-display text-lg font-bold">Admin paneli</h2></div></div><button data-testid="button-close-admin" aria-label="Admin panelini kapat" onClick={() => setAdminPanelOpen(false)} className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"><X size={18} /></button></div>
+          <div className="grid min-h-[calc(100dvh-7rem)] grid-rows-[auto_1fr] lg:grid-cols-[15rem_1fr] lg:grid-rows-1">
+            <aside className="border-b border-[hsl(var(--border))] bg-white p-3 lg:border-b-0 lg:border-r"><div className="hide-scrollbar flex gap-2 overflow-x-auto lg:block lg:space-y-1">{['Genel Bakış', 'Kullanıcılar', 'Bannerlar', 'Sayfalar'].map((section) => <button key={section} onClick={() => setAdminSection(section)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition-colors lg:w-full ${adminSection === section ? 'bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'}`}>{section === 'Genel Bakış' ? <LayoutDashboard size={16} /> : section === 'Kullanıcılar' ? <Users size={16} /> : section === 'Bannerlar' ? <Megaphone size={16} /> : <PanelRightOpen size={16} />}{section}</button>)}</div><div className="mt-5 hidden rounded-2xl bg-[linear-gradient(145deg,#27103f,#6120a2)] p-4 text-white lg:block"><ShieldCheck size={18} className="text-[#d69cff]" /><p className="mt-3 text-xs font-bold">Tam yetki açık</p><p className="mt-1 text-[.62rem] leading-relaxed text-white/65">Sayfaları, üyeleri ve topluluk içeriklerini buradan yönetebilirsin.</p></div></aside>
+            <section className="min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
+              {adminSection === 'Genel Bakış' && <div className="space-y-6"><div><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">KONTROL MERKEZİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Kulübün bugün nasıl?</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">MOD CLUB alanlarını tek ekrandan takip et ve düzenle.</p></div><div className="grid gap-3 sm:grid-cols-3"><div className="admin-stat-card"><UsersRound size={18} /><strong>12.548</strong><span>Toplam üye</span></div><div className="admin-stat-card admin-stat-pink"><Megaphone size={18} /><strong>{banners.length}</strong><span>Aktif banner</span></div><div className="admin-stat-card admin-stat-green"><ShieldCheck size={18} /><strong>184</strong><span>Çevrimiçi üye</span></div></div><div className="grid gap-4 md:grid-cols-2"><button onClick={() => setAdminSection('Kullanıcılar')} className="admin-action-card"><Users size={20} className="text-[hsl(var(--primary))]" /><span><strong>Kullanıcıları yönet</strong><small>Rolleri düzenle, kullanıcıları denetle.</small></span><ChevronRight size={17} /></button><button onClick={() => setAdminSection('Bannerlar')} className="admin-action-card"><Megaphone size={20} className="text-[hsl(var(--primary))]" /><span><strong>Bannerları düzenle</strong><small>Butonlu veya butonsuz yeni duyurular ekle.</small></span><ChevronRight size={17} /></button></div><div className="rounded-2xl border border-[#f3d8a0] bg-[#fff9e9] p-4 text-xs text-[#8f6d25]"><strong className="block">Admin notu</strong><span className="mt-1 block leading-relaxed">Sohbet başlığındaki çöp kutusu yalnızca admin hesabına görünür ve tüm geçmişi temizler.</span></div></div>}
+
+              {adminSection === 'Kullanıcılar' && <div><div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÜYE YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Kullanıcılar</h3></div><span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">{adminUsers.length} kayıt</span></div><div className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white">{adminUsers.map((user) => <div key={user.id} className="flex flex-wrap items-center gap-3 border-b border-[hsl(var(--border))] p-3 last:border-b-0 sm:p-4"><img src={user.photo} alt={`${user.name} profil fotoğrafı`} className="size-10 rounded-full object-cover" /><div className="min-w-[9rem] flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold">{user.name}</p><span className={`rounded-full px-2 py-0.5 font-mono text-[.48rem] font-bold ${user.role === 'ADMIN' ? 'bg-[#fbe0ef] text-[#c13f87]' : user.role === 'MODERATOR' ? 'bg-[#eadbff] text-[#7837bd]' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'}`}>{user.role}</span></div><p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{user.email} · <span className={user.status === 'Çevrimiçi' ? 'text-[#39a861]' : ''}>{user.status}</span></p></div><div className="flex items-center gap-1.5"><button onClick={() => setAdminUsers((users) => users.map((item) => item.id === user.id ? { ...item, role: item.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE' } : item))} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-2 text-[.58rem] font-bold hover:border-[hsl(var(--primary)/.35)] hover:text-[hsl(var(--primary))]">{user.role === 'ÜYE' ? 'Mod. yap' : 'Üyeye çevir'}</button><button aria-label={`${user.name} kullanıcısını sil`} onClick={() => setAdminUsers((users) => users.filter((item) => item.id !== user.id))} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))] hover:bg-red-50"><Trash2 size={15} /></button></div></div>)}</div></div>}
+
+              {adminSection === 'Bannerlar' && <div><div className="mb-5"><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">İÇERİK YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Bannerlar</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Ana sayfa bannerlarını ekle, kaldır ve buton görünürlüğünü belirle.</p></div><form onSubmit={(event) => { event.preventDefault(); addBanner(); }} className="mb-6 rounded-2xl border border-[hsl(var(--border))] bg-white p-4 sm:p-5"><div className="mb-4 flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Plus size={16} /></span><strong className="text-sm">Yeni banner ekle</strong></div><div className="grid gap-3 sm:grid-cols-2"><input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="Banner başlığı" className="h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-3 text-xs outline-none focus:border-[hsl(var(--primary))]" /><input value={bannerCopy} onChange={(event) => setBannerCopy(event.target.value)} placeholder="Kısa açıklama" className="h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-3 text-xs outline-none focus:border-[hsl(var(--primary))]" /></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><label className="flex cursor-pointer items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={bannerHasButton} onChange={(event) => setBannerHasButton(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />Banner üzerinde buton göster</label><button type="submit" className="flex items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-4 py-2.5 text-xs font-bold text-white hover:bg-[hsl(var(--primary))]"><Plus size={15} />Banner ekle</button></div></form><div className="grid gap-3">{banners.map((banner, index) => <div key={banner.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[hsl(var(--border))] bg-white p-3 sm:p-4"><div className="grid size-14 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#21063b,#8f31e1)] text-white"><Megaphone size={20} /></div><div className="min-w-[10rem] flex-1"><p className="font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--primary))]">{banner.eyebrow}</p><p className="mt-1 text-sm font-bold">{banner.title} <span className="font-normal text-[hsl(var(--primary))]">{banner.accent}</span></p><p className="mt-1 line-clamp-1 text-[.62rem] text-[hsl(var(--muted-foreground))]">{banner.copy}</p></div><span className={`rounded-full px-2 py-1 font-mono text-[.5rem] font-bold ${banner.hasButton ? 'bg-[#e4f7e8] text-[#319555]' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'}`}>{banner.hasButton ? 'BUTONLU' : 'BUTONSUZ'}</span><button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { setBanners((items) => items.filter((item) => item.id !== banner.id)); setSlide((current) => Math.min(current, Math.max(0, banners.length - 2))); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 size={16} /></button></div>)}</div></div>}
+
+              {adminSection === 'Sayfalar' && <div><div className="mb-5"><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">GÖRÜNÜM YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Sayfalar</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Üyelerin erişebileceği MOD CLUB alanlarını yönet.</p></div><div className="grid gap-3">{managedPages.map((page) => <div key={page.name} className="flex items-center gap-3 rounded-2xl border border-[hsl(var(--border))] bg-white p-4"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]">{page.name === 'Ana Sayfa' ? <HomeIcon size={18} /> : page.name === 'Etkinlikler' ? <CalendarDays size={18} /> : page.name === 'Menü' ? <Menu size={18} /> : <UserRound size={18} />}</div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{page.name}</p><p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{page.description}</p></div><button role="switch" aria-checked={page.enabled} onClick={() => setManagedPages((pages) => pages.map((item) => item.name === page.name ? { ...item, enabled: !item.enabled } : item))} className={`relative h-7 w-12 rounded-full p-1 transition-colors ${page.enabled ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--muted-foreground)/.35)]'}`}><span className={`block size-5 rounded-full bg-white shadow-sm transition-transform ${page.enabled ? 'translate-x-5' : ''}`} /></button></div>)}</div></div>}
+            </section>
+          </div>
+        </div>
+      </div>}
 
       {selectedAnnouncement && <div data-testid="modal-announcement" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setSelectedAnnouncement(null)}><div className="w-full max-w-md rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-start justify-between"><div><span className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">{selectedAnnouncement.tag}</span><h2 className="mt-1 font-display text-xl font-bold">{selectedAnnouncement.title}</h2></div><button data-testid="button-close-announcement" aria-label="Duyuruyu kapat" onClick={() => setSelectedAnnouncement(null)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button></div><p className="text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{selectedAnnouncement.copy}</p><button data-testid="button-announcement-done" onClick={() => { setSelectedAnnouncement(null); setNotice('Duyuru okundu olarak işaretlendi'); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] py-3 text-sm font-bold text-white">Anladım <Check size={16} /></button></div></div>}
 
       {chatOpen && <div data-testid="panel-chat" className="fixed bottom-[5.7rem] right-2 z-40 flex h-[min(38rem,calc(100dvh-8rem))] w-[min(25rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[1.35rem] border border-[hsl(var(--border))] bg-white shadow-[0_18px_60px_rgba(55,22,104,.25)] sm:bottom-7 sm:right-6">
         <div className="flex shrink-0 items-center justify-between bg-[linear-gradient(105deg,#281043,#6820ae)] px-4 py-3 text-white">
-          <div className="flex min-w-0 items-center gap-3"><div className="relative grid size-10 shrink-0 place-items-center rounded-full bg-white/15 ring-1 ring-white/20"><UsersRound size={19} /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#54208b] bg-[#63dd89]" /></div><div className="min-w-0"><p className="truncate font-display text-sm font-bold">MOD Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
-          <div className="flex items-center gap-0.5"><button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => setChatOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+          <div className="flex min-w-0 items-center gap-3"><div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-1 ring-white/20"><img src="https://i.pravatar.cc/96?img=12" alt="" className="size-full object-cover" /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#54208b] bg-[#63dd89]" /></div><div className="min-w-0"><p className="truncate font-display text-sm font-bold">MOD Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
+          <div className="flex items-center gap-0.5">{isAdmin && <button data-testid="button-delete-chat-history" aria-label="Tüm sohbet geçmişini sil" onClick={clearChatHistory} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trash2 size={16} /></button>}<button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => setChatOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
         </div>
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
           <div className="space-y-3">
-            {chatMessages.map((message) => <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
-              {!message.mine && <span className={`grid size-7 shrink-0 place-items-center rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}>{message.initials}</span>}
+            {chatMessages.length === 0 ? <div className="flex min-h-full flex-col items-center justify-center py-10 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-white text-[hsl(var(--primary))] shadow-sm"><Trash2 size={22} /></div><p className="mt-3 text-xs font-bold">Sohbet geçmişi temizlendi</p><p className="mt-1 max-w-[15rem] text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Yeni bir mesaj göndererek sohbeti yeniden başlatabilirsin.</p></div> : chatMessages.map((message) => <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
+              {!message.mine && <span className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={message.photo} alt={`${message.author} profil fotoğrafı`} className="size-full object-cover" /></span>}
               <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
-                {!message.mine && <p className="mb-1 ml-1 text-[.58rem] font-bold text-[hsl(var(--primary))]">{message.author}</p>}
+                {!message.mine && <div className="mb-1 ml-1"><span className={message.role ? 'moderator-label mb-1 block w-fit' : 'hidden'}>{message.role}</span><p className={`text-[.6rem] font-bold ${message.role ? 'moderator-name' : 'text-[hsl(var(--primary))]'}`}>{message.author}</p></div>}
                 <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
+                  {message.mine && message.role && <div className="mb-1 text-right"><span className="moderator-label mb-1 inline-block">{message.role}</span><p className="moderator-name text-[.6rem] font-bold">{message.author}</p></div>}
                   {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
                   <p className="text-[.72rem] leading-relaxed">{message.message}</p>
                   <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
                 </div>
                 <button type="button" onClick={() => setReplyTo(message)} className={`absolute -bottom-3 ${message.mine ? '-left-8' : '-right-8'} grid size-7 place-items-center rounded-full border border-[hsl(var(--border))] bg-white text-[hsl(var(--muted-foreground))] opacity-0 shadow-sm transition-opacity hover:text-[hsl(var(--primary))] group-hover:opacity-100`} aria-label={`${message.author} mesajını yanıtla`}><Reply size={13} /></button>
               </div>
-              {message.mine && <span className={`grid size-7 shrink-0 place-items-center rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}>{message.initials}</span>}
+              {message.mine && <span className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={message.photo} alt={`${message.author} profil fotoğrafı`} className="size-full object-cover" /></span>}
             </div>)}
           </div>
           <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Kaydırarak veya oka basarak cevapla</span></div>
@@ -274,7 +352,6 @@ function Home() {
           {emojiPickerOpen && <div data-testid="panel-emoji-picker" className="absolute bottom-[4.35rem] left-2 z-10 grid w-[min(18rem,calc(100vw-2rem))] grid-cols-6 gap-1 rounded-2xl border border-[hsl(var(--border))] bg-white p-2.5 shadow-[0_12px_35px_rgba(56,25,107,.18)]">{chatEmojis.map((emoji) => <button type="button" key={emoji} onClick={() => { setChatText((current) => `${current}${emoji}`); chatInputRef.current?.focus(); }} className="grid size-9 place-items-center rounded-lg text-xl transition-colors hover:bg-[hsl(var(--muted))]">{emoji}</button>)}</div>}
           <form className="flex items-end gap-1.5" onSubmit={(event) => { event.preventDefault(); sendChat(); }}>
             <button type="button" aria-label="Dosya ekle" onClick={() => setNotice('Dosya ekleme yakında')} className="grid size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))]"><Paperclip size={18} /></button>
-            <button type="button" aria-label="Görsel ekle" onClick={() => setNotice('Görsel paylaşımı yakında')} className="hidden size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))] sm:grid"><ImagePlus size={18} /></button>
             <div className="flex min-h-10 min-w-0 flex-1 items-end rounded-2xl bg-[hsl(var(--muted)/.7)] px-3 py-1"><textarea ref={chatInputRef} data-testid="input-chat" rows={1} value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); } }} placeholder="Mesaj yaz..." className="max-h-24 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[.72rem] leading-relaxed outline-none placeholder:text-[hsl(var(--muted-foreground))]" /><button type="button" aria-label="Emoji seç" onClick={() => setEmojiPickerOpen((open) => !open)} className="grid size-8 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]"><Smile size={18} /></button></div>
             <button data-testid="button-send-chat" aria-label="Mesaj gönder" type="submit" disabled={!chatText.trim()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-white shadow-md shadow-violet-200 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"><Send size={16} /></button>
           </form>
