@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MOD CLUB"
+description = "MOD CLUB topluluk ana sayfası; duyurular, etkinlikler, oyunlar ve profil erişimi sunan, mobil-first responsive bir sosyal kulüp deneyimi."
+version = "1.0.0"
+id = "artifacts/mod-club"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21098
+
+[services.development]
+run = "pnpm --filter @workspace/mod-club run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mod-club", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mod-club/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21098"
+BASE_PATH = "/"
