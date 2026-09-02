@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Gamepad2, Home as HomeIcon, LockKeyhole, Menu, MessageCircle, Megaphone, Palette, PanelRightOpen, Search, Send, Server, ShieldCheck, Sparkles, Trophy, UserRound, UsersRound, X, Zap } from 'lucide-react';
+import { Bell, CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Gamepad2, Home as HomeIcon, ImagePlus, LockKeyhole, Menu, MessageCircle, Megaphone, MoreVertical, Palette, Paperclip, PanelRightOpen, Phone, Reply, Search, Send, Server, ShieldCheck, Smile, Sparkles, Trophy, UserRound, UsersRound, Video, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -37,6 +37,27 @@ const events = [
   { id: 'event-4', date: '23 Haziran 2024', time: '18:30', category: 'QUIZ', title: 'ÖDÜLLÜ QUIZ', copy: 'Bilgini test et, ödülünü kap!', tone: 'green' },
 ];
 
+type ChatMessage = {
+  id: string;
+  author: string;
+  initials: string;
+  avatar: string;
+  message: string;
+  time: string;
+  mine?: boolean;
+  replyTo?: { author: string; message: string };
+};
+
+const initialChatMessages: ChatMessage[] = [
+  { id: 'chat-1', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
+  { id: 'chat-2', author: 'Sude Y.', initials: 'SY', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
+  { id: 'chat-3', author: 'Arda Demir', initials: 'AD', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
+  { id: 'chat-4', author: 'Ece', initials: 'ED', avatar: 'bg-[#a15be9] text-white', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
+  { id: 'chat-5', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
+];
+
+const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
+
 function WrenchIcon({ size = 20, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2.12 2.12 0 1 0 3 3l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.6 2.6-3-3 2.6-2.6Z" /><path d="m16 16 5 5" /></svg>;
 }
@@ -48,9 +69,13 @@ function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
   const [chatText, setChatText] = useState('');
-  const [sentMessage, setSentMessage] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState('Hoş geldin, Ece');
@@ -87,10 +112,28 @@ function Home() {
     setNotice(joined ? 'Etkinlikten ayrıldın' : 'Etkinliğe katılımın alındı');
   };
 
+  useEffect(() => {
+    if (chatOpen && chatScrollRef.current) {
+      chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  }, [chatOpen, chatMessages]);
+
   const sendChat = () => {
-    if (!chatText.trim()) return;
-    setSentMessage(chatText.trim());
+    const message = chatText.trim();
+    if (!message) return;
+    setChatMessages((current) => [...current, {
+      id: `chat-${Date.now()}`,
+      author: 'Ece',
+      initials: 'ED',
+      avatar: 'bg-[#a15be9] text-white',
+      message,
+      time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+      mine: true,
+      replyTo: replyTo ? { author: replyTo.author, message: replyTo.message } : undefined,
+    }]);
     setChatText('');
+    setReplyTo(null);
+    setEmojiPickerOpen(false);
     setNotice('Mesajın topluluğa gönderildi');
   };
 
@@ -202,7 +245,42 @@ function Home() {
 
       {selectedAnnouncement && <div data-testid="modal-announcement" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setSelectedAnnouncement(null)}><div className="w-full max-w-md rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-start justify-between"><div><span className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">{selectedAnnouncement.tag}</span><h2 className="mt-1 font-display text-xl font-bold">{selectedAnnouncement.title}</h2></div><button data-testid="button-close-announcement" aria-label="Duyuruyu kapat" onClick={() => setSelectedAnnouncement(null)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button></div><p className="text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{selectedAnnouncement.copy}</p><button data-testid="button-announcement-done" onClick={() => { setSelectedAnnouncement(null); setNotice('Duyuru okundu olarak işaretlendi'); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] py-3 text-sm font-bold text-white">Anladım <Check size={16} /></button></div></div>}
 
-      {chatOpen && <div data-testid="panel-chat" className="fixed bottom-[5.7rem] right-4 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white shadow-2xl sm:bottom-7 sm:right-6"><div className="flex items-center justify-between bg-[linear-gradient(105deg,#281043,#6820ae)] px-4 py-3 text-white"><div><p className="font-display text-sm font-bold">MOD Sohbet</p><p className="text-[.62rem] text-white/60">Topluluk burada</p></div><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => setChatOpen(false)} className="grid size-8 place-items-center rounded-lg hover:bg-white/10"><X size={17} /></button></div><div className="min-h-[8rem] p-4">{sentMessage ? <div className="ml-auto max-w-[82%] rounded-2xl rounded-br-sm bg-[hsl(var(--secondary))] px-3 py-2 text-right text-xs text-[hsl(var(--foreground))]">{sentMessage}</div> : <div className="flex flex-col items-center justify-center py-5 text-center"><MessageCircle size={22} className="mb-2 text-[hsl(var(--primary))]" /><p className="text-xs font-bold">Sohbete bir merhaba bırak</p><p className="mt-1 text-[.65rem] text-[hsl(var(--muted-foreground))]">Topluluk seni bekliyor.</p></div>}</div><form className="flex gap-2 border-t border-[hsl(var(--border))] p-3" onSubmit={(event) => { event.preventDefault(); sendChat(); }}><input data-testid="input-chat" value={chatText} onChange={(event) => setChatText(event.target.value)} placeholder="Bir mesaj yaz..." className="min-w-0 flex-1 rounded-lg bg-[hsl(var(--muted))] px-3 py-2 text-xs outline-none ring-[hsl(var(--primary))] focus:ring-2" /><button data-testid="button-send-chat" aria-label="Mesaj gönder" type="submit" className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary))] text-white"><Send size={15} /></button></form></div>}
+      {chatOpen && <div data-testid="panel-chat" className="fixed bottom-[5.7rem] right-2 z-40 flex h-[min(38rem,calc(100dvh-8rem))] w-[min(25rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[1.35rem] border border-[hsl(var(--border))] bg-white shadow-[0_18px_60px_rgba(55,22,104,.25)] sm:bottom-7 sm:right-6">
+        <div className="flex shrink-0 items-center justify-between bg-[linear-gradient(105deg,#281043,#6820ae)] px-4 py-3 text-white">
+          <div className="flex min-w-0 items-center gap-3"><div className="relative grid size-10 shrink-0 place-items-center rounded-full bg-white/15 ring-1 ring-white/20"><UsersRound size={19} /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#54208b] bg-[#63dd89]" /></div><div className="min-w-0"><p className="truncate font-display text-sm font-bold">MOD Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
+          <div className="flex items-center gap-0.5"><button data-testid="button-chat-video" aria-label="Görüntülü görüşme" onClick={() => setNotice('Görüntülü görüşme yakında')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><Video size={17} /></button><button data-testid="button-chat-call" aria-label="Sesli görüşme" onClick={() => setNotice('Sesli görüşme yakında')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><Phone size={17} /></button><button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => setChatOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+        </div>
+        <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
+          <div className="space-y-3">
+            {chatMessages.map((message) => <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
+              {!message.mine && <span className={`grid size-7 shrink-0 place-items-center rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}>{message.initials}</span>}
+              <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
+                {!message.mine && <p className="mb-1 ml-1 text-[.58rem] font-bold text-[hsl(var(--primary))]">{message.author}</p>}
+                <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
+                  {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
+                  <p className="text-[.72rem] leading-relaxed">{message.message}</p>
+                  <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
+                </div>
+                <button type="button" onClick={() => setReplyTo(message)} className={`absolute -bottom-3 ${message.mine ? '-left-8' : '-right-8'} grid size-7 place-items-center rounded-full border border-[hsl(var(--border))] bg-white text-[hsl(var(--muted-foreground))] opacity-0 shadow-sm transition-opacity hover:text-[hsl(var(--primary))] group-hover:opacity-100`} aria-label={`${message.author} mesajını yanıtla`}><Reply size={13} /></button>
+              </div>
+              {message.mine && <span className={`grid size-7 shrink-0 place-items-center rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}>{message.initials}</span>}
+            </div>)}
+          </div>
+          <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Kaydırarak veya oka basarak cevapla</span></div>
+        </div>
+        {replyTo && <div className="flex shrink-0 items-center gap-2 border-t border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.55)] px-3 py-2"><Reply size={15} className="shrink-0 text-[hsl(var(--primary))]" /><div className="min-w-0 flex-1 border-l-2 border-[hsl(var(--primary))] pl-2"><p className="text-[.59rem] font-bold text-[hsl(var(--primary))]">{replyTo.author} yanıtlanıyor</p><p className="truncate text-[.63rem] text-[hsl(var(--muted-foreground))]">{replyTo.message}</p></div><button type="button" aria-label="Yanıtlamayı iptal et" onClick={() => setReplyTo(null)} className="grid size-7 place-items-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-white"><X size={14} /></button></div>}
+        <div className="relative shrink-0 border-t border-[hsl(var(--border))] bg-white p-2.5">
+          {emojiPickerOpen && <div data-testid="panel-emoji-picker" className="absolute bottom-[4.35rem] left-2 z-10 grid w-[min(18rem,calc(100vw-2rem))] grid-cols-6 gap-1 rounded-2xl border border-[hsl(var(--border))] bg-white p-2.5 shadow-[0_12px_35px_rgba(56,25,107,.18)]">{chatEmojis.map((emoji) => <button type="button" key={emoji} onClick={() => { setChatText((current) => `${current}${emoji}`); chatInputRef.current?.focus(); }} className="grid size-9 place-items-center rounded-lg text-xl transition-colors hover:bg-[hsl(var(--muted))]">{emoji}</button>)}</div>}
+          <form className="flex items-end gap-1.5" onSubmit={(event) => { event.preventDefault(); sendChat(); }}>
+            <button type="button" aria-label="Dosya ekle" onClick={() => setNotice('Dosya ekleme yakında')} className="grid size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))]"><Paperclip size={18} /></button>
+            <button type="button" aria-label="Görsel ekle" onClick={() => setNotice('Görsel paylaşımı yakında')} className="hidden size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))] sm:grid"><ImagePlus size={18} /></button>
+            <div className="flex min-h-10 min-w-0 flex-1 items-end rounded-2xl bg-[hsl(var(--muted)/.7)] px-3 py-1"><textarea ref={chatInputRef} data-testid="input-chat" rows={1} value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); } }} placeholder="Mesaj yaz..." className="max-h-24 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[.72rem] leading-relaxed outline-none placeholder:text-[hsl(var(--muted-foreground))]" /><button type="button" aria-label="Emoji seç" onClick={() => setEmojiPickerOpen((open) => !open)} className="grid size-8 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]"><Smile size={18} /></button></div>
+            <button data-testid="button-send-chat" aria-label="Mesaj gönder" type="submit" disabled={!chatText.trim()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-white shadow-md shadow-violet-200 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"><Send size={16} /></button>
+          </form>
+          <p className="mt-1 hidden pl-12 text-[.52rem] text-[hsl(var(--muted-foreground))] sm:block">Enter gönderir · Shift + Enter yeni satır</p>
+        </div>
+      </div>}
     </div>
   );
 }

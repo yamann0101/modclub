@@ -206,6 +206,20 @@
 .hide-scrollbar { scrollbar-width: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 
+.chat-wallpaper {
+  background-color: #f7f4fb;
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(167, 93, 227, .07) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 76% 64%, rgba(98, 43, 153, .05) 0 1px, transparent 1.5px);
+  background-size: 22px 22px, 28px 28px;
+}
+
+.chat-wallpaper::-webkit-scrollbar { width: 5px; }
+.chat-wallpaper::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(121, 76, 167, .25);
+}
+
 .quick-card {
   transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
 }
