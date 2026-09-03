@@ -263,19 +263,19 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
             <button type="button" onClick={() => { setMode('register'); setError(''); }} className={`h-10 rounded-lg ${mode === 'register' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Kayıt ol</button>
           </div>
           <form onSubmit={submitAuth} className="grid gap-4">
-            <label className="grid gap-2 text-xs font-bold">Kullanıcı adı<div className="relative"><UserRound className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Giriş için kullanıcı adın" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div></label>
+            <label className="login-label">Kullanıcı adı<div className="relative"><UserRound className="login-field-icon" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Giriş için kullanıcı adın" className="login-field" /></div></label>
             {mode === 'register' && (
-              <label className="grid gap-2 text-xs font-bold">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div><span className="font-medium leading-relaxed text-[hsl(var(--muted-foreground))]">Uyarı: Buraya uygulamadaki gerçek nickini yaz. Üye listesi, sohbet ve çekilişte yalnızca bu nick görünür.</span></label>
+              <label className="login-label">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="login-field-icon" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="login-field" /></div><span className="login-help">Uyarı: Buraya uygulamadaki gerçek nickini yaz. Üye listesi, sohbet ve çekilişte yalnızca bu nick görünür.</span></label>
             )}
-            <label className="grid gap-2 text-xs font-bold">Şifre<div className="relative"><KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div></label>
+            <label className="login-label">Şifre<div className="relative"><KeyRound className="login-field-icon" size={17} /><input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="login-field" /></div></label>
             {error && (
               <div className="grid gap-2 rounded-lg bg-[#fff0f1] px-3 py-2">
                 <p role="alert" className="text-xs font-semibold text-[#c54d5b]">{error}</p>
               </div>
             )}
-            <button type="submit" className="mt-2 flex h-13 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(105deg,#9c2af0,#6520ca)] text-sm font-bold text-white shadow-lg shadow-purple-200 transition-transform hover:-translate-y-0.5">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
+            <button type="submit" className="login-submit">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
           </form>
-          <div className="mt-7 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-3 text-[.62rem] leading-relaxed text-[hsl(var(--muted-foreground))]"><strong className="text-[hsl(var(--foreground))]">Admin girişi:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
+          <div className="login-admin-note"><strong>Admin girişi:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
           <button type="button" onClick={requestInstallReset} className="mt-3 text-xs font-bold text-[hsl(var(--primary))] hover:underline">Giriş bilgilerini temizle</button>
         </div>
       </div>
@@ -612,6 +612,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [chatMuted, setChatMutedOn] = useState(() => typeof window !== 'undefined' && isChatMuted());
   const [notifyPromptOpen, setNotifyPromptOpen] = useState(() => typeof window !== 'undefined' && !wasNotifyPrompted() && 'Notification' in window && Notification.permission === 'default');
   const [chatText, setChatText] = useState('');
@@ -705,6 +706,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setChatOpen(true);
       return;
     }
+    setChatOpen(false);
+    setChatProfile(null);
     if (label === 'Menü') {
       setMenuOpen((open) => !open);
       return;
@@ -860,8 +863,34 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   useEffect(() => {
+    if (!chatOpen) return;
+    const pinBottom = () => {
+      const node = chatScrollRef.current;
+      if (node) node.scrollTop = node.scrollHeight;
+    };
+    const syncKeyboard = () => {
+      const viewport = window.visualViewport;
+      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      setKeyboardInset(inset > 80 ? inset : 0);
+      requestAnimationFrame(pinBottom);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.visualViewport?.addEventListener('resize', syncKeyboard);
+    window.visualViewport?.addEventListener('scroll', syncKeyboard);
+    window.addEventListener('resize', syncKeyboard);
+    syncKeyboard();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.visualViewport?.removeEventListener('resize', syncKeyboard);
+      window.visualViewport?.removeEventListener('scroll', syncKeyboard);
+      window.removeEventListener('resize', syncKeyboard);
+    };
+  }, [chatOpen]);
+
+  useEffect(() => {
     if (chatOpen && chatScrollRef.current) {
-      chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
     if (chatOpen) {
       const stamped = Date.now();
@@ -1127,7 +1156,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   return (
-    <div className="mod-app grain min-h-[100dvh] pb-24">
+    <div className="mod-app grain min-h-[100dvh] pb-28">
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -1379,15 +1408,15 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           aria-label="Canlı sohbeti aç"
           title="Canlı sohbet"
           onClick={() => setChatOpen(true)}
-          className="pulse-orb chat-fab fixed bottom-[5.7rem] right-4 z-30 grid size-[3.35rem] place-items-center text-white transition-transform hover:scale-105 sm:right-6 lg:bottom-7"
+          className="pulse-orb chat-fab fixed bottom-[6.4rem] right-4 z-30 grid size-[3.35rem] place-items-center text-white transition-transform hover:scale-105 sm:right-6 lg:bottom-7"
         >
           <MessageCircle size={22} strokeWidth={2.3} />
           {unreadChatCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-[#ee4e84] px-1 font-mono text-[.58rem] font-bold text-white shadow-sm">{unreadChatCount > 99 ? '99+' : unreadChatCount}</span>}
         </button>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-[hsl(var(--border)/.9)] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_25px_rgba(54,27,101,.07)] backdrop-blur-xl">
-        <div className="mx-auto flex h-[4.35rem] max-w-[40rem] items-center justify-around px-1">
+      <nav className="club-nav">
+        <div className="club-nav-inner">
           {([
             { label: 'Ana Sayfa', icon: HomeIcon },
             { label: 'Sohbet', icon: MessageCircle },
@@ -1401,17 +1430,16 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                 data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`}
                 key={label}
                 onClick={() => handleNav(label)}
-                className={`relative flex min-w-[3.4rem] flex-col items-center justify-center gap-1 text-[.52rem] font-bold transition-colors ${active ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))]'}`}
+                className={`club-nav-btn ${active ? 'is-on' : ''} ${orb ? 'is-orb' : ''}`}
               >
                 {orb ? (
-                  <span className="nav-menu-orb grid size-12 -translate-y-3 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_7px_18px_rgba(117,36,218,.35)]">
-                    <Icon size={22} strokeWidth={2.4} />
+                  <span className="nav-menu-orb">
+                    <Icon size={26} strokeWidth={2.5} />
                   </span>
                 ) : (
-                  <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
+                  <Icon size={22} strokeWidth={active ? 2.5 : 2} />
                 )}
                 {!orb && <span>{label}</span>}
-                {active && !orb && <span className="absolute -bottom-1 size-1 rounded-full bg-[hsl(var(--primary))]" />}
               </button>
             );
           })}
@@ -1740,7 +1768,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
       {selectedAnnouncement && <div data-testid="modal-announcement" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setSelectedAnnouncement(null)}><div className="w-full max-w-md rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-start justify-between"><div><span className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">{selectedAnnouncement.tag}</span><h2 className="mt-1 font-display text-xl font-bold">{selectedAnnouncement.title}</h2></div><button data-testid="button-close-announcement" aria-label="Duyuruyu kapat" onClick={() => setSelectedAnnouncement(null)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button></div><p className="text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{selectedAnnouncement.copy}</p><button data-testid="button-announcement-done" onClick={() => { setSelectedAnnouncement(null); setNotice('Duyuru okundu olarak işaretlendi'); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] py-3 text-sm font-bold text-white">Anladım <Check size={16} /></button></div></div>}
 
-      {chatOpen && <div data-testid="panel-chat" className="fixed bottom-[5.7rem] right-2 z-40 flex h-[min(38rem,calc(100dvh-8rem))] w-[min(25rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[1.35rem] border border-[hsl(var(--border))] bg-white shadow-[0_18px_60px_rgba(55,22,104,.25)] sm:bottom-7 sm:right-6">
+      {chatOpen && <div data-testid="panel-chat" className={`chat-sheet ${keyboardInset > 0 ? 'is-keyboard' : ''}`} style={keyboardInset > 0 ? { bottom: keyboardInset } : undefined}>
         {chatProfile && (
           <div className="chat-profile-overlay" onClick={() => setChatProfile(null)}>
             <div className="chat-profile-card" data-testid="card-chat-profile" onClick={(event) => event.stopPropagation()}>
@@ -1852,7 +1880,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           ) : (
           <form className="flex items-end gap-1.5" onSubmit={(event) => { event.preventDefault(); sendChat(); }}>
             <button type="button" aria-label="Dosya ekle" onClick={() => setNotice('Dosya ekleme yakında')} className="grid size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))]"><Paperclip size={18} /></button>
-            <div className="flex min-h-10 min-w-0 flex-1 items-end rounded-2xl bg-[hsl(var(--muted)/.7)] px-3 py-1"><textarea ref={chatInputRef} data-testid="input-chat" rows={1} value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); } }} placeholder="Mesaj yaz..." className="max-h-24 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[.72rem] leading-relaxed outline-none placeholder:text-[hsl(var(--muted-foreground))]" /><button type="button" aria-label="Emoji seç" onClick={() => setEmojiPickerOpen((open) => !open)} className="grid size-8 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]"><Smile size={18} /></button></div>
+            <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-2xl bg-[hsl(var(--muted)/.7)] px-3 py-1"><textarea ref={chatInputRef} data-testid="input-chat" rows={1} value={chatText} onChange={(event) => setChatText(event.target.value)} onFocus={() => { requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); } }} placeholder="Mesaj yaz..." className="chat-input max-h-24 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 leading-relaxed outline-none placeholder:text-[hsl(var(--muted-foreground))]" /><button type="button" aria-label="Emoji seç" onClick={() => setEmojiPickerOpen((open) => !open)} className="grid size-8 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]"><Smile size={18} /></button></div>
             <button data-testid="button-send-chat" aria-label="Mesaj gönder" type="submit" disabled={!chatText.trim()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-white shadow-md shadow-violet-200 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"><Send size={16} /></button>
           </form>
           )}

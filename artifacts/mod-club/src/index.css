@@ -130,15 +130,17 @@ html.dark .mod-app {
 html.dark .install-page,
 html.dark .login-page {
   background:
-    radial-gradient(circle at 88% 8%, rgba(88, 28, 135, .32), transparent 24rem),
-    hsl(var(--background));
+    radial-gradient(circle at 88% 8%, rgba(214, 187, 255, .4), transparent 24rem),
+    #f4eefc;
 }
 html.dark .mod-app .bg-white { background-color: hsl(var(--card)); }
 html.dark .mod-app .bg-white\/95,
 html.dark .mod-app .bg-white\/80 { background-color: hsl(var(--background) / .92); }
+html.dark .mod-app nav,
+html.dark .club-nav { background-color: hsl(var(--background) / .94); }
+html.dark .login-page .login-panel,
 html.dark .login-page .bg-white,
-html.dark .install-page .bg-white { background-color: hsl(var(--card)); }
-html.dark .mod-app nav { background-color: hsl(var(--background) / .94); }
+html.dark .install-page .bg-white { background-color: #fff; }
 
 .install-page,
 .login-page {
@@ -174,6 +176,157 @@ html.dark .mod-app nav { background-color: hsl(var(--background) / .94); }
     linear-gradient(145deg, #17052b 0%, #2b0a50 58%, #12031f 100%);
 }
 
+.login-panel {
+  background: #fff;
+  color: #1b1230;
+}
+.login-label {
+  display: grid;
+  gap: .45rem;
+  font-size: .72rem;
+  font-weight: 800;
+  color: #2a1a44;
+}
+.login-help {
+  font-size: .68rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #6d6280;
+}
+.login-field-icon {
+  position: absolute;
+  left: .85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8b7aa3;
+  pointer-events: none;
+}
+.login-field {
+  height: 3.15rem;
+  width: 100%;
+  border-radius: .9rem;
+  border: 1px solid #e6dcf4;
+  background: #f7f4fc;
+  padding: 0 .9rem 0 2.55rem;
+  font-size: 16px;
+  font-weight: 500;
+  color: #1b1230;
+  outline: none;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.login-field::placeholder { color: #9a8fb0; }
+.login-field:focus {
+  background: #fff;
+  border-color: #8b35e4;
+  box-shadow: 0 0 0 4px rgba(139, 53, 228, .12);
+}
+.login-submit {
+  margin-top: .35rem;
+  display: flex;
+  height: 3.15rem;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  border-radius: .9rem;
+  background: linear-gradient(105deg, #9c2af0, #6520ca);
+  font-size: .92rem;
+  font-weight: 800;
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(122, 36, 214, .22);
+}
+.login-admin-note {
+  margin-top: 1.6rem;
+  border-radius: .9rem;
+  border: 1px solid #eee6f8;
+  background: #f8f5fc;
+  padding: .75rem .85rem;
+  font-size: .68rem;
+  line-height: 1.5;
+  color: #6d6280;
+}
+.login-admin-note strong { color: #1b1230; }
+
+.club-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  border-top: 1px solid hsl(var(--border) / .9);
+  background: hsl(var(--background) / .96);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -8px 25px rgba(54, 27, 101, .07);
+  backdrop-filter: blur(18px);
+}
+.club-nav-inner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  height: 4.85rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0 .2rem .35rem;
+}
+.club-nav-btn {
+  position: relative;
+  display: flex;
+  min-width: 3.9rem;
+  min-height: 3.35rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .18rem;
+  padding: .2rem .15rem;
+  color: hsl(var(--muted-foreground));
+  font-size: .64rem;
+  font-weight: 800;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.club-nav-btn.is-on { color: hsl(var(--primary)); }
+.club-nav-btn:active { transform: scale(.96); }
+.club-nav-btn.is-orb { min-width: 4.6rem; min-height: 4.1rem; }
+.nav-menu-orb {
+  display: grid;
+  width: 4.05rem;
+  height: 4.05rem;
+  place-items: center;
+  margin-top: -.95rem;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #a02bf3, #6321ca);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(117, 36, 218, .38);
+}
+.club-nav-btn.is-orb:active .nav-menu-orb { transform: scale(.97); }
+
+.chat-sheet {
+  position: fixed;
+  right: .5rem;
+  bottom: 6.35rem;
+  z-index: 40;
+  display: flex;
+  width: min(25rem, calc(100vw - 1rem));
+  height: min(38rem, calc(100dvh - 8.6rem));
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  border: 1px solid hsl(var(--border));
+  background: #fff;
+  box-shadow: 0 18px 60px rgba(55, 22, 104, .25);
+}
+@media (min-width: 640px) {
+  .chat-sheet { right: 1.5rem; bottom: 1.75rem; }
+}
+.chat-sheet.is-keyboard {
+  top: .4rem;
+  right: .4rem;
+  left: .4rem;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+.chat-input { font-size: 16px; }
+html.dark .chat-sheet { background-color: hsl(var(--card)); }
 .login-orbit {
   position: absolute;
   border: 1px solid rgba(255,255,255,.12);
