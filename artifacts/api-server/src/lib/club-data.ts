@@ -115,6 +115,7 @@ export async function ensureSchema() {
     await query(`INSERT INTO club_docs (key, value) VALUES ($1, '[]'::jsonb) ON CONFLICT (key) DO NOTHING`, [key]);
   }
   await query(`INSERT INTO club_docs (key, value) VALUES ('settings', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
+  await query(`INSERT INTO club_docs (key, value) VALUES ('guess_game', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
 }
 
 async function getDoc<T>(key: string, fallback: T): Promise<T> {
@@ -258,7 +259,7 @@ export async function readGiveaways() {
 }
 
 export async function snapshot(username?: string) {
-  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices] = await Promise.all([
+  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame] = await Promise.all([
     readSettings(),
     listAccounts(),
     getDoc<Banner[]>("banners", DEFAULT_BANNERS),
@@ -268,8 +269,10 @@ export async function snapshot(username?: string) {
     getDoc<unknown[]>("chat", []),
     getDoc<ChatTimeout[]>("timeouts", []),
     getDoc<ClubNotice[]>("notices", []),
+    readGuessGame(),
   ]);
   const me = username ? accounts.find((item) => nickKey(item.username) === nickKey(username)) : undefined;
+  const staff = me?.role === "ADMIN" || me?.role === "MODERATOR";
   return {
     installed: isInstalled(settings),
     settings: settings
@@ -290,7 +293,221 @@ export async function snapshot(username?: string) {
     chat: Array.isArray(chat) ? chat : [],
     timeouts: (Array.isArray(timeouts) ? timeouts : []).filter((item) => item?.nick && item.until > Date.now()),
     notices: Array.isArray(notices) ? notices.slice(0, 40) : [],
+    guessGame: publicGuessGame(guessGame, staff),
   };
+}
+
+export type GuessWinner = {
+  nick: string;
+  at: number;
+  ms: number;
+};
+
+export type GuessScore = {
+  nick: string;
+  wins: number;
+};
+
+export type GuessGame = {
+  status: "idle" | "playing" | "revealed" | "ended";
+  startedBy: string;
+  seconds: number;
+  min: number;
+  max: number;
+  secret: number;
+  startedAt: number;
+  endsAt: number;
+  winners: GuessWinner[];
+  attempted: string[];
+  scores: GuessScore[];
+  round: number;
+  scored: boolean;
+};
+
+const EMPTY_GUESS: GuessGame = {
+  status: "idle",
+  startedBy: "",
+  seconds: 10,
+  min: 1,
+  max: 20,
+  secret: 0,
+  startedAt: 0,
+  endsAt: 0,
+  winners: [],
+  attempted: [],
+  scores: [],
+  round: 0,
+  scored: false,
+};
+
+function normalizeGuess(value: Partial<GuessGame> | null | undefined): GuessGame {
+  return {
+    ...EMPTY_GUESS,
+    ...(value || {}),
+    winners: Array.isArray(value?.winners) ? value.winners : [],
+    attempted: Array.isArray(value?.attempted) ? value.attempted : [],
+    scores: Array.isArray(value?.scores) ? value.scores : [],
+  };
+}
+
+export function publicGuessGame(game: GuessGame, staff = false) {
+  const settled = settleGuessGame(game);
+  const showAnswer = staff || settled.status === "revealed" || settled.status === "ended";
+  return {
+    status: settled.status,
+    startedBy: settled.startedBy,
+    seconds: settled.seconds,
+    min: settled.min,
+    max: settled.max,
+    answer: showAnswer && settled.secret ? settled.secret : undefined,
+    startedAt: settled.startedAt,
+    endsAt: settled.endsAt,
+    winners: [...settled.winners].sort((a, b) => a.at - b.at),
+    attempted: settled.attempted,
+    scores: [...settled.scores].sort((a, b) => b.wins - a.wins || a.nick.localeCompare(b.nick, "tr")),
+    round: settled.round,
+  };
+}
+
+function addWins(scores: GuessScore[], winners: GuessWinner[]) {
+  const next = scores.map((item) => ({ ...item }));
+  for (const winner of winners) {
+    const found = next.find((item) => nickKey(item.nick) === nickKey(winner.nick));
+    if (found) found.wins += 1;
+    else next.push({ nick: winner.nick, wins: 1 });
+  }
+  return next;
+}
+
+function settleGuessGame(game: GuessGame, now = Date.now()): GuessGame {
+  if (game.status !== "playing" || now < game.endsAt) return game;
+  const winners = [...game.winners].sort((a, b) => a.at - b.at);
+  return {
+    ...game,
+    status: "revealed",
+    winners,
+    scores: game.scored ? game.scores : addWins(game.scores, winners),
+    scored: true,
+  };
+}
+
+async function pushChat(entry: Record<string, unknown>) {
+  const chat = await getDoc<unknown[]>("chat", []);
+  const list = Array.isArray(chat) ? chat : [];
+  list.push(entry);
+  await setDoc("chat", list.slice(-400));
+}
+
+export async function readGuessGame() {
+  const stored = normalizeGuess(await getDoc<Partial<GuessGame>>("guess_game", {}));
+  const settled = settleGuessGame(stored);
+  if (JSON.stringify(stored) !== JSON.stringify(settled)) {
+    await setDoc("guess_game", settled);
+    if (stored.status === "playing" && settled.status === "revealed") {
+      await pushChat({
+        id: `guess-round-${settled.round}`,
+        author: "MOD CLUB",
+        initials: "MC",
+        avatar: "bg-[#a15be9] text-white",
+        photo: "/logo.png",
+        message: settled.winners.length ? `${settled.winners.length} kişi bildi` : "Kimse bilemedi",
+        time: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+        kind: "guess-round",
+        at: Date.now(),
+        winners: settled.winners,
+        prizeText: String(settled.secret),
+        prizeTitle: `${settled.min}–${settled.max}`,
+      });
+    }
+  }
+  return settled;
+}
+
+export async function startGuessRound(input: { by: string; min: number; max: number; secret: number; seconds: number }) {
+  const current = await readGuessGame();
+  if (current.status === "playing") throw new Error("busy");
+  const min = Math.max(1, Math.min(99, Math.floor(input.min)));
+  const max = Math.max(min, Math.min(99, Math.floor(input.max)));
+  const secret = Math.floor(input.secret);
+  const seconds = Math.max(5, Math.min(60, Math.floor(input.seconds) || 10));
+  if (secret < min || secret > max) throw new Error("range");
+  const now = Date.now();
+  const fresh = current.status === "ended" || current.status === "idle";
+  const game: GuessGame = {
+    status: "playing",
+    startedBy: input.by,
+    seconds,
+    min,
+    max,
+    secret,
+    startedAt: now,
+    endsAt: now + seconds * 1000,
+    winners: [],
+    attempted: [],
+    scores: fresh ? [] : current.scores,
+    round: fresh ? 1 : current.round + 1,
+    scored: false,
+  };
+  await setDoc("guess_game", game);
+  await pushChat({
+    id: `guess-start-${game.round}-${now}`,
+    author: input.by,
+    initials: input.by.slice(0, 2).toUpperCase(),
+    avatar: "bg-[#a15be9] text-white",
+    photo: "/logo.png",
+    message: "Sayı tahmini oyunu başlıyor",
+    time: new Date(now).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+    kind: "guess-start",
+    at: now,
+    prizeTitle: `${min}–${max}`,
+    muteLabel: `${seconds} sn`,
+  });
+  return game;
+}
+
+export async function submitGuess(nick: string, value: number) {
+  const game = await readGuessGame();
+  if (game.status !== "playing") throw new Error("closed");
+  if (Date.now() >= game.endsAt) throw new Error("closed");
+  const number = Math.floor(value);
+  if (number < game.min || number > game.max) throw new Error("range");
+  const key = nickKey(nick);
+  if (game.attempted.some((item) => nickKey(item) === key)) throw new Error("used");
+  game.attempted.push(nick);
+  if (number === game.secret) {
+    game.winners.push({ nick, at: Date.now(), ms: Date.now() - game.startedAt });
+  }
+  await setDoc("guess_game", game);
+  return game;
+}
+
+export async function endGuessGame(by: string) {
+  const current = settleGuessGame(await readGuessGame());
+  if (current.status === "idle") throw new Error("idle");
+  const game: GuessGame = {
+    ...current,
+    status: "ended",
+    scores: current.status === "playing" && !current.scored ? addWins(current.scores, current.winners) : current.scores,
+    scored: true,
+  };
+  await setDoc("guess_game", game);
+  await pushChat({
+    id: `guess-end-${Date.now()}`,
+    author: by,
+    initials: "MC",
+    avatar: "bg-[#a15be9] text-white",
+    photo: "/logo.png",
+    message: "Oyun sonu · En çok kazananlar",
+    time: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+    kind: "guess-end",
+    at: Date.now(),
+    winners: [...game.scores].sort((a, b) => b.wins - a.wins).slice(0, 5).map((item, index) => ({
+      nick: item.nick,
+      at: item.wins,
+      ms: index + 1,
+    })),
+  });
+  return game;
 }
 
 export async function patchClub(input: {

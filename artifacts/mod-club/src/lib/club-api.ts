@@ -10,6 +10,21 @@ export type SessionUser = {
   photo?: string;
 };
 
+export type PublicGuessGame = {
+  status: 'idle' | 'playing' | 'revealed' | 'ended';
+  startedBy: string;
+  seconds: number;
+  min: number;
+  max: number;
+  answer?: number;
+  startedAt: number;
+  endsAt: number;
+  winners: { nick: string; at: number; ms: number }[];
+  attempted: string[];
+  scores: { nick: string; wins: number }[];
+  round: number;
+};
+
 export type ClubSnapshot = {
   installed: boolean;
   settings: ClubSettings | null;
@@ -22,6 +37,7 @@ export type ClubSnapshot = {
   chat: unknown[];
   timeouts: ChatTimeout[];
   notices: ClubNotice[];
+  guessGame?: PublicGuessGame;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -114,4 +130,16 @@ export async function patchClubUser(username: string, body: { role?: string; tit
 
 export async function deleteClubUser(username: string) {
   return request<ClubSnapshot>(`/api/club/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+}
+
+export async function startGuessGame(body: { min: number; max: number; secret: number; seconds: number }) {
+  return request<ClubSnapshot>('/api/guess/start', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function submitGuess(number: number) {
+  return request<ClubSnapshot>('/api/guess', { method: 'POST', body: JSON.stringify({ number }) });
+}
+
+export async function endGuessGame() {
+  return request<ClubSnapshot>('/api/guess/end', { method: 'POST', body: '{}' });
 }

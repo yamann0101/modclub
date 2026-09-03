@@ -1,12 +1,16 @@
 import { Router, type IRouter } from "express";
 import {
   deleteAccount,
+  endGuessGame,
   findAccount,
   findAccountByNick,
   isInstalled,
   patchClub,
+  publicGuessGame,
   readSettings,
   snapshot,
+  startGuessRound,
+  submitGuess,
   upsertAccount,
 } from "../lib/club-data";
 import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
@@ -171,6 +175,62 @@ router.delete("/club/users/:username", async (req, res) => {
   }
   await deleteAccount(target.username);
   res.json(await snapshot(actor.username));
+});
+
+function isStaff(role: string) {
+  return role === "ADMIN" || role === "MODERATOR";
+}
+
+router.post("/guess/start", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account || !isStaff(account.role)) {
+    res.status(403).json({ error: "staff" });
+    return;
+  }
+  const body = req.body as { min?: number; max?: number; secret?: number; seconds?: number };
+  try {
+    const game = await startGuessRound({
+      by: account.nick,
+      min: Number(body.min),
+      max: Number(body.max),
+      secret: Number(body.secret),
+      seconds: Number(body.seconds),
+    });
+    res.json({ ...await snapshot(account.username), guessGame: publicGuessGame(game, true) });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "busy" ? 409 : 400).json({ error: code });
+  }
+});
+
+router.post("/guess", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    const game = await submitGuess(account.nick, Number((req.body as { number?: number }).number));
+    res.json({ ...await snapshot(account.username), guessGame: publicGuessGame(game, isStaff(account.role)) });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "closed" ? 409 : 400).json({ error: code });
+  }
+});
+
+router.post("/guess/end", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account || !isStaff(account.role)) {
+    res.status(403).json({ error: "staff" });
+    return;
+  }
+  try {
+    const game = await endGuessGame(account.nick);
+    res.json({ ...await snapshot(account.username), guessGame: publicGuessGame(game, true) });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(400).json({ error: code });
+  }
 });
 
 export default router;

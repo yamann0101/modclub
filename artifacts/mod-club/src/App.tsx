@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Crown, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Play, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Sun, Ticket, Trash2, Trees, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Crown, Dices, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Play, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { deleteClubUser, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, type SessionUser } from '@/lib/club-api';
+import { deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, startGuessGame, submitGuess, type PublicGuessGame, type SessionUser } from '@/lib/club-api';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -36,9 +36,9 @@ const announcements = [
 ];
 
 const newsItems = [
-  { id: 'news-1', tag: 'YENİ', title: "MOD CLUB'da Yeni Sezon Heyecanı!", time: '2 saat önce', comments: 12, tone: 'violet' },
-  { id: 'news-2', tag: 'ÖNE ÇIKAN', title: 'Büyük Turnuva Bu Hafta!', time: '5 saat önce', comments: 24, tone: 'amber' },
-  { id: 'news-3', tag: 'DUYURU', title: 'Sunucu Güncellemesi', time: '1 gün önce', comments: 8, tone: 'sky' },
+  { id: 'news-1', tag: 'YENİ', title: "MOD CLUB'da Yeni Sezon Heyecanı!", time: '2 saat önce', comments: 12, tone: 'violet', image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=720&q=80' },
+  { id: 'news-2', tag: 'ÖNE ÇIKAN', title: 'Büyük Turnuva Bu Hafta!', time: '5 saat önce', comments: 24, tone: 'amber', image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=720&q=80' },
+  { id: 'news-3', tag: 'DUYURU', title: 'Sunucu Güncellemesi', time: '1 gün önce', comments: 8, tone: 'sky', image: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=720&q=80' },
 ];
 
 const events = [
@@ -59,7 +59,7 @@ type ChatMessage = {
   mine?: boolean;
   role?: string;
   title?: string;
-  kind?: 'text' | 'winner' | 'mute';
+  kind?: 'text' | 'winner' | 'mute' | 'guess-start' | 'guess-round' | 'guess-end';
   replyTo?: { author: string; message: string };
   winner?: string;
   prizeTitle?: string;
@@ -68,8 +68,13 @@ type ChatMessage = {
   giveawayId?: string;
   mutedBy?: string;
   muteLabel?: string;
+  winners?: { nick: string; at: number; ms: number }[];
   at?: number;
 };
+
+function isSystemChat(message: Pick<ChatMessage, 'kind'>) {
+  return Boolean(message.kind && message.kind !== 'text');
+}
 
 const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
 
@@ -665,6 +670,15 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
+  const [guessGame, setGuessGame] = useState<PublicGuessGame | null>(null);
+  const [guessSetupOpen, setGuessSetupOpen] = useState(false);
+  const [guessEndOpen, setGuessEndOpen] = useState(false);
+  const [guessMin, setGuessMin] = useState('1');
+  const [guessMax, setGuessMax] = useState('20');
+  const [guessSecret, setGuessSecret] = useState('');
+  const [guessSeconds, setGuessSeconds] = useState('10');
+  const [guessNumber, setGuessNumber] = useState('');
+  const [guessBusy, setGuessBusy] = useState(false);
   const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
@@ -757,8 +771,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     const feed = (data.chat || []) as ChatMessage[];
     setChatMessages(feed.map((message) => ({
       ...message,
-      mine: message.kind === 'winner' || message.kind === 'mute' ? false : message.author === nick,
+      mine: isSystemChat(message) ? false : message.author === nick,
     })));
+    const nextGame = data.guessGame || null;
+    setGuessGame((current) => {
+      if (nextGame?.status === 'ended' && current?.status !== 'ended') setGuessEndOpen(true);
+      if (nextGame?.status === 'playing') setGuessEndOpen(false);
+      return nextGame;
+    });
   };
 
   const pushNotice = (title: string, body: string) => {
@@ -818,6 +838,10 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   }, []);
 
   useEffect(() => {
+    if (guessGame?.status === 'playing') setChatOpen(true);
+  }, [guessGame?.status, guessGame?.round]);
+
+  useEffect(() => {
     let cancelled = false;
     const pull = async () => {
       try {
@@ -828,12 +852,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       }
     };
     void pull();
-    const timer = window.setInterval(() => void pull(), 4000);
+    const timer = window.setInterval(() => void pull(), guessGame?.status === 'playing' ? 1000 : 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [nick]);
+  }, [nick, guessGame?.status]);
 
   useEffect(() => {
     void registerClubWorker();
@@ -901,7 +925,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   useEffect(() => {
     setChatMessages((current) => current.map((message) => ({
       ...message,
-      mine: message.kind === 'winner' || message.kind === 'mute' ? false : message.author === nick,
+      mine: isSystemChat(message) ? false : message.author === nick,
     })));
   }, [nick]);
 
@@ -918,7 +942,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   }, [giveaways]);
 
   const canMuteAuthor = (message: ChatMessage) => {
-    if (!canMuteStaff || message.kind === 'winner' || message.kind === 'mute') return false;
+    if (!canMuteStaff || isSystemChat(message)) return false;
     if (message.author === nick) return false;
     if (message.role === 'ADMIN') return false;
     if (!isAdmin && message.role === 'MODERATOR') return false;
@@ -1030,6 +1054,78 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     void patchClub({ chat: [] });
     setReplyTo(null);
     setNotice('Sohbet geçmişi admin tarafından silindi');
+  };
+
+  const guessPlaying = guessGame?.status === 'playing';
+  const guessRevealed = guessGame?.status === 'revealed';
+  const guessLive = guessPlaying || guessRevealed;
+  const guessLeft = guessPlaying ? Math.max(0, Math.ceil((guessGame.endsAt - now) / 1000)) : 0;
+  const alreadyGuessed = Boolean(guessGame?.attempted?.some((item) => nickKey(item) === nickKey(nick)));
+  const guessTop = (guessGame?.scores || []).slice(0, 5);
+
+  const launchGuessRound = async () => {
+    const min = Math.floor(Number(guessMin));
+    const max = Math.floor(Number(guessMax));
+    const secret = Math.floor(Number(guessSecret));
+    const seconds = Math.floor(Number(guessSeconds) || 10);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min < 1 || max > 99 || min > max) {
+      setNotice('Aralık 1–99 arasında olmalı');
+      return;
+    }
+    if (!Number.isFinite(secret) || secret < min || secret > max) {
+      setNotice('Gizli sayı seçilen aralıkta olmalı');
+      return;
+    }
+    setGuessBusy(true);
+    try {
+      const data = await startGuessGame({ min, max, secret, seconds });
+      applySnapshot(data);
+      setGuessSetupOpen(false);
+      setGuessNumber('');
+      setGuessSecret('');
+      setChatOpen(true);
+      setNotice('Sayı tahmini oyunu başlıyor');
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      setNotice(code === 'busy' ? 'Önce bu turu bitir' : code === 'range' ? 'Sayı aralık dışında' : 'Oyun başlatılamadı');
+    } finally {
+      setGuessBusy(false);
+    }
+  };
+
+  const sendGuessNumber = async () => {
+    const value = Math.floor(Number(guessNumber));
+    if (!Number.isFinite(value)) {
+      setNotice('Bir sayı yaz');
+      return;
+    }
+    setGuessBusy(true);
+    try {
+      const data = await submitGuess(value);
+      applySnapshot(data);
+      setGuessNumber('');
+      setNotice('Tahminin gönderildi');
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      setNotice(code === 'used' ? 'Bu turda zaten yazdın' : code === 'range' ? 'Sayı aralık dışında' : 'Süre doldu');
+    } finally {
+      setGuessBusy(false);
+    }
+  };
+
+  const finishGuessSession = async () => {
+    setGuessBusy(true);
+    try {
+      const data = await endGuessGame();
+      applySnapshot(data);
+      setGuessSetupOpen(false);
+      setGuessEndOpen(true);
+      setNotice('Oyun sonu');
+    } catch {
+      setNotice('Oyun bitirilemedi');
+    } finally {
+      setGuessBusy(false);
+    }
   };
 
   const sendAdminBroadcast = async () => {
@@ -1343,6 +1439,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             {newsItems.map((item) => (
               <article key={item.id} className="home-news-card min-w-[11.5rem] overflow-hidden rounded-2xl sm:min-w-[13rem]">
                 <div className={`home-news-cover ${item.tone}`}>
+                  <img src={item.image} alt="" loading="lazy" />
                   <span className={`home-news-tag ${item.tone}`}>{item.tag}</span>
                 </div>
                 <div className="p-3">
@@ -1783,10 +1880,26 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             </div>
           </div>
         )}
-        <div className="flex shrink-0 items-center justify-between bg-[linear-gradient(105deg,#281043,#6820ae)] px-4 py-3 text-white">
-          <div className="flex min-w-0 items-center gap-3"><ClubLogo size={44} className="club-logo-mark size-11 shrink-0" /><div className="min-w-0"><p className="truncate font-display text-sm font-bold">Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
-          <div className="flex items-center gap-0.5">{isAdmin && <button data-testid="button-delete-chat-history" aria-label="Tüm sohbet geçmişini sil" onClick={clearChatHistory} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trash2 size={16} /></button>}<button type="button" data-testid="button-chat-mute-panel" aria-label={chatMuted ? 'Sohbet bildirimlerini aç' : 'Sessize al'} onClick={toggleChatMute} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white">{chatMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => { setChatProfile(null); setChatOpen(false); }} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+        <div className={`flex shrink-0 items-center justify-between px-4 py-3 text-white ${guessLive ? 'bg-[linear-gradient(105deg,#0f172a,#4c1d95,#7c3aed)]' : 'bg-[linear-gradient(105deg,#281043,#6820ae)]'}`}>
+          <div className="flex min-w-0 items-center gap-3"><ClubLogo size={44} className="club-logo-mark size-11 shrink-0" /><div className="min-w-0"><p className="truncate font-display text-sm font-bold">{guessLive ? 'Oyun modu' : 'Sohbet'}</p><p className="text-[.63rem] text-white/65">{guessLive ? `Tur ${guessGame?.round} · ${guessGame?.min}–${guessGame?.max}${guessPlaying ? ` · ${guessLeft} sn` : ''}` : '2.548 üye · 184 çevrimiçi'}</p></div></div>
+          <div className="flex items-center gap-0.5">{canMuteStaff && !guessPlaying && <button type="button" data-testid="button-guess-setup" aria-label="Sayı tutmaca başlat" onClick={() => setGuessSetupOpen((open) => !open)} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><Dices size={16} /></button>}{canMuteStaff && guessLive && <button type="button" data-testid="button-guess-end" aria-label="Oyunu bitir" onClick={() => void finishGuessSession()} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trophy size={16} /></button>}{isAdmin && <button data-testid="button-delete-chat-history" aria-label="Tüm sohbet geçmişini sil" onClick={clearChatHistory} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trash2 size={16} /></button>}<button type="button" data-testid="button-chat-mute-panel" aria-label={chatMuted ? 'Sohbet bildirimlerini aç' : 'Sessize al'} onClick={toggleChatMute} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white">{chatMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => { setChatProfile(null); setGuessSetupOpen(false); setChatOpen(false); }} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
         </div>
+        {guessSetupOpen && canMuteStaff && (
+          <form className="guess-setup shrink-0" onSubmit={(event) => { event.preventDefault(); void launchGuessRound(); }}>
+            <div className="flex items-center justify-between">
+              <p className="font-display text-[.78rem] font-extrabold">Sayı tutmaca</p>
+              <button type="button" aria-label="Kurulumu kapat" onClick={() => setGuessSetupOpen(false)} className="grid size-7 place-items-center rounded-lg text-[hsl(var(--muted-foreground))]"><X size={14} /></button>
+            </div>
+            <p className="mt-1 text-[.58rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Önce aralığı yaz, sonra gizli sayıyı gir. Süre varsayılan 10 saniye.</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">En az<input type="number" min={1} max={99} inputMode="numeric" value={guessMin} onChange={(event) => setGuessMin(event.target.value)} className="guess-field" /></label>
+              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">En çok<input type="number" min={1} max={99} inputMode="numeric" value={guessMax} onChange={(event) => setGuessMax(event.target.value)} className="guess-field" /></label>
+              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">Gizli sayı<input type="number" min={1} max={99} inputMode="numeric" value={guessSecret} onChange={(event) => setGuessSecret(event.target.value)} className="guess-field" placeholder={`${guessMin}–${guessMax}`} /></label>
+              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">Süre (sn)<input type="number" min={5} max={60} inputMode="numeric" value={guessSeconds} onChange={(event) => setGuessSeconds(event.target.value)} className="guess-field" /></label>
+            </div>
+            <button type="submit" disabled={guessBusy} className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] text-[.72rem] font-extrabold text-white disabled:opacity-50"><Dices size={15} /> Oyunu başlat</button>
+          </form>
+        )}
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
           <div className="space-y-3">
@@ -1818,6 +1931,74 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <p className="mt-0.5 text-[.58rem] leading-relaxed text-[#be123c]/80">{message.muteLabel} · {message.mutedBy}{left ? ` · kalan ${formatMuteRemaining(left.until, now)}` : ''}</p>
                     </div>
                   </div>
+                );
+              }
+              if (message.kind === 'guess-start') {
+                return (
+                  <article key={message.id} className="guess-card guess-card-start mx-auto w-[min(100%,19rem)]">
+                    <div className="flex items-center gap-2">
+                      <span className="guess-card-icon"><Dices size={15} /></span>
+                      <div>
+                        <p className="font-mono text-[.5rem] font-extrabold tracking-[.16em] text-violet-200">SAYI TAHMİNİ</p>
+                        <p className="font-display text-[.92rem] font-bold leading-tight">Sayı tahmini oyunu başlıyor</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <span className="guess-chip">Aralık {message.prizeTitle}</span>
+                      <span className="guess-chip">{message.muteLabel || '10 sn'}</span>
+                    </div>
+                  </article>
+                );
+              }
+              if (message.kind === 'guess-round') {
+                const ranks = [...(message.winners || [])].sort((a, b) => a.at - b.at);
+                return (
+                  <article key={message.id} className="guess-card guess-card-round mx-auto w-[min(100%,19rem)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-mono text-[.5rem] font-extrabold tracking-[.16em] text-amber-200">TUR SONUCU</p>
+                      <span className="guess-chip">Cevap {message.prizeText}</span>
+                    </div>
+                    {ranks.length === 0 ? (
+                      <p className="mt-3 font-display text-lg font-bold">Kimse bilemedi</p>
+                    ) : (
+                      <ol className="mt-3 space-y-1.5">
+                        {ranks.map((winner, index) => (
+                          <li key={`${winner.nick}-${winner.at}`} className="guess-rank">
+                            <span className="guess-rank-n">{index + 1}</span>
+                            <span className="min-w-0 truncate font-extrabold">{winner.nick}</span>
+                            <span className="ml-auto font-mono text-[.58rem] text-white/70">{(winner.ms / 1000).toFixed(1)} sn</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </article>
+                );
+              }
+              if (message.kind === 'guess-end') {
+                const board = [...(message.winners || [])].sort((a, b) => (a.ms || 0) - (b.ms || 0));
+                return (
+                  <article key={message.id} className="guess-card guess-card-end mx-auto w-[min(100%,19rem)]">
+                    <div className="flex items-center gap-2">
+                      <span className="guess-card-icon gold"><Trophy size={15} /></span>
+                      <div>
+                        <p className="font-mono text-[.5rem] font-extrabold tracking-[.16em] text-amber-200">OYUN SONU</p>
+                        <p className="font-display text-[.92rem] font-bold leading-tight">En çok kazananlar</p>
+                      </div>
+                    </div>
+                    {board.length === 0 ? (
+                      <p className="mt-3 text-[.72rem] text-white/75">Bu oyunda kazanan olmadı</p>
+                    ) : (
+                      <ol className="mt-3 space-y-1.5">
+                        {board.map((winner) => (
+                          <li key={`${winner.nick}-${winner.ms}`} className="guess-rank">
+                            <span className="guess-rank-n">{winner.ms}</span>
+                            <span className="min-w-0 truncate font-extrabold">{winner.nick}</span>
+                            <span className="ml-auto text-[.62rem] font-extrabold text-amber-200">{winner.at} kez</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </article>
                 );
               }
               const authorMuted = Boolean(activeChatTimeout(timeouts, message.author, now));
@@ -1857,8 +2038,36 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           </div>
           <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Kaydırarak veya oka basarak cevapla</span></div>
         </div>
-        {replyTo && <div className="flex shrink-0 items-center gap-2 border-t border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.55)] px-3 py-2"><Reply size={15} className="shrink-0 text-[hsl(var(--primary))]" /><div className="min-w-0 flex-1 border-l-2 border-[hsl(var(--primary))] pl-2"><p className="text-[.59rem] font-bold text-[hsl(var(--primary))]">{replyTo.author} yanıtlanıyor</p><p className="truncate text-[.63rem] text-[hsl(var(--muted-foreground))]">{replyTo.message}</p></div><button type="button" aria-label="Yanıtlamayı iptal et" onClick={() => setReplyTo(null)} className="grid size-7 place-items-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-white"><X size={14} /></button></div>}
-        <div className="relative shrink-0 border-t border-[hsl(var(--border))] bg-white p-2.5">
+        {guessPlaying && (
+          <form className="guess-live shrink-0" onSubmit={(event) => { event.preventDefault(); void sendGuessNumber(); }}>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="font-display text-[.78rem] font-extrabold">Sayıyı yaz</p>
+                <p className="text-[.58rem] text-white/65">{guessGame?.min}–{guessGame?.max} arası · {guessLeft} sn</p>
+              </div>
+              <span className="guess-timer"><Timer size={13} />{guessLeft}</span>
+            </div>
+            {alreadyGuessed ? (
+              <p className="mt-3 rounded-xl bg-white/10 px-3 py-2.5 text-center text-[.7rem] font-extrabold">Tahminin alındı, süre bitince sonuç gelir</p>
+            ) : (
+              <div className="mt-3 flex items-center gap-2">
+                <input type="number" inputMode="numeric" min={guessGame?.min} max={guessGame?.max} value={guessNumber} onChange={(event) => setGuessNumber(event.target.value)} placeholder={`${guessGame?.min}–${guessGame?.max}`} className="guess-live-input" />
+                <button type="submit" disabled={guessBusy || !guessNumber.trim()} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-[#4c1d95] disabled:opacity-40"><Send size={16} /></button>
+              </div>
+            )}
+          </form>
+        )}
+        {guessRevealed && canMuteStaff && (
+          <div className="guess-next shrink-0">
+            <p className="text-[.62rem] font-bold text-[hsl(var(--muted-foreground))]">Tur bitti{guessGame?.answer ? ` · cevap ${guessGame.answer}` : ''}. Yeni tur veya oyun sonu.</p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" onClick={() => setGuessSetupOpen(true)} className="h-9 flex-1 rounded-xl bg-[hsl(var(--foreground))] text-[.65rem] font-extrabold text-white">Yeni tur</button>
+              <button type="button" onClick={() => void finishGuessSession()} className="h-9 flex-1 rounded-xl border border-[hsl(var(--border))] text-[.65rem] font-extrabold">Oyunu bitir</button>
+            </div>
+          </div>
+        )}
+        {!guessPlaying && replyTo && <div className="flex shrink-0 items-center gap-2 border-t border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.55)] px-3 py-2"><Reply size={15} className="shrink-0 text-[hsl(var(--primary))]" /><div className="min-w-0 flex-1 border-l-2 border-[hsl(var(--primary))] pl-2"><p className="text-[.59rem] font-bold text-[hsl(var(--primary))]">{replyTo.author} yanıtlanıyor</p><p className="truncate text-[.63rem] text-[hsl(var(--muted-foreground))]">{replyTo.message}</p></div><button type="button" aria-label="Yanıtlamayı iptal et" onClick={() => setReplyTo(null)} className="grid size-7 place-items-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-white"><X size={14} /></button></div>}
+        {!guessPlaying && <div className="relative shrink-0 border-t border-[hsl(var(--border))] bg-white p-2.5">
           {emojiPickerOpen && <div data-testid="panel-emoji-picker" className="absolute bottom-[4.35rem] left-2 z-10 grid w-[min(18rem,calc(100vw-2rem))] grid-cols-6 gap-1 rounded-2xl border border-[hsl(var(--border))] bg-white p-2.5 shadow-[0_12px_35px_rgba(56,25,107,.18)]">{chatEmojis.map((emoji) => <button type="button" key={emoji} onClick={() => { setChatText((current) => `${current}${emoji}`); chatInputRef.current?.focus(); }} className="grid size-9 place-items-center rounded-lg text-xl transition-colors hover:bg-[hsl(var(--muted))]">{emoji}</button>)}</div>}
           {selfMute ? (
             <div className="flex items-center gap-2 rounded-2xl bg-[#fff5f6] px-3 py-2.5 text-[#9f1239]">
@@ -1885,8 +2094,32 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           </form>
           )}
           <p className="mt-1 hidden pl-12 text-[.52rem] text-[hsl(var(--muted-foreground))] sm:block">{selfMute ? 'Susturma bitince yazabilirsin' : 'Enter gönderir · Shift + Enter yeni satır'}</p>
-        </div>
+        </div>}
       </div>}
+
+      {guessEndOpen && guessGame?.status === 'ended' && (
+        <div className="guess-overlay" onClick={() => setGuessEndOpen(false)}>
+          <div className="guess-overlay-card" data-testid="card-guess-end" onClick={(event) => event.stopPropagation()}>
+            <button type="button" aria-label="Kapat" onClick={() => setGuessEndOpen(false)} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg text-white/70"><X size={16} /></button>
+            <span className="guess-card-icon gold mx-auto"><Trophy size={18} /></span>
+            <p className="mt-3 font-mono text-[.55rem] font-extrabold tracking-[.18em] text-amber-200">OYUN SONU</p>
+            <h2 className="mt-1 font-display text-2xl font-bold">En çok kazananlar</h2>
+            {guessTop.length === 0 ? (
+              <p className="mt-4 text-sm text-white/70">Bu oyunda kimse kazanamadı</p>
+            ) : (
+              <ol className="mt-5 space-y-2">
+                {guessTop.map((item, index) => (
+                  <li key={item.nick} className="guess-rank">
+                    <span className="guess-rank-n">{index + 1}</span>
+                    <span className="min-w-0 truncate font-extrabold">{item.nick}</span>
+                    <span className="ml-auto text-[.68rem] font-extrabold text-amber-200">{item.wins} kez</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
 
       {ticker && (
         <div className="club-ticker" data-testid="ticker-broadcast" role="status" aria-live="polite">
