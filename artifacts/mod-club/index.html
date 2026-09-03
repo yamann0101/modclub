@@ -4,15 +4,68 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>MOD CLUB</title>
-    <meta name="description" content="MOD CLUB — turnuvalar, sohbet, oyunlar ve topluluk etkinlikleri için enerjik kulüp deneyimi." />
-    <meta name="robots" content="index, follow" />
+    <meta name="application-name" content="MOD CLUB" />
+    <meta name="apple-mobile-web-app-title" content="MOD CLUB" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="MOD CLUB — turnuvalar, sohbet, çekiliş, film ve topluluk etkinlikleri. Katıl, oyna, kazan." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="theme-color" content="#0b0e1b" />
+    <link rel="canonical" href="/" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png?v=4" />
+    <link rel="icon" type="image/png" href="/logo.png?v=4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="shortcut icon" href="/logo.png?v=4" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4" />
+    <link rel="image_src" href="/logo.png" />
     <meta property="og:title" content="MOD CLUB" />
-    <meta property="og:description" content="Turnuvalara katıl, topluluğu keşfet ve MOD CLUB enerjisini yaşa." />
+    <meta property="og:site_name" content="MOD CLUB" />
+    <meta property="og:description" content="Turnuvalara katıl, sohbet et, çekilişlere gir ve MOD CLUB enerjisini yaşa." />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="tr_TR" />
+    <meta property="og:image" content="/logo.png" />
+    <meta property="og:image:alt" content="MOD CLUB" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MOD CLUB" />
-    <meta name="twitter:description" content="Turnuvalara katıl, topluluğu keşfet ve MOD CLUB enerjisini yaşa." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="twitter:description" content="Turnuvalara katıl, sohbet et, çekilişlere gir ve MOD CLUB enerjisini yaşa." />
+    <meta name="twitter:image" content="/logo.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "name": "MOD CLUB",
+            "alternateName": "MOD CLUB",
+            "url": "/",
+            "logo": "/logo.png",
+            "image": "/logo.png"
+          },
+          {
+            "@type": "WebSite",
+            "name": "MOD CLUB",
+            "url": "/",
+            "inLanguage": "tr-TR",
+            "description": "Turnuvalar, sohbet, çekiliş, film ve topluluk etkinlikleri.",
+            "publisher": { "@type": "Organization", "name": "MOD CLUB", "logo": { "@type": "ImageObject", "url": "/logo.png" } }
+          }
+        ]
+      }
+    </script>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('mod-club-color-mode-v2') !== 'light') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (error) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

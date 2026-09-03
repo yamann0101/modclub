@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Bell, CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Gamepad2, Home as HomeIcon, LayoutDashboard, LockKeyhole, Menu, MessageCircle, Megaphone, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Shield, ShieldCheck, Smile, Sparkles, Trash2, Trophy, UserRound, Users, UsersRound, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Crown, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Play, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Sun, Ticket, Trash2, Trees, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { cachePublicSetup, fetchPublicSetup, isLocalApp, loginServerAdmin, saveServerSetup } from '@/lib/setup-client';
+import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import type { ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
+import { activeChatTimeout, applyColorMode, avatarFor, clearChatTimeout, findAccount, formatCountdown, formatMuteRemaining, getAppId, getCosmeticTitle, getPhoto, giveawayStatus, readAccounts, readApps, readChatFeed, readChatReadAt, readColorMode, readCosmeticTitles, readFilms, readGiveaways, readNotices, saveApps, saveChatFeed, saveChatReadAt, saveChatTimeout, saveFilms, saveGiveaways, saveNotices, setAppId, setCosmeticTitle, setPhoto, upsertAccount, type ClubNotice, type ColorMode } from '@/lib/club-store';
+import { getDeviceId, isChatMuted, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, setChatMuted as persistChatMute, startNotifyPolling, wasNotifyPrompted } from '@/lib/notifications';
+import { cn } from '@/lib/utils';
 
 const queryClient = new QueryClient();
 
@@ -14,27 +22,34 @@ const quickItems: { label: string; sublabel: string; icon: LucideIcon; tone: str
   { label: 'SOHBET', sublabel: 'Sesli odalara katıl', icon: MessageCircle, tone: 'violet' },
   { label: 'DUYURULAR', sublabel: 'Son duyuruları gör', icon: Megaphone, tone: 'amber' },
   { label: 'OYUNLAR', sublabel: 'Oyna, kazan, eğlen', icon: Gamepad2, tone: 'sky' },
-  { label: 'TOPLULUK', sublabel: 'Üyelere tanış', icon: UsersRound, tone: 'mint' },
-  { label: 'AFİŞLER', sublabel: 'Etkinlik afişlerini gör', icon: Trophy, tone: 'pink' },
+  { label: 'TOPLULUK', sublabel: 'Üyelerle tanış', icon: UsersRound, tone: 'mint' },
+  { label: 'AFİŞLER', sublabel: 'Etkinlik afişleri', icon: Ticket, tone: 'pink' },
 ];
 
 const slides = [
-  { id: 'banner-1', eyebrow: 'YENİ SEZON', title: 'MOD CLUB', accent: 'SEZON 2', rest: 'BAŞLADI!', copy: 'Turnuvalar, ödüller ve daha fazlası seni bekliyor!', action: 'Hemen Katıl', hasButton: true },
+  { id: 'banner-1', eyebrow: 'YENİ SEZON', title: 'MOD CLUB', accent: 'YENİ SEZON', rest: 'BAŞLADI!', copy: 'Turnuvalar, ödüller ve daha fazlası seni bekliyor!', action: 'Hemen Katıl', hasButton: true },
   { id: 'banner-2', eyebrow: 'TOPLULUK GÜNÜ', title: 'BİRLİKTE', accent: 'DAHA GÜÇLÜYÜZ', rest: '', copy: 'Yeni arkadaşlar, yeni oyunlar ve unutulmaz anlar.', action: 'Keşfet', hasButton: true },
-  { id: 'banner-3', eyebrow: 'HAFTANIN MEYDAN OKUMASI', title: 'SAHNE', accent: 'SENİN!', rest: '', copy: 'Skorunu yükselt, topluluk sıralamasında yerini al.', action: 'Sıralamayı Gör', hasButton: false },
+  { id: 'banner-3', eyebrow: 'HAFTANIN MEYDAN OKUMASI', title: 'SAHNE', accent: 'SENİN!', rest: '', copy: 'Skorunu yükselt, topluluk sıralamasında yerini al.', action: 'Sıralamayı Gör', hasButton: true },
+  { id: 'banner-4', eyebrow: 'ÖDÜL ZAMANI', title: 'KAZANMAYA', accent: 'HAZIR MISIN', rest: '', copy: 'Çekilişler, turnuvalar ve özel ödüller bu sezonda.', action: 'Ödülleri Gör', hasButton: true },
 ];
 
 const announcements = [
-  { id: 'announcement-1', tag: 'YENİ', title: 'Yeni Özellik Geldi', copy: 'Sesli odalarda artık yeni efektler ve rozetler var!', icon: Zap, color: 'violet' },
-  { id: 'announcement-2', tag: 'ÖNEMLİ', title: 'Bakım Çalışması', copy: 'Sunucular 02.06.2024 03:00 - 06:00 arası bakımda olacaktır.', icon: WrenchIcon, color: 'amber' },
-  { id: 'announcement-3', tag: 'DUYURU', title: 'Turnuva Kayıtları', copy: 'Büyük turnuva kayıtları başladı! Hemen takımını kur ve katıl.', icon: Trophy, color: 'sky' },
+  { id: 'announcement-1', tag: 'ETKİNLİK', title: 'Haftalık Etkinlik Takvimi Yayında!', copy: 'Bu haftanın turnuva ve etkinlik programı yayınlandı.', time: '2 saat önce', icon: Gift, color: 'violet' },
+  { id: 'announcement-2', tag: 'ÖNEMLİ', title: 'Önemli: Kuralları Okumayı Unutmayın!', copy: 'Topluluk kuralları güncellendi, lütfen gözden geçir.', time: '5 saat önce', icon: AlertTriangle, color: 'amber' },
+  { id: 'announcement-3', tag: 'ÖDÜL', title: 'Yeni Ödüller Seni Bekliyor!', copy: 'Sezon ödülleri ve çekiliş havuzu yenilendi.', time: '1 gün önce', icon: Star, color: 'mint' },
+];
+
+const newsItems = [
+  { id: 'news-1', tag: 'YENİ', title: "MOD CLUB'da Yeni Sezon Heyecanı!", time: '2 saat önce', comments: 12, tone: 'violet' },
+  { id: 'news-2', tag: 'ÖNE ÇIKAN', title: 'Büyük Turnuva Bu Hafta!', time: '5 saat önce', comments: 24, tone: 'amber' },
+  { id: 'news-3', tag: 'DUYURU', title: 'Sunucu Güncellemesi', time: '1 gün önce', comments: 8, tone: 'sky' },
 ];
 
 const events = [
-  { id: 'event-1', date: '18 Haziran 2024', time: '20:00', category: 'TURNUVA', title: 'BÜYÜK TURNUVA', copy: '50.000 TL ÖDÜL HAVUZU', tone: 'purple' },
-  { id: 'event-2', date: '20 Haziran 2024', time: '21:00', category: 'ETKİNLİK', title: 'MÜZİK PARTİSİ', copy: 'DJ Performansı & Eğlence', tone: 'rose' },
-  { id: 'event-3', date: '20 Haziran 2024', time: '19:00', category: 'ÖZEL OYUN', title: 'ÖZEL OYUN GECESİ', copy: 'Ödüllü Özel Maçlar', tone: 'blue' },
-  { id: 'event-4', date: '23 Haziran 2024', time: '18:30', category: 'QUIZ', title: 'ÖDÜLLÜ QUIZ', copy: 'Bilgini test et, ödülünü kap!', tone: 'green' },
+  { id: 'event-1', date: '12 Haziran', time: '20:00', category: 'TURNUVA', title: '5v5 Turnuvası', copy: 'Rekabetçi 5v5, ödüllü final.', tone: 'purple', day: '12', month: 'HAZ', status: 'Yaklaşıyor' },
+  { id: 'event-2', date: '15 Haziran', time: '19:30', category: 'QUIZ', title: 'Ödüllü Bilgi Yarışması', copy: 'Bilgini test et, ödülünü kap.', tone: 'blue', day: '15', month: 'HAZ', status: 'Kayıtta' },
+  { id: 'event-3', date: '18 Haziran', time: '21:00', category: 'ETKİNLİK', title: 'Topluluk Gecesi', copy: 'Sohbet, müzik ve birlikte oyun.', tone: 'green', day: '18', month: 'HAZ', status: 'Açık' },
+  { id: 'event-4', date: '23 Haziran', time: '18:30', category: 'OYUN', title: 'Özel Oyun Gecesi', copy: 'Ödüllü özel maçlar.', tone: 'rose', day: '23', month: 'HAZ', status: 'Yaklaşıyor' },
 ];
 
 type ChatMessage = {
@@ -47,24 +62,34 @@ type ChatMessage = {
   time: string;
   mine?: boolean;
   role?: string;
+  title?: CosmeticTitle;
+  kind?: 'text' | 'winner' | 'mute';
   replyTo?: { author: string; message: string };
+  winner?: string;
+  prizeTitle?: string;
+  prizeText?: string;
+  prizeImage?: string;
+  giveawayId?: string;
+  mutedBy?: string;
+  muteLabel?: string;
+  at?: number;
 };
 
 const initialChatMessages: ChatMessage[] = [
-  { id: 'chat-1', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
-  { id: 'chat-2', author: 'Sude Y.', initials: 'SY', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', photo: 'https://i.pravatar.cc/96?img=47', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
-  { id: 'chat-3', author: 'Arda Demir', initials: 'AD', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', photo: 'https://i.pravatar.cc/96?img=68', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
-  { id: 'chat-4', author: 'Ece', initials: 'ED', avatar: 'bg-[#a15be9] text-white', photo: 'https://i.pravatar.cc/96?img=32', role: 'MODERATOR', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
-  { id: 'chat-5', author: 'Mert Kaya', initials: 'MK', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
+  { id: 'chat-1', author: 'mertk', initials: 'ME', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
+  { id: 'chat-2', author: 'sudey', initials: 'SU', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', photo: 'https://i.pravatar.cc/96?img=47', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
+  { id: 'chat-3', author: 'ardademir', initials: 'AR', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', photo: 'https://i.pravatar.cc/96?img=68', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
+  { id: 'chat-4', author: 'ece', initials: 'EC', avatar: 'bg-[#a15be9] text-white', photo: 'https://i.pravatar.cc/96?img=32', role: 'ADMIN', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
+  { id: 'chat-5', author: 'mertk', initials: 'ME', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
 ];
 
 const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
 
 const initialAdminUsers = [
-  { id: 'user-1', name: 'Mert Kaya', email: 'mert@modclub.com', role: 'MODERATOR', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=12' },
-  { id: 'user-2', name: 'Sude Y.', email: 'sude@modclub.com', role: 'ÜYE', status: 'Çevrimdışı', photo: 'https://i.pravatar.cc/96?img=47' },
-  { id: 'user-3', name: 'Arda Demir', email: 'arda@modclub.com', role: 'ÜYE', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=68' },
-  { id: 'user-4', name: 'Ece Demir', email: 'ece@modclub.com', role: 'ADMIN', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=32' },
+  { id: 'user-1', name: 'Mert Kaya', nick: 'mertk', email: 'mert@modclub.com', role: 'MODERATOR', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=12' },
+  { id: 'user-2', name: 'Sude Y.', nick: 'sudey', email: 'sude@modclub.com', role: 'ÜYE', status: 'Çevrimdışı', photo: 'https://i.pravatar.cc/96?img=47' },
+  { id: 'user-3', name: 'Arda Demir', nick: 'ardademir', email: 'arda@modclub.com', role: 'ÜYE', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=68' },
+  { id: 'user-4', name: 'Ece Demir', nick: 'ece', email: 'ece@modclub.com', role: 'ADMIN', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=32' },
 ];
 
 const initialManagedPages = [
@@ -74,11 +99,726 @@ const initialManagedPages = [
   { name: 'Profil', description: 'Üye profili ve hesap ayarları', enabled: true },
 ];
 
+type UserSession = {
+  username: string;
+  nick: string;
+  name: string;
+  role: 'ADMIN' | 'ÜYE' | 'MODERATOR';
+  title?: CosmeticTitle;
+  appId?: string;
+  photo?: string;
+};
+
+function displayNick(session: Pick<UserSession, 'nick' | 'name' | 'username'>) {
+  return session.nick?.trim() || session.name?.trim() || session.username;
+}
+
+type ClubSettings = {
+  clubName: string;
+  adminName: string;
+  adminEmail: string;
+  adminUsername: string;
+  adminPassword: string;
+  theme: string;
+};
+
+function readClubSettings(): ClubSettings | null {
+  try {
+    const raw = window.localStorage.getItem('mod-club-settings');
+    return raw ? (JSON.parse(raw) as ClubSettings) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredSession(): UserSession | null {
+  try {
+    const raw = window.localStorage.getItem('mod-club-session');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UserSession;
+    if (!parsed?.username) return null;
+    const settings = readClubSettings();
+    const account = findAccount(parsed.username);
+    const nick = account?.nick?.trim() || parsed.nick?.trim() || parsed.name?.trim() || parsed.username;
+    const photo = account?.photo || parsed.photo || getPhoto(nick);
+    if (settings?.adminUsername && normalizeUsername(parsed.username) === normalizeUsername(settings.adminUsername)) {
+      return {
+        ...parsed,
+        nick,
+        name: nick,
+        role: 'ADMIN',
+        photo,
+        appId: account?.appId || parsed.appId || getAppId(nick),
+      };
+    }
+    return { ...parsed, nick, name: nick, photo, appId: account?.appId || parsed.appId || getAppId(nick) };
+  } catch {
+    return null;
+  }
+}
+
+function isClubInstalled() {
+  return window.localStorage.getItem('mod-club-installed') === 'true';
+}
+
+function resolveSession(session: UserSession): UserSession {
+  const settings = readClubSettings();
+  const isAdminAccount = session.role === 'ADMIN'
+    || normalizeUsername(session.username) === 'admin'
+    || Boolean(settings?.adminUsername && normalizeUsername(session.username) === normalizeUsername(settings.adminUsername));
+  const account = findAccount(session.username);
+  const nick = account?.nick?.trim() || displayNick(session);
+  const photo = account?.photo || session.photo || getPhoto(nick);
+  if (isAdminAccount) {
+    return {
+      ...session,
+      nick,
+      name: nick,
+      role: 'ADMIN',
+      photo,
+      appId: account?.appId || session.appId || getAppId(nick),
+    };
+  }
+  const title = account?.title || getCosmeticTitle(account?.nick || nick);
+  return {
+    ...session,
+    nick,
+    name: nick,
+    photo,
+    role: account?.role === 'MODERATOR' ? 'MODERATOR' : session.role === 'MODERATOR' ? 'MODERATOR' : 'ÜYE',
+    title,
+    appId: account?.appId || session.appId || getAppId(nick),
+  };
+}
+
+function normalizeUsername(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function persistSession(session: UserSession) {
+  window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+}
+
+function saveUserAppId(session: UserSession, appId: string) {
+  const user = resolveSession(session);
+  const value = appId.trim();
+  setAppId(user.nick, value);
+  const account = findAccount(user.username);
+  if (account) upsertAccount({ ...account, appId: value, nick: user.nick, photo: user.photo });
+  const next = { ...user, appId: value };
+  persistSession(next);
+  return next;
+}
+
+function saveUserNick(session: UserSession, nickValue: string) {
+  const user = resolveSession(session);
+  const nextNick = nickValue.trim();
+  const taken = readAccounts().some((item) => item.username.toLowerCase() !== user.username.toLowerCase() && item.nick.trim().toLowerCase() === nextNick.toLowerCase());
+  if (taken) return { error: 'Bu nick kullanımda' as const };
+  const oldNick = user.nick;
+  if (oldNick.toLowerCase() !== nextNick.toLowerCase()) {
+    const appId = user.appId || getAppId(oldNick);
+    if (appId) setAppId(nextNick, appId);
+    const title = getCosmeticTitle(oldNick);
+    if (title) {
+      setCosmeticTitle(nextNick, title);
+      setCosmeticTitle(oldNick, null);
+    }
+    const photo = user.photo || getPhoto(oldNick);
+    if (photo) setPhoto(nextNick, photo);
+  }
+  const account = findAccount(user.username);
+  if (account) upsertAccount({ ...account, nick: nextNick, photo: user.photo, appId: user.appId });
+  if (user.role === 'ADMIN') {
+    const settings = readClubSettings();
+    if (settings) window.localStorage.setItem('mod-club-settings', JSON.stringify({ ...settings, adminName: nextNick }));
+  }
+  const next = { ...user, nick: nextNick, name: nextNick };
+  persistSession(next);
+  return { session: next };
+}
+
+function saveUserPhoto(session: UserSession, photo: string) {
+  const user = resolveSession(session);
+  setPhoto(user.nick, photo);
+  const account = findAccount(user.username);
+  if (account) upsertAccount({ ...account, photo, nick: user.nick });
+  const next = { ...user, photo };
+  persistSession(next);
+  return next;
+}
+
+function yetkiLabel(role?: string, title?: string) {
+  if (role === 'ADMIN') return title ? `Lider · ${title}` : 'Lider';
+  if (role === 'MODERATOR') return title ? `Yetkili · ${title}` : 'Yetkili';
+  if (title === 'ELDER' || title === 'ASSTN') return title;
+  return 'Üye';
+}
+
+function fileToAvatar(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Resim seç'));
+      return;
+    }
+    const image = new Image();
+    const blobUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = 256;
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(blobUrl);
+        reject(new Error('Resim işlenemedi'));
+        return;
+      }
+      const edge = Math.min(image.width, image.height);
+      const sx = (image.width - edge) / 2;
+      const sy = (image.height - edge) / 2;
+      context.drawImage(image, sx, sy, edge, edge, 0, 0, size, size);
+      URL.revokeObjectURL(blobUrl);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error('Resim okunamadı'));
+    };
+    image.src = blobUrl;
+  });
+}
+
+function formatNoticeTime(at: number) {
+  const diff = Date.now() - at;
+  if (diff < 60_000) return 'şimdi';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} dk`;
+  return new Date(at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function writeAdminSession(settings: ClubSettings) {
+  const nick = settings.adminName.trim() || settings.adminUsername.trim();
+  const session: UserSession = {
+    username: settings.adminUsername.trim(),
+    nick,
+    name: nick,
+    role: 'ADMIN',
+  };
+  upsertAccount({
+    username: session.username,
+    password: settings.adminPassword.trim(),
+    nick,
+    role: 'ADMIN',
+  });
+  window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+  return session;
+}
+
+function resetClubSession() {
+  window.localStorage.removeItem('mod-club-session');
+}
+
+function PwaInstallChip() {
+  const { visible, install, iosHint, hideHint } = usePwaInstall();
+  if (!visible) return null;
+  return (
+    <div className="flex flex-col items-end">
+      <button type="button" data-testid="button-pwa-install" onClick={() => void install()} className="pwa-install-btn">
+        <Download size={13} />
+        Yükle
+      </button>
+      {iosHint && (
+        <p className="pwa-install-hint">
+          Telefona eklemek için tarayıcı menüsünden <strong>Ana Ekrana Ekle</strong> / <strong>Uygulamayı yükle</strong> de. iPhone’da Paylaş → Ana Ekrana Ekle.
+          <button type="button" onClick={hideHint} className="ml-1 font-bold underline">Tamam</button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => void; onReset?: () => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [username, setUsername] = useState('');
+  const [nick, setNick] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const settings = readClubSettings();
+
+  const requestInstallReset = () => {
+    resetClubSession();
+    if (onReset) {
+      onReset();
+      return;
+    }
+    window.location.assign('/');
+  };
+
+  const submitAuth = async (event: FormEvent) => {
+    event.preventDefault();
+    const loginName = username.trim();
+    const typedPassword = password.trim();
+    const typedNick = nick.trim();
+    if (loginName.length < 3) {
+      setError('Kullanıcı adı en az 3 karakter olmalı.');
+      return;
+    }
+    if (typedPassword.length < 4) {
+      setError('Şifre en az 4 karakter olmalı.');
+      return;
+    }
+
+    const storedUsername = settings?.adminUsername ? normalizeUsername(settings.adminUsername) : '';
+    const isAdminUser = Boolean(storedUsername && normalizeUsername(loginName) === storedUsername);
+    const storedPassword = settings?.adminPassword?.trim() ?? '';
+
+    if (mode === 'register') {
+      if (typedNick.length < 2) {
+        setError('Uygulamadaki gerçek nickini gir. Sohbette bu nick görünür.');
+        return;
+      }
+      if (findAccount(loginName)) {
+        setError('Bu kullanıcı adı zaten kayıtlı. Giriş yapmayı dene.');
+        return;
+      }
+      if (isAdminUser) {
+        setError('Bu kullanıcı adı admin hesabına ait. Giriş ekranından devam et.');
+        return;
+      }
+      upsertAccount({ username: loginName, password: typedPassword, nick: typedNick, role: 'ÜYE' });
+      const session: UserSession = { username: loginName, nick: typedNick, name: typedNick, role: 'ÜYE' };
+      window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+      onLogin(session);
+      return;
+    }
+
+    if (mode === 'login') {
+      const remoteAdmin = await loginServerAdmin(loginName, typedPassword);
+      if (remoteAdmin) {
+        const session: UserSession = {
+          username: remoteAdmin.username,
+          nick: remoteAdmin.nick,
+          name: remoteAdmin.name,
+          role: 'ADMIN',
+        };
+        const current = readClubSettings();
+        window.localStorage.setItem('mod-club-settings', JSON.stringify({
+          clubName: current?.clubName || 'MOD CLUB',
+          adminName: remoteAdmin.nick,
+          adminEmail: current?.adminEmail || '',
+          adminUsername: remoteAdmin.username,
+          adminPassword: typedPassword,
+          theme: current?.theme || 'electric',
+        }));
+        window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+        onLogin(session);
+        return;
+      }
+    }
+
+    if (isAdminUser) {
+      if (storedPassword && typedPassword !== storedPassword) {
+        setError('Admin şifresi hatalı.');
+        return;
+      }
+      const nextSettings: ClubSettings = {
+        clubName: settings?.clubName || 'MOD CLUB',
+        adminName: settings?.adminName || loginName,
+        adminEmail: settings?.adminEmail || '',
+        adminUsername: settings?.adminUsername?.trim() || loginName,
+        adminPassword: storedPassword || typedPassword,
+        theme: settings?.theme || 'electric',
+      };
+      window.localStorage.setItem('mod-club-settings', JSON.stringify(nextSettings));
+      onLogin(writeAdminSession(nextSettings));
+      return;
+    }
+
+    const account = findAccount(loginName);
+    if (!account) {
+      setError('Hesap bulunamadı. Önce kayıt ol ve uygulamadaki gerçek nickini gir.');
+      return;
+    }
+    if (account.password !== typedPassword) {
+      setError('Şifre hatalı.');
+      return;
+    }
+    const session: UserSession = {
+      username: account.username,
+      nick: account.nick,
+      name: account.nick,
+      role: account.role === 'ADMIN' ? 'ADMIN' : account.role === 'MODERATOR' ? 'MODERATOR' : 'ÜYE',
+      title: account.title || getCosmeticTitle(account.nick),
+      photo: account.photo,
+      appId: account.appId,
+    };
+    window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+    onLogin(session);
+  };
+
+  return (
+    <div className="login-page grain flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6">
+      <div className="login-glow login-glow-one" />
+      <div className="login-glow login-glow-two" />
+      <div className="login-panel relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/70 bg-white/95 shadow-[0_30px_100px_rgba(43,13,79,.2)] lg:grid-cols-[1.05fr_.95fr]">
+        <div className="login-brand relative hidden min-h-[42rem] overflow-hidden p-8 text-white lg:flex lg:flex-col lg:items-center lg:justify-center lg:p-12">
+          <div className="login-orbit login-orbit-one" /><div className="login-orbit login-orbit-two" />
+          <ClubLogo className="club-logo-hero relative z-10" />
+        </div>
+        <div className="flex min-h-0 flex-col justify-center p-6 sm:p-10 lg:min-h-[38rem] lg:p-14">
+          <div className="mb-8 flex items-center justify-between gap-3">
+            <ClubLogo size={72} className="club-logo-mark size-[4.5rem] lg:hidden" />
+            <div className="ml-auto"><PwaInstallChip /></div>
+          </div>
+          <div className="mb-8"><p className="font-mono text-[.62rem] font-bold tracking-[.18em] text-[hsl(var(--primary))]">{mode === 'login' ? 'ÜYE GİRİŞİ' : 'YENİ HESAP'}</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">{mode === 'login' ? 'Hoş geldin.' : 'Kayıt ol.'}</h2><p className="mt-3 max-w-sm text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{mode === 'login' ? 'Kullanıcı adın ve şifrenle gir. Sohbette uygulamadaki nickin görünür.' : 'Kullanıcı adı giriş içindir. Uygulamadaki gerçek nickini ayrı yaz.'}</p></div>
+          <div className="mb-5 grid grid-cols-2 rounded-xl bg-[hsl(var(--muted)/.55)] p-1 text-xs font-bold">
+            <button type="button" onClick={() => { setMode('login'); setError(''); }} className={`h-10 rounded-lg ${mode === 'login' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Giriş yap</button>
+            <button type="button" onClick={() => { setMode('register'); setError(''); }} className={`h-10 rounded-lg ${mode === 'register' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Kayıt ol</button>
+          </div>
+          <form onSubmit={submitAuth} className="grid gap-4">
+            <label className="grid gap-2 text-xs font-bold">Kullanıcı adı<div className="relative"><UserRound className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Giriş için kullanıcı adın" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div></label>
+            {mode === 'register' && (
+              <label className="grid gap-2 text-xs font-bold">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div><span className="font-medium leading-relaxed text-[hsl(var(--muted-foreground))]">Uyarı: Buraya uygulamadaki gerçek nickini yaz. Üye listesi, sohbet ve çekilişte yalnızca bu nick görünür.</span></label>
+            )}
+            <label className="grid gap-2 text-xs font-bold">Şifre<div className="relative"><KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" size={17} /><input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="h-13 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] pl-10 pr-3 text-sm font-normal outline-none transition-colors focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></div></label>
+            {error && (
+              <div className="grid gap-2 rounded-lg bg-[#fff0f1] px-3 py-2">
+                <p role="alert" className="text-xs font-semibold text-[#c54d5b]">{error}</p>
+              </div>
+            )}
+            <button type="submit" className="mt-2 flex h-13 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(105deg,#9c2af0,#6520ca)] text-sm font-bold text-white shadow-lg shadow-purple-200 transition-transform hover:-translate-y-0.5">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
+          </form>
+          <div className="mt-7 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-3 text-[.62rem] leading-relaxed text-[hsl(var(--muted-foreground))]"><strong className="text-[hsl(var(--foreground))]">Admin girişi:</strong> {settings?.adminUsername ? <>kullanıcı adı <b>{settings.adminUsername}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
+          <button type="button" onClick={requestInstallReset} className="mt-3 text-xs font-bold text-[hsl(var(--primary))] hover:underline">Giriş bilgilerini temizle</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EventsPage({ events, joinedEvents, onToggle }: { events: { id: string; date: string; time: string; category: string; title: string; copy: string; tone: string }[]; joinedEvents: string[]; onToggle: (id: string) => void }) {
+  return <div className="page-view"><div className="page-hero page-hero-events"><div><p className="page-kicker">MOD CLUB TAKVİMİ</p><h1>Etkinlikler</h1><p>Topluluğunla birlikte oynayacağın yeni anları keşfet.</p></div><CalendarDays size={48} /></div><div className="mb-5 flex items-end justify-between"><div><p className="page-kicker">YAKLAŞANLAR</p><h2 className="font-display text-xl font-bold">Seni bekleyen etkinlikler</h2></div><span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.62rem] font-bold text-[hsl(var(--primary))]">{joinedEvents.length} katılım</span></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{events.map((event) => { const joined = joinedEvents.includes(event.id); return <article key={event.id} className={`overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white ${event.tone === 'purple' ? 'shadow-[0_12px_35px_rgba(137,60,216,.1)]' : ''}`}><div className={`relative flex h-32 items-end justify-between overflow-hidden p-4 ${event.tone === 'purple' ? 'bg-[linear-gradient(135deg,#5c1e91,#b24af4)]' : event.tone === 'rose' ? 'bg-[linear-gradient(135deg,#9d286d,#ef6aa9)]' : event.tone === 'blue' ? 'bg-[linear-gradient(135deg,#2567a9,#65b8ec)]' : 'bg-[linear-gradient(135deg,#258b68,#82d59c)]'}`}><span className="rounded-full bg-white/20 px-2 py-1 font-mono text-[.5rem] font-bold text-white">{event.category}</span><span className="font-display text-5xl font-bold text-white/25">{event.id.slice(-1)}</span></div><div className="p-4"><h3 className="font-display text-base font-bold">{event.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{event.copy}</p><div className="mt-4 flex flex-wrap gap-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]"><span className="inline-flex items-center gap-1"><CalendarDays size={13} />{event.date}</span><span className="inline-flex items-center gap-1"><Clock3 size={13} />{event.time}</span></div><button onClick={() => onToggle(event.id)} className={`mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-bold ${joined ? 'bg-[#e2f6e8] text-[#2c9650]' : 'bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--primary))]'}`}>{joined && <Check size={14} />}{joined ? 'Katıldın' : 'Katıl'}</button></div></article>; })}</div></div>;
+}
+
+function GamesPage() {
+  const games = [{ title: 'Arena Clash', genre: 'Rekabetçi · 5v5', players: '1.2K oynuyor', color: 'from-[#5520a1] to-[#a33ee7]', icon: '⚔' }, { title: 'Neon Racers', genre: 'Yarış · Hızlı', players: '864 oynuyor', color: 'from-[#146a9f] to-[#55c5ef]', icon: '✦' }, { title: 'Puzzle Party', genre: 'Zeka · Takım', players: '542 oynuyor', color: 'from-[#ba4f83] to-[#f48ba4]', icon: '◈' }, { title: 'Pixel Quest', genre: 'Macera · RPG', players: '328 oynuyor', color: 'from-[#238663] to-[#77d69b]', icon: '✚' }];
+  return <div className="page-view"><div className="page-hero page-hero-games"><div><p className="page-kicker">OYUN ALANI</p><h1>Oyunlar</h1><p>Takımını kur, skorunu yükselt ve toplulukta iz bırak.</p></div><Gamepad2 size={48} /></div><div className="mb-5"><p className="page-kicker">ŞİMDİ POPÜLER</p><h2 className="font-display text-xl font-bold">Bugünün oyunları</h2></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{games.map((game) => <article key={game.title} className="game-card group overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white"><div className={`game-cover bg-gradient-to-br ${game.color}`}><span className="text-5xl font-bold text-white/80 transition-transform group-hover:scale-110">{game.icon}</span><span className="absolute right-3 top-3 rounded-full bg-black/15 px-2 py-1 font-mono text-[.5rem] font-bold text-white">CANLI</span></div><div className="p-4"><h3 className="font-display text-base font-bold">{game.title}</h3><p className="mt-1 text-[.65rem] text-[hsl(var(--muted-foreground))]">{game.genre}</p><div className="mt-4 flex items-center justify-between"><span className="text-[.6rem] font-bold text-[#39a861]">{game.players}</span><button onClick={() => window.alert(`${game.title} açılıyor`)} className="grid size-9 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white" aria-label={`${game.title} oyununu aç`}><Play size={14} fill="currentColor" /></button></div></div></article>)}</div></div>;
+}
+
+function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
+  const items = [
+    { title: 'Film İzle', copy: 'Önerilen siteleri aç, açıklamayı oku.', icon: Film, page: 'Film İzle' },
+    { title: 'Uygulama İndir', copy: 'Topluluk uygulamalarını gör ve indir.', icon: Download, page: 'Uygulama İndir' },
+    { title: 'Topluluk keşfi', copy: 'Yeni ekip arkadaşları ve odalar bul.', icon: UsersRound, page: 'Topluluk' },
+    { title: 'Duyurular', copy: 'MOD CLUB haberlerini ve güncellemeleri gör.', icon: Megaphone },
+    { title: 'Ayarlar', copy: 'Hesap ve uygulama tercihlerini düzenle.', icon: Settings, page: 'Hesap ayarları' },
+  ];
+  return <div className="page-view"><div className="page-hero page-hero-menu"><div><p className="page-kicker">KULÜP ARAÇLARI</p><h1>Menü</h1><p>MOD CLUB deneyimini kendi akışına göre yönet.</p></div><Menu size={48} /></div><div className="grid gap-3 sm:grid-cols-2">{items.map(({ title, copy, icon: Icon, page }) => <button key={title} onClick={() => page ? onOpen(page) : window.alert(`${title} yakında açılıyor`)} className="menu-link-card"><span className="grid size-11 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon size={20} /></span><span className="flex-1 text-left"><strong>{title}</strong><small>{copy}</small></span><ChevronRight size={17} /></button>)}<button onClick={onAdmin} className="menu-link-card border-[hsl(var(--primary)/.2)] bg-[hsl(var(--secondary)/.55)]"><span className="grid size-11 place-items-center rounded-xl bg-[hsl(var(--primary))] text-white"><Shield size={20} /></span><span className="flex-1 text-left"><strong>Admin paneli</strong><small>Üyeleri, çekilişleri, film ve uygulamaları yönet.</small></span><ChevronRight size={17} /></button></div><button onClick={onLogout} className="mt-8 flex h-12 items-center justify-center gap-2 rounded-xl border border-[#f2c9d0] bg-[#fff5f6] text-sm font-bold text-[#c44b5a]"><LogOut size={17} />Çıkış yap</button></div>;
+}
+
+function CommunityPage() {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-menu">
+        <div><p className="page-kicker">ÜYELER</p><h1>Topluluk</h1><p>Yeni ekip arkadaşları ve odalar burada toplanacak.</p></div>
+        <UsersRound size={48} />
+      </div>
+      <div className="rounded-2xl border border-[hsl(var(--border))] bg-white p-6 text-sm text-[hsl(var(--muted-foreground))]">Topluluk keşfi yakında. Şimdilik sohbet ve etkinliklerden devam edebilirsin.</div>
+    </div>
+  );
+}
+
+function ContentCardsPage({ title, kicker, copy, items, actionLabel }: { title: string; kicker: string; copy: string; items: ContentCard[]; actionLabel: string }) {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-menu">
+        <div><p className="page-kicker">{kicker}</p><h1>{title}</h1><p>{copy}</p></div>
+        {title === 'Film İzle' ? <Film size={48} /> : <Download size={48} />}
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[hsl(var(--border))] bg-white p-8 text-center">
+          <p className="text-sm font-bold">Henüz içerik yok</p>
+          <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">Admin panelinden resim, link ve açıklama ekleyebilir.</p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((item) => (
+            <article key={item.id} className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white">
+              <div className="relative h-36 overflow-hidden bg-[linear-gradient(135deg,#3b1468,#8b2ce4)]">
+                {item.image ? <img src={item.image} alt={item.title} className="size-full object-cover" /> : <span className="grid size-full place-items-center text-white/70">{title === 'Film İzle' ? <Film size={36} /> : <Download size={36} />}</span>}
+              </div>
+              <div className="p-4">
+                <h3 className="font-display text-base font-bold">{item.title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">{item.description || 'Açıklama eklenmedi.'}</p>
+                <button
+                  type="button"
+                  onClick={() => { if (item.link) window.open(item.link, '_blank', 'noopener,noreferrer'); }}
+                  disabled={!item.link}
+                  className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-[hsl(var(--foreground))] text-xs font-bold text-white hover:bg-[hsl(var(--primary))] disabled:opacity-40"
+                >
+                  {actionLabel} <Link2 size={14} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RANK_STYLE = {
+  admin: { tag: 'lider', Left: Crown, Right: Flame, NameL: Zap, NameR: Sparkles },
+  elder: { tag: 'elder', Left: Gem, Right: Trees, NameL: Star, NameR: Sparkles },
+  asstn: { tag: 'asstn', Left: Star, Right: Wand2, NameL: Sparkles, NameR: Zap },
+} as const;
+
+const ADMIN_MUTE_OPTIONS = [
+  { label: '10 dakika', ms: 10 * 60 * 1000 },
+  { label: '1 saat', ms: 60 * 60 * 1000 },
+  { label: '6 saat', ms: 6 * 60 * 60 * 1000 },
+  { label: '1 gün', ms: 24 * 60 * 60 * 1000 },
+  { label: '1 hafta', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'Kalıcı', ms: 1000 * 60 * 60 * 24 * 365 * 10 },
+] as const;
+
+function displayRankKind(role?: string, title?: CosmeticTitle | string) {
+  if (role === 'ADMIN') return 'admin' as const;
+  if (role === 'MODERATOR') return 'mod' as const;
+  if (title === 'ELDER') return 'elder' as const;
+  if (title === 'ASSTN') return 'asstn' as const;
+  return null;
+}
+
+function RankedName({ name, role, title, size = 'sm', align = 'start', onDark = false, muted = false, revealId = false }: { name: string; role?: string; title?: CosmeticTitle | string; size?: 'sm' | 'lg'; align?: 'start' | 'end'; onDark?: boolean; muted?: boolean; revealId?: boolean }) {
+  const [idOpen, setIdOpen] = useState(false);
+  const kind = displayRankKind(role, title || getCosmeticTitle(name));
+  const appId = revealId ? getAppId(name) : undefined;
+  const idLine = revealId && idOpen ? <small className="rank-app-id">{appId ? `ID ${appId}` : 'ID yok'}</small> : null;
+  const nameProps = revealId
+    ? { role: 'button' as const, tabIndex: 0, onClick: () => setIdOpen((open) => !open), title: 'Uygulama ID’sini görmek için dokun' }
+    : {};
+  if (!kind) {
+    return (
+      <span
+        className={size === 'lg' ? 'font-display text-2xl font-bold' : onDark ? 'text-[.68rem] font-bold text-white' : 'text-[.6rem] font-bold text-[hsl(var(--primary))]'}
+        {...nameProps}
+      >
+        {name}
+        {idLine}
+        {muted && <small className="rank-muted">susturuldu</small>}
+      </span>
+    );
+  }
+
+  const glyph = size === 'lg' ? 15 : 10;
+  const fancy = kind === 'mod' ? null : RANK_STYLE[kind];
+  const LeftIcon = fancy?.Left;
+  const RightIcon = fancy?.Right;
+  const NameLIcon = fancy?.NameL;
+  const NameRIcon = fancy?.NameR;
+
+  return (
+    <span className={`rank-name rank-name-${kind} ${align === 'end' ? 'is-end' : ''} ${size === 'lg' ? 'is-lg' : ''} ${onDark ? 'on-dark' : ''}`} {...nameProps}>
+      {fancy && LeftIcon && RightIcon ? (
+        <span className="rank-tag-row">
+          <LeftIcon className="rank-glyph rank-glyph-crown" size={glyph} strokeWidth={2.6} aria-hidden="true" />
+          <small className="rank-tag">{fancy.tag}</small>
+          <RightIcon className="rank-glyph rank-glyph-flame" size={glyph} strokeWidth={2.6} aria-hidden="true" />
+        </span>
+      ) : (
+        <small className="rank-tag">yetkili</small>
+      )}
+      <span className="rank-name-text">
+        {NameLIcon && <NameLIcon className="rank-glyph rank-glyph-bolt" size={size === 'lg' ? 16 : 11} strokeWidth={2.6} aria-hidden="true" />}
+        <span className="rank-name-label">{name}</span>
+        {NameRIcon && <NameRIcon className="rank-glyph rank-glyph-spark" size={size === 'lg' ? 14 : 10} strokeWidth={2.4} aria-hidden="true" />}
+        {size === 'lg' && (
+          <>
+            <i className="rank-smoke" aria-hidden="true" />
+            <i className="rank-smoke rank-smoke-two" aria-hidden="true" />
+            {kind === 'admin' && (
+              <>
+                <i className="rank-spark rank-spark-one" aria-hidden="true" />
+                <i className="rank-spark rank-spark-two" aria-hidden="true" />
+                <i className="rank-spark rank-spark-three" aria-hidden="true" />
+              </>
+            )}
+          </>
+        )}
+      </span>
+      {muted && <small className="rank-muted">susturuldu</small>}
+      {idLine}
+    </span>
+  );
+}
+
+function ProfilePage({ session, onLogout, onSession, onNotice }: { session: UserSession; onLogout: () => void; onSession: (session: UserSession) => void; onNotice: (text: string) => void }) {
+  const user = resolveSession(session);
+  const nick = displayNick(user);
+  const photo = avatarFor(nick, user.photo);
+  const [appIdDraft, setAppIdDraft] = useState(user.appId || '');
+  const [nickDraft, setNickDraft] = useState(nick);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const saveId = (event: FormEvent) => {
+    event.preventDefault();
+    const value = appIdDraft.trim();
+    if (!value) {
+      onNotice('Uygulama ID’si zorunlu. Profilinden gir.');
+      return;
+    }
+    onSession(saveUserAppId(user, value));
+    onNotice('Uygulama ID’sin kaydedildi');
+  };
+
+  const saveNick = (event: FormEvent) => {
+    event.preventDefault();
+    const value = nickDraft.trim();
+    if (value.length < 2) {
+      onNotice('Nick en az 2 karakter olmalı');
+      return;
+    }
+    const result = saveUserNick(user, value);
+    if ('error' in result) {
+      onNotice(result.error);
+      return;
+    }
+    onSession(result.session);
+    onNotice('Nickin güncellendi');
+  };
+
+  const pickPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const nextPhoto = await fileToAvatar(file);
+      onSession(saveUserPhoto(user, nextPhoto));
+      onNotice('Profil resmi güncellendi');
+    } catch {
+      onNotice('Resim yüklenemedi. Başka bir görsel dene.');
+    }
+  };
+
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-profile">
+        <div><p className="page-kicker">HESABIN</p><h1>Profil</h1><p>Resmini, nickini ve ID’ni buradan düzenle.</p></div>
+        <UserRound size={48} />
+      </div>
+      <div className="profile-card overflow-hidden rounded-3xl border border-[hsl(var(--border))] bg-white">
+        <div className="profile-cover" />
+        <div className="relative px-5 pb-6 sm:px-8">
+          <div className="relative -mt-12 w-fit">
+            <img src={photo} alt={`${nick} profil fotoğrafı`} className="size-24 rounded-3xl border-4 border-[hsl(var(--background))] object-cover shadow-xl" />
+            <button type="button" data-testid="button-edit-photo" aria-label="Profil resmini değiştir" onClick={() => photoInputRef.current?.click()} className="absolute -bottom-1 -right-1 grid size-9 place-items-center rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-md">
+              <Camera size={15} />
+            </button>
+            <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => void pickPhoto(event)} />
+          </div>
+          <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2><RankedName name={nick} role={user.role} title={user.title} size="lg" /></h2>
+              <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">Giriş: @{user.username}</p>
+              <p className="mt-1 text-xs font-bold text-[hsl(var(--primary))]">{yetkiLabel(user.role, user.title)}</p>
+              <p className="mt-1 font-mono text-[.7rem] font-bold text-[hsl(var(--primary))]">{user.appId ? `ID ${user.appId}` : 'Uygulama ID’si henüz girilmedi'}</p>
+            </div>
+            <button onClick={onLogout} className="flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] px-3 py-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-[#c44b5a]"><LogOut size={15} />Çıkış yap</button>
+          </div>
+          <form onSubmit={saveNick} className="mt-6 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-4">
+            <label className="grid gap-2 text-xs font-bold">
+              Kullanıcı nicki
+              <input
+                data-testid="input-profile-nick"
+                value={nickDraft}
+                onChange={(event) => setNickDraft(event.target.value)}
+                placeholder="Sohbette görünecek nick"
+                className="h-11 rounded-xl border border-[hsl(var(--border))] bg-white px-3 text-sm font-normal outline-none focus:border-[hsl(var(--primary))]"
+              />
+            </label>
+            <button type="submit" data-testid="button-save-nick" className="mt-3 flex h-10 items-center justify-center rounded-xl bg-[hsl(var(--foreground))] px-4 text-xs font-bold text-white hover:bg-[hsl(var(--primary))]">Nicki kaydet</button>
+          </form>
+          <form onSubmit={saveId} className="mt-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-4">
+            <label className="grid gap-2 text-xs font-bold">
+              Uygulama ID
+              <input
+                data-testid="input-app-id"
+                value={appIdDraft}
+                onChange={(event) => setAppIdDraft(event.target.value)}
+                placeholder="Uygulamadaki ID’ni yaz"
+                className="h-11 rounded-xl border border-[hsl(var(--border))] bg-white px-3 text-sm font-normal outline-none focus:border-[hsl(var(--primary))]"
+              />
+            </label>
+            <p className="mt-2 text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Sohbete yazmak için zorunlu. Nick görünür; ID resme veya nicke dokununca açılır.</p>
+            <button type="submit" data-testid="button-save-app-id" className="mt-3 flex h-10 items-center justify-center rounded-xl bg-[hsl(var(--foreground))] px-4 text-xs font-bold text-white hover:bg-[hsl(var(--primary))]">ID’yi kaydet</button>
+          </form>
+          <div className="mt-7 grid gap-3 sm:grid-cols-3">
+            <div className="profile-stat"><strong>28</strong><span>Etkinlik</span></div>
+            <div className="profile-stat"><strong>1.248</strong><span>MOD puanı</span></div>
+            <div className="profile-stat"><strong>12</strong><span>Rozet</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsPage({ session, colorMode, onColorMode, onOpenProfile }: { session: UserSession; colorMode: ColorMode; onColorMode: (mode: ColorMode) => void; onOpenProfile: () => void }) {
+  const user = resolveSession(session);
+  const nick = displayNick(user);
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-menu">
+        <div><p className="page-kicker">HESAP</p><h1>Hesap ayarları</h1><p>Görünümü değiştir, uygulama ID’sini ve hesabını yönet.</p></div>
+        <Settings size={48} />
+      </div>
+      <div className="grid gap-3">
+        <section className="rounded-2xl border border-[hsl(var(--border))] bg-white p-4 sm:p-5">
+          <p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">GÖRÜNÜM</p>
+          <h2 className="mt-1 font-display text-lg font-bold">Gece / gündüz</h2>
+          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Tüm sayfalar bu ayarı kullanır.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button type="button" data-testid="button-theme-light" onClick={() => onColorMode('light')} className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-bold ${colorMode === 'light' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'border-[hsl(var(--border))]'}`}><Sun size={16} />Gündüz</button>
+            <button type="button" data-testid="button-theme-dark" onClick={() => onColorMode('dark')} className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-bold ${colorMode === 'dark' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'border-[hsl(var(--border))]'}`}><Moon size={16} />Gece</button>
+          </div>
+        </section>
+        <section className="rounded-2xl border border-[hsl(var(--border))] bg-white p-4 sm:p-5">
+          <p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">KİMLİK</p>
+          <h2 className="mt-1 font-display text-lg font-bold">{nick}</h2>
+          <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Giriş: @{user.username}</p>
+          <p className="mt-3 rounded-xl bg-[hsl(var(--muted)/.5)] px-3 py-2 font-mono text-xs font-bold">{user.appId ? `Uygulama ID: ${user.appId}` : 'Uygulama ID’si yok — sohbet için profilinden gir.'}</p>
+          <button type="button" onClick={onOpenProfile} className="mt-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-[hsl(var(--border))] px-4 text-xs font-bold hover:border-[hsl(var(--primary)/.4)] hover:text-[hsl(var(--primary))]"><KeyRound size={14} />Profilde ID düzenle</button>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function WrenchIcon({ size = 20, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2.12 2.12 0 1 0 3 3l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.6 2.6-3-3 2.6-2.6Z" /><path d="m16 16 5 5" /></svg>;
 }
 
-function Home() {
+function makeWinnerCard(item: Giveaway): ChatMessage {
+  return {
+    id: `winner-${item.id}`,
+    kind: 'winner',
+    author: 'MOD CLUB',
+    initials: 'MC',
+    avatar: 'bg-[#3b1468] text-white',
+    photo: '/logo.png',
+    message: `${item.winner} kazandı`,
+    time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+    winner: item.winner,
+    prizeTitle: item.title,
+    prizeText: item.prizeText,
+    prizeImage: item.prizeImage,
+    giveawayId: item.id,
+    at: Date.now(),
+  };
+}
+
+function Home({ session, onLogout, onSession }: { session: UserSession; onLogout: () => void; onSession: (session: UserSession) => void }) {
   const [slide, setSlide] = useState(0);
   const [selectedQuick, setSelectedQuick] = useState('SOHBET');
   const [activeNav, setActiveNav] = useState('Ana Sayfa');
@@ -86,9 +826,16 @@ function Home() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
+  const [chatMuted, setChatMutedOn] = useState(() => typeof window !== 'undefined' && isChatMuted());
+  const [notifyPromptOpen, setNotifyPromptOpen] = useState(() => typeof window !== 'undefined' && !wasNotifyPrompted() && 'Notification' in window && Notification.permission === 'default');
   const [chatText, setChatText] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    const stored = readChatFeed<ChatMessage>();
+    return stored.length > 0 ? stored : initialChatMessages;
+  });
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [muteTarget, setMuteTarget] = useState<string | null>(null);
+  const [cosmeticTitles, setCosmeticTitles] = useState(() => readCosmeticTitles());
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [banners, setBanners] = useState(slides);
   const [adminPanelOpen, setAdminPanelOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1');
@@ -98,12 +845,46 @@ function Home() {
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerCopy, setBannerCopy] = useState('');
   const [bannerHasButton, setBannerHasButton] = useState(true);
-  const isAdmin = true;
+  const [broadcastTitle, setBroadcastTitle] = useState('Duyuru');
+  const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastLog, setBroadcastLog] = useState<{ id: string; title: string; body: string; at: number }[]>([]);
+  const [ticker, setTicker] = useState<{ id: string; title: string; body: string } | null>(null);
+  const [giveaways, setGiveaways] = useState<Giveaway[]>(() => readGiveaways());
+  const [films, setFilms] = useState<ContentCard[]>(() => readFilms());
+  const [apps, setApps] = useState<ContentCard[]>(() => readApps());
+  const [giveawayOpen, setGiveawayOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [giveawayTitle, setGiveawayTitle] = useState('');
+  const [giveawayPrize, setGiveawayPrize] = useState('');
+  const [giveawayImage, setGiveawayImage] = useState('');
+  const [giveawayWhen, setGiveawayWhen] = useState('');
+  const [filmTitle, setFilmTitle] = useState('');
+  const [filmCopy, setFilmCopy] = useState('');
+  const [filmImage, setFilmImage] = useState('');
+  const [filmLink, setFilmLink] = useState('');
+  const [appTitle, setAppTitle] = useState('');
+  const [appCopy, setAppCopy] = useState('');
+  const [appImage, setAppImage] = useState('');
+  const [appLink, setAppLink] = useState('');
+  const [colorMode, setColorMode] = useState<ColorMode>(() => (typeof window !== 'undefined' ? readColorMode() : 'dark'));
+  const [notices, setNotices] = useState<ClubNotice[]>(() => (typeof window !== 'undefined' ? readNotices() : []));
+  const [chatReadAt, setChatReadAt] = useState(() => (typeof window !== 'undefined' ? readChatReadAt() : 0));
+  const user = resolveSession(session);
+  const nick = displayNick(user);
+  const myPhoto = avatarFor(nick, user.photo);
+  const isAdmin = user.role === 'ADMIN';
+  const isModerator = user.role === 'MODERATOR';
+  const canMuteStaff = isAdmin || isModerator;
+  const selfMute = activeChatTimeout(nick, now);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
+  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
-  const [notice, setNotice] = useState('Hoş geldin, Ece');
+  const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
+  const openGiveaways = giveaways.filter((item) => giveawayStatus(item, now) === 'open');
+  const liveGiveaway = openGiveaways[0];
 
   const currentSlide = banners[slide % banners.length] ?? slides[0];
   const upcomingEvents = useMemo(() => events.slice(0, 4), []);
@@ -114,10 +895,37 @@ function Home() {
 
   const handleQuickSelect = (label: string) => {
     setSelectedQuick(label);
+    if (label === 'SOHBET') {
+      setChatOpen(true);
+      setNotice('Canlı sohbet açık');
+      return;
+    }
+    if (label === 'OYUNLAR') {
+      handleNav('Oyunlar');
+      return;
+    }
+    if (label === 'TOPLULUK') {
+      handleNav('Topluluk');
+      return;
+    }
+    if (label === 'DUYURULAR') {
+      setNotice('Duyurular listeleniyor');
+      return;
+    }
     setNotice(`${label.toLocaleLowerCase('tr-TR')} alanına göz atıyorsun`);
   };
 
   const handleNav = (label: string) => {
+    if (label === 'Sohbet') {
+      setMenuOpen(false);
+      setChatOpen(true);
+      return;
+    }
+    if (label === 'Menü') {
+      setMenuOpen((open) => !open);
+      return;
+    }
+    setMenuOpen(false);
     setActiveNav(label);
     if (label === 'Ana Sayfa') {
       setNotice('Ana sayfaya döndün');
@@ -125,15 +933,66 @@ function Home() {
       return;
     }
     if (label === 'Profil') {
-      setNotice('Profil alanı yakında seninle');
+      setNotice('Profilini düzenle, uygulama ID’sini buradan gir');
       return;
     }
-    if (label === 'Menü') {
-      setMenuOpen((open) => !open);
+    if (label === 'Hesap ayarları') {
+      setNotice('Hesap ayarları açık');
       return;
     }
     setNotice(`${label} alanına geçtin`);
   };
+
+  const changeColorMode = (mode: ColorMode) => {
+    applyColorMode(mode);
+    setColorMode(mode);
+    setNotice(mode === 'dark' ? 'Gece görünümü açık' : 'Gündüz görünümü açık');
+  };
+
+  const pushNotice = (title: string, body: string) => {
+    const item: ClubNotice = { id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, body, at: Date.now(), read: false };
+    setNotices((current) => {
+      const next = [item, ...current].slice(0, 40);
+      saveNotices(next);
+      return next;
+    });
+  };
+
+  const markNoticesRead = () => {
+    setNotices((current) => {
+      const next = current.map((item) => ({ ...item, read: true }));
+      saveNotices(next);
+      return next;
+    });
+    setNotice('Tüm bildirimler okundu');
+  };
+
+  const clearNotices = () => {
+    saveNotices([]);
+    setNotices([]);
+    setNotice('Bildirimler silindi');
+  };
+
+  const openNotice = (id: string) => {
+    setNotices((current) => {
+      const next = current.map((item) => item.id === id ? { ...item, read: true } : item);
+      saveNotices(next);
+      return next;
+    });
+  };
+
+  const unreadNoticeCount = notices.filter((item) => !item.read).length;
+  const unreadChatCount = chatMessages.filter((message) => Boolean(message.at) && !message.mine && message.author !== nick && (message.at as number) > chatReadAt).length;
+
+  const showTicker = (title: string, body: string) => {
+    setTicker({ id: `t-${Date.now()}`, title, body });
+  };
+
+  useEffect(() => {
+    if (!ticker) return;
+    const timer = window.setTimeout(() => setTicker(null), 14000);
+    return () => window.clearTimeout(timer);
+  }, [ticker]);
 
   const toggleJoin = (eventId: string) => {
     const joined = joinedEvents.includes(eventId);
@@ -142,29 +1001,184 @@ function Home() {
   };
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      const stamped = Date.now();
+      setNow(stamped);
+      setGiveaways((current) => {
+        const next = readGiveaways();
+        for (const item of next) {
+          const prev = current.find((entry) => entry.id === item.id);
+          if (item.winner && prev && !prev.winner) {
+            void publishClubEvent({
+              type: 'winner',
+              title: 'Kazanan açıklandı',
+              body: `${item.title} çekilişini ${item.winner} kazandı.`,
+            });
+            setChatMessages((current) => {
+              if (current.some((entry) => entry.id === `winner-${item.id}`)) return current;
+              return [...current, makeWinnerCard(item)];
+            });
+          }
+        }
+        const changed = JSON.stringify(current) !== JSON.stringify(next);
+        return changed ? next : current;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    void registerClubWorker();
+    const stop = startNotifyPolling((event) => {
+      pushNotice(event.title, event.body);
+      if (event.type === 'admin') showTicker(event.title, event.body);
+      if (event.type === 'chat') setNotice(event.body);
+      if (event.type === 'giveaway' || event.type === 'winner') {
+        setNotice(event.body);
+        setGiveaways(readGiveaways());
+      }
+    });
+    return stop;
+  }, []);
+
+  const toggleChatMute = () => {
+    const next = !chatMuted;
+    persistChatMute(next);
+    setChatMutedOn(next);
+    setNotice(next ? 'Sohbet sessizde. Bildirim gitmez.' : 'Sohbet bildirimleri açık.');
+  };
+
+  const allowPhoneNotify = async () => {
+    const result = await requestNotifyPermission();
+    setNotifyPromptOpen(false);
+    setNotice(result === 'granted' ? 'Telefon bildirimleri açık.' : 'Bildirim izni verilmedi.');
+  };
+
+  useEffect(() => {
     if (chatOpen && chatScrollRef.current) {
       chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
     }
+    if (chatOpen) {
+      const stamped = Date.now();
+      saveChatReadAt(stamped);
+      setChatReadAt(stamped);
+    }
   }, [chatOpen, chatMessages]);
+
+  useEffect(() => {
+    saveChatFeed(chatMessages.map(({ mine, ...rest }) => rest));
+  }, [chatMessages]);
+
+  useEffect(() => {
+    setChatMessages((current) => current.map((message) => ({
+      ...message,
+      mine: message.kind === 'winner' || message.kind === 'mute' ? false : message.author === nick,
+    })));
+  }, [nick]);
+
+  useEffect(() => {
+    setChatMessages((current) => {
+      let next = current;
+      for (const item of giveaways) {
+        if (!item.winner) continue;
+        if (next.some((entry) => entry.id === `winner-${item.id}`)) continue;
+        next = [...next, makeWinnerCard(item)];
+      }
+      return next;
+    });
+  }, [giveaways]);
+
+  const canMuteAuthor = (message: ChatMessage) => {
+    if (!canMuteStaff || message.kind === 'winner' || message.kind === 'mute') return false;
+    if (message.author === nick) return false;
+    if (message.role === 'ADMIN') return false;
+    if (!isAdmin && message.role === 'MODERATOR') return false;
+    return true;
+  };
+
+  const applyMute = (author: string, ms: number, label: string) => {
+    saveChatTimeout({ nick: author, until: Date.now() + ms, by: nick, label });
+    setMuteTarget(null);
+    setChatMessages((current) => [...current, {
+      id: `mute-${author}-${Date.now()}`,
+      kind: 'mute',
+      author: 'MOD CLUB',
+      initials: 'MC',
+      avatar: 'bg-[#3b1468] text-white',
+      photo: '/logo.png',
+      message: `${author} ${label} susturuldu`,
+      time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+      mutedBy: nick,
+      muteLabel: label,
+      winner: author,
+      at: Date.now(),
+    }]);
+    setNotice(`${author} ${label} susturuldu`);
+  };
+
+  const liftMute = (author: string) => {
+    clearChatTimeout(author);
+    setMuteTarget(null);
+    setNotice(`${author} susturması kaldırıldı`);
+  };
+
+  const startMute = (author: string) => {
+    if (isModerator && !isAdmin) {
+      applyMute(author, 60 * 60 * 1000, '1 saat');
+      return;
+    }
+    setMuteTarget((current) => current === author ? null : author);
+  };
+
+  const openChatProfile = (message: ChatMessage) => {
+    const account = readAccounts().find((item) => item.nick.trim().toLowerCase() === message.author.trim().toLowerCase());
+    const profileNick = account?.nick || message.author;
+    setChatProfile({
+      nick: profileNick,
+      photo: avatarFor(profileNick, message.mine ? myPhoto : account?.photo || message.photo),
+      role: account?.role || message.role,
+      title: account?.title || message.title || getCosmeticTitle(profileNick),
+    });
+  };
 
   const sendChat = () => {
     const message = chatText.trim();
     if (!message) return;
+    if (!user.appId) {
+      setNotice('Sohbete yazmak için profilinden uygulama ID’sini gir');
+      setChatOpen(false);
+      handleNav('Profil');
+      return;
+    }
+    const timeout = activeChatTimeout(nick);
+    if (timeout) {
+      setNotice(`Susturuldun. Kalan: ${formatMuteRemaining(timeout.until)}`);
+      return;
+    }
     setChatMessages((current) => [...current, {
       id: `chat-${Date.now()}`,
-      author: 'Ece',
-      initials: 'ED',
+      author: nick,
+      initials: nick.slice(0, 2).toUpperCase(),
       avatar: 'bg-[#a15be9] text-white',
-      photo: 'https://i.pravatar.cc/96?img=32',
+      photo: myPhoto,
       message,
       time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
       mine: true,
+      role: user.role === 'ADMIN' ? 'ADMIN' : user.role === 'MODERATOR' ? 'MODERATOR' : undefined,
+      title: user.title,
       replyTo: replyTo ? { author: replyTo.author, message: replyTo.message } : undefined,
+      at: Date.now(),
     }]);
     setChatText('');
     setReplyTo(null);
     setEmojiPickerOpen(false);
     setNotice('Mesajın topluluğa gönderildi');
+    void publishClubEvent({
+      type: 'chat',
+      title: 'Yeni sohbet',
+      body: `${nick}: ${message}`,
+      sender: getDeviceId(),
+    });
   };
 
   const clearChatHistory = () => {
@@ -172,6 +1186,23 @@ function Home() {
     setChatMessages([]);
     setReplyTo(null);
     setNotice('Sohbet geçmişi admin tarafından silindi');
+  };
+
+  const sendAdminBroadcast = async () => {
+    const title = broadcastTitle.trim() || 'Duyuru';
+    const body = broadcastBody.trim();
+    if (!body) {
+      setNotice('Bildirim yazmalısın');
+      return;
+    }
+    setBroadcastSending(true);
+    showTicker(title, body);
+    pushNotice(title, body);
+    setBroadcastLog((current) => [{ id: `b-${Date.now()}`, title, body, at: Date.now() }, ...current].slice(0, 8));
+    const ok = await publishClubEvent({ type: 'admin', title, body });
+    setBroadcastSending(false);
+    setBroadcastBody('');
+    setNotice(ok ? 'Bildirim tüm cihazlara gönderildi' : 'Sunucuya ulaşılamadı. Bildirim bu cihazda gösterildi.');
   };
 
   const addBanner = () => {
@@ -196,6 +1227,88 @@ function Home() {
     setNotice('Yeni banner yayınlandı');
   };
 
+  const persistGiveaways = (items: Giveaway[]) => {
+    saveGiveaways(items);
+    setGiveaways(readGiveaways());
+  };
+
+  const joinGiveaway = (id: string) => {
+    const target = giveaways.find((item) => item.id === id);
+    if (!target || giveawayStatus(target, now) !== 'open') {
+      setNotice('Şu anda katılabileceğin aktif çekiliş yok');
+      return;
+    }
+    if (target.participants.includes(nick)) {
+      setNotice('Bu çekilişe zaten katıldın');
+      return;
+    }
+    persistGiveaways(giveaways.map((item) => item.id === id ? { ...item, participants: [...item.participants, nick] } : item));
+    setNotice(`${nick} çekilişe katıldı`);
+  };
+
+  const addGiveaway = () => {
+    const title = giveawayTitle.trim();
+    const prizeText = giveawayPrize.trim();
+    const announceAt = giveawayWhen ? new Date(giveawayWhen).toISOString() : '';
+    if (!title || !announceAt || Number.isNaN(new Date(announceAt).getTime())) {
+      setNotice('Çekiliş adı ve bitiş tarihi gerekli');
+      return;
+    }
+    if (new Date(announceAt).getTime() <= Date.now()) {
+      setNotice('Bitiş tarihi gelecekte olmalı.');
+      return;
+    }
+    persistGiveaways([...giveaways, {
+      id: `giveaway-${Date.now()}`,
+      title,
+      prizeText,
+      prizeImage: giveawayImage.trim(),
+      announceAt,
+      participants: [],
+    }]);
+    setGiveawayTitle('');
+    setGiveawayPrize('');
+    setGiveawayImage('');
+    setGiveawayWhen('');
+    void publishClubEvent({
+      type: 'giveaway',
+      title: 'Yeni çekiliş',
+      body: `${title} başladı. Süre bitince kazanan otomatik açıklanır.`,
+    });
+    setNotice('Çekiliş yayınlandı. Süre dolunca kazanan otomatik açıklanır.');
+  };
+
+  const addContentCard = (kind: 'film' | 'app') => {
+    const title = (kind === 'film' ? filmTitle : appTitle).trim();
+    const description = (kind === 'film' ? filmCopy : appCopy).trim();
+    const image = (kind === 'film' ? filmImage : appImage).trim();
+    const link = (kind === 'film' ? filmLink : appLink).trim();
+    if (!title || !link) {
+      setNotice('Başlık ve link gerekli');
+      return;
+    }
+    const next: ContentCard = { id: `${kind}-${Date.now()}`, title, description, image, link };
+    if (kind === 'film') {
+      const items = [...films, next];
+      saveFilms(items);
+      setFilms(items);
+      setFilmTitle('');
+      setFilmCopy('');
+      setFilmImage('');
+      setFilmLink('');
+      setNotice('Film kartı eklendi');
+      return;
+    }
+    const items = [...apps, next];
+    saveApps(items);
+    setApps(items);
+    setAppTitle('');
+    setAppCopy('');
+    setAppImage('');
+    setAppLink('');
+    setNotice('Uygulama kartı eklendi');
+  };
+
   return (
     <div className="mod-app grain min-h-[100dvh] pb-24">
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
@@ -204,9 +1317,8 @@ function Home() {
             <button data-testid="button-menu" aria-label="Menüyü aç" onClick={() => setMenuOpen((open) => !open)} className="grid size-11 shrink-0 place-items-center rounded-xl text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]">
               <Menu size={21} strokeWidth={2.1} />
             </button>
-            <button data-testid="button-logo-home" onClick={() => handleNav('Ana Sayfa')} className="flex items-center gap-1.5 text-left">
-              <span className="font-display text-[1.35rem] font-bold tracking-[-.08em] text-[hsl(var(--primary))]">MOD</span>
-              <span className="font-display text-[1.18rem] font-bold tracking-[-.07em]">CLUB</span>
+            <button data-testid="button-logo-home" onClick={() => handleNav('Ana Sayfa')} className="flex min-w-0 items-center" aria-label="MOD CLUB">
+              <ClubWordmark />
             </button>
           </div>
 
@@ -218,169 +1330,792 @@ function Home() {
               </label>
             )}
             <button data-testid="button-search" aria-label="Ara" onClick={() => setSearchOpen((open) => !open)} className="hidden size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] sm:grid"><Search size={19} /></button>
+            <button
+              type="button"
+              data-testid="button-theme-toggle"
+              aria-label={colorMode === 'dark' ? 'Gündüz görünümüne geç' : 'Gece görünümüne geç'}
+              onClick={() => changeColorMode(colorMode === 'dark' ? 'light' : 'dark')}
+              className="theme-toggle"
+            >
+              <span className={colorMode === 'light' ? 'is-on' : ''}><Sun size={13} strokeWidth={2.3} /></span>
+              <span className={colorMode === 'dark' ? 'is-on' : ''}><Moon size={13} strokeWidth={2.3} /></span>
+            </button>
+            <button
+              type="button"
+              data-testid="button-join-giveaway"
+              onClick={() => setGiveawayOpen(true)}
+              className={cn(
+                'giveaway-chip relative hidden h-9 items-center gap-1.5 overflow-hidden rounded-full px-2.5 pl-1 text-[11px] font-bold tracking-tight transition-all sm:inline-flex',
+                liveGiveaway ? 'giveaway-chip-live' : 'giveaway-chip-idle hover:border-violet-200 hover:text-violet-700',
+              )}
+              aria-disabled={!liveGiveaway}
+            >
+              <span
+                className={cn(
+                  'grid size-6 place-items-center rounded-full',
+                  liveGiveaway ? 'bg-white/20 text-white' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]',
+                )}
+                aria-hidden="true"
+              >
+                <Gift size={13} strokeWidth={2.1} />
+              </span>
+              <span className="leading-none whitespace-nowrap">Çekilişe Katıl</span>
+              {liveGiveaway && <small className="hidden font-mono text-[10px] font-bold tracking-wide text-white/80 sm:inline">{formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</small>}
+            </button>
             <div className="relative">
               <button data-testid="button-notifications" aria-label="Bildirimleri aç" onClick={() => setNotificationsOpen((open) => !open)} className="grid size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]"><Bell size={19} /></button>
-              <span className="absolute right-1 top-1 grid size-[1.05rem] place-items-center rounded-full bg-[hsl(var(--primary))] font-mono text-[.58rem] font-bold text-white">3</span>
+              {unreadNoticeCount > 0 && <span className="absolute right-1 top-1 grid min-w-[1.05rem] place-items-center rounded-full bg-[hsl(var(--primary))] px-1 font-mono text-[.58rem] font-bold text-white">{unreadNoticeCount > 99 ? '99+' : unreadNoticeCount}</span>}
               {notificationsOpen && (
-                <div data-testid="panel-notifications" className="absolute right-0 top-14 z-20 w-[min(19rem,calc(100vw-2rem))] rounded-2xl border border-[hsl(var(--border))] bg-white p-4 shadow-2xl">
-                  <div className="mb-3 flex items-center justify-between"><strong className="font-display text-sm">Bildirimler</strong><span className="rounded-full bg-[hsl(var(--secondary))] px-2 py-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">3 yeni</span></div>
-                  {['Turnuva kaydın tamamlandı.', 'MOD CLUB puanın yükseldi.', 'Yeni bir sohbet odası açıldı.'].map((item, index) => <button data-testid={`button-notification-${index}`} key={item} onClick={() => setNotice(item)} className="flex w-full gap-2 border-t border-[hsl(var(--border))] py-3 text-left text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"><span className="mt-1 size-1.5 shrink-0 rounded-full bg-[hsl(var(--primary))]" />{item}</button>)}
+                <div data-testid="panel-notifications" className="absolute right-0 top-14 z-20 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white shadow-2xl">
+                  <div className="flex items-center justify-between gap-2 px-4 pt-4">
+                    <strong className="font-display text-sm">Bildirimler</strong>
+                    {unreadNoticeCount > 0 && <span className="rounded-full bg-[hsl(var(--secondary))] px-2 py-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">{unreadNoticeCount} yeni</span>}
+                  </div>
+                  <div className="mt-3 flex gap-2 px-4">
+                    <button type="button" data-testid="button-notices-read-all" onClick={markNoticesRead} className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-[hsl(var(--secondary))] text-[.62rem] font-bold text-[hsl(var(--primary))]"><CheckCheck size={13} />Tümünü okundu</button>
+                    <button type="button" data-testid="button-notices-clear" onClick={clearNotices} className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-[#fff5f6] text-[.62rem] font-bold text-[#c44b5a]"><Trash2 size={13} />Tümünü sil</button>
+                  </div>
+                  <div className="mt-2 max-h-72 overflow-y-auto px-2 pb-2">
+                    {notices.length === 0 ? (
+                      <p className="px-3 py-6 text-center text-xs text-[hsl(var(--muted-foreground))]">Bildirim yok</p>
+                    ) : notices.map((item, index) => (
+                      <button data-testid={`button-notification-${index}`} key={item.id} onClick={() => { openNotice(item.id); setNotice(item.body); }} className="flex w-full gap-2 rounded-xl px-3 py-3 text-left hover:bg-[hsl(var(--muted))]">
+                        <span className={`mt-1 size-1.5 shrink-0 rounded-full ${item.read ? 'bg-[hsl(var(--border))]' : 'bg-[hsl(var(--primary))]'}`} />
+                        <span className="min-w-0">
+                          <strong className="block text-[.7rem]">{item.title}</strong>
+                          <span className="mt-0.5 block text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.body}</span>
+                          <span className="mt-1 block font-mono text-[.5rem] text-[hsl(var(--muted-foreground))]">{formatNoticeTime(item.at)}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-            <button data-testid="button-profile" aria-label="Profili aç" onClick={() => handleNav('Profil')} className="relative grid size-10 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#26104b,#9d42f5)] text-white shadow-md shadow-violet-200/50"><img src="https://i.pravatar.cc/96?img=32" alt="Ece profil fotoğrafı" className="size-full object-cover" /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-white bg-[#56d47e]" /></button>
+            <button data-testid="button-profile" aria-label="Profili aç" onClick={() => handleNav('Profil')} className="relative grid size-10 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#26104b,#9d42f5)] text-white shadow-md shadow-violet-200/50"><img src={myPhoto} alt={`${nick} profil fotoğrafı`} className="size-full object-cover" /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-white bg-[#56d47e]" /></button>
           </div>
         </div>
-        {menuOpen && <div data-testid="panel-menu" className="absolute left-4 top-[4.7rem] z-20 w-60 rounded-2xl border border-[hsl(var(--border))] bg-white p-2 shadow-2xl sm:left-6 lg:left-[max(2rem,calc((100vw-1340px)/2))]"><button data-testid="button-menu-community" onClick={() => { handleNav('Topluluk'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><UsersRound size={17} className="text-[hsl(var(--primary))]" />Topluluk keşfi</button><button data-testid="button-menu-settings" onClick={() => { setNotice('Ayarlar alanı yakında seninle'); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-[hsl(var(--muted))]"><PanelRightOpen size={17} className="text-[hsl(var(--primary))]" />Hesap ayarları</button><div className="my-1 border-t border-[hsl(var(--border))]" /><button data-testid="button-menu-admin" onClick={() => { setAdminPanelOpen(true); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl bg-[hsl(var(--secondary)/.6)] px-3 py-3 text-left text-sm font-bold text-[hsl(var(--primary))] hover:bg-[hsl(var(--secondary))]"><Shield size={17} />Admin paneli <span className="ml-auto rounded-full bg-[hsl(var(--primary))] px-1.5 py-0.5 font-mono text-[.5rem] text-white">ADMIN</span></button></div>}
       </header>
+        {menuOpen && (
+          <>
+            <button type="button" className="nav-drawer-backdrop" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)} />
+            <aside data-testid="panel-menu" className="nav-drawer">
+              <div className="nav-drawer-head">
+                <img src={myPhoto} alt="" className="size-12 rounded-2xl object-cover ring-2 ring-white/30" />
+                <div className="min-w-0 flex-1">
+                  <strong className="truncate font-display text-base">{nick}</strong>
+                  <small>{user.appId ? `ID ${user.appId}` : 'Uygulama ID’si yok'}</small>
+                </div>
+                <button type="button" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)} className="grid size-9 place-items-center rounded-xl text-white/80 hover:bg-white/10"><X size={18} /></button>
+              </div>
+              <div className="nav-drawer-list flex-1">
+                {([
+                  { label: 'Ana Sayfa', icon: HomeIcon, testid: 'button-menu-home' },
+                  { label: 'Etkinlikler', icon: CalendarDays, testid: 'button-menu-events' },
+                  { label: 'Oyunlar', icon: Gamepad2, testid: 'button-menu-games' },
+                  { label: 'Film İzle', icon: Film, testid: 'button-menu-films' },
+                  { label: 'Uygulama İndir', icon: Download, testid: 'button-menu-apps' },
+                  { label: 'Topluluk', icon: UsersRound, testid: 'button-menu-community' },
+                  { label: 'Profil', icon: UserRound, testid: 'button-menu-profile' },
+                  { label: 'Hesap ayarları', icon: Settings, testid: 'button-menu-settings' },
+                ] as const).map(({ label, icon: Icon, testid }) => (
+                  <button key={label} data-testid={testid} type="button" onClick={() => handleNav(label)} className={`nav-drawer-item ${activeNav === label ? 'is-on' : ''}`}>
+                    <span className="nav-drawer-icon"><Icon size={16} /></span>
+                    {label}
+                  </button>
+                ))}
+                <button type="button" data-testid="button-menu-theme" onClick={() => changeColorMode(colorMode === 'dark' ? 'light' : 'dark')} className="nav-drawer-item">
+                  <span className="nav-drawer-icon">{colorMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</span>
+                  {colorMode === 'dark' ? 'Gündüz görünümü' : 'Gece görünümü'}
+                </button>
+                {isAdmin && (
+                  <button data-testid="button-menu-admin" type="button" onClick={() => { setAdminPanelOpen(true); setMenuOpen(false); }} className="nav-drawer-item">
+                    <span className="nav-drawer-icon"><Shield size={16} /></span>
+                    Admin paneli
+                  </button>
+                )}
+              </div>
+              <div className="nav-drawer-foot">
+                <button type="button" onClick={onLogout} className="nav-drawer-item text-[#c44b5a]">
+                  <span className="nav-drawer-icon bg-[#fff5f6] text-[#c44b5a]"><LogOut size={16} /></span>
+                  Çıkış yap
+                </button>
+              </div>
+            </aside>
+          </>
+        )}
 
-      <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">
-        <div className="mb-5 flex items-end justify-between gap-4 reveal">
-          <div>
-            <p data-testid="text-welcome" className="mb-1 text-sm font-medium text-[hsl(var(--muted-foreground))]">{notice}</p>
-            <h1 className="font-display text-[clamp(1.55rem,3vw,2.05rem)] font-bold leading-tight tracking-[-.055em]">Bugün ne yapmak<br className="sm:hidden" /> istersin?</h1>
+       {activeNav === 'Ana Sayfa' ? <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-4 sm:px-6 sm:pt-6 lg:px-8">
+        <section className="home-hero relative isolate overflow-hidden rounded-[1.35rem]">
+          <div className="home-hero-glow" aria-hidden="true" />
+          <div className="relative z-10 flex min-h-[11.5rem] items-center justify-between gap-3 px-5 py-5 sm:min-h-[14rem] sm:px-8">
+            <div className="min-w-0 max-w-[18rem] sm:max-w-[24rem]">
+              <span className="home-hero-badge">{currentSlide.eyebrow}</span>
+              <h1 className="mt-3 font-display text-[clamp(1.35rem,4.4vw,2.35rem)] font-extrabold leading-[1.05] tracking-[-.05em]">
+                {currentSlide.title} <span>{currentSlide.accent}</span> {currentSlide.rest}
+              </h1>
+              <p className="home-hero-copy mt-2 text-[.72rem] leading-relaxed sm:text-[.8rem]">{currentSlide.copy}</p>
+              {currentSlide.hasButton && (
+                <button data-testid="button-hero-action" onClick={() => setNotice(`${currentSlide.action} seçildi`)} className="home-hero-cta mt-4 inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-xs font-extrabold">
+                  {currentSlide.action} <ChevronRight size={14} />
+                </button>
+              )}
+            </div>
+            <div className="home-hero-emblem relative shrink-0">
+              <ClubLogo size={148} className="club-logo-mark size-[4.25rem] sm:size-[8.5rem]" />
+            </div>
           </div>
-          <button data-testid="button-see-all-home" onClick={() => setNotice('Tüm aktiviteler listeleniyor')} className="hidden items-center gap-1 text-xs font-bold text-[hsl(var(--primary))] sm:flex">Tümünü Gör <ChevronRight size={15} /></button>
-        </div>
-
-        <section className="hero-energy relative isolate min-h-[13rem] overflow-hidden rounded-[1.25rem] text-white shadow-[0_18px_45px_rgba(69,21,125,.22)] sm:min-h-[16rem] lg:min-h-[18rem]">
-          <div className="absolute inset-0 opacity-30" style={{ background: 'repeating-linear-gradient(155deg, transparent 0 30px, rgba(255,255,255,.08) 31px 32px, transparent 33px 70px)' }} />
-          <div className="hero-silhouette hidden sm:block" />
-          <div className="hero-copy flex min-h-[13rem] w-[78%] flex-col justify-center px-6 py-6 sm:min-h-[16rem] sm:w-[62%] sm:px-10 lg:min-h-[18rem] lg:px-14">
-            <p className="mb-3 font-mono text-[.58rem] font-bold tracking-[.2em] text-[#d8a8ff] sm:text-[.65rem]">{currentSlide.eyebrow}</p>
-            <h2 className="font-display text-[clamp(1.35rem,4vw,2.45rem)] font-bold leading-[.96] tracking-[-.06em]">{currentSlide.title}<br /><span className="text-[#bf56ff]">{currentSlide.accent}</span>{currentSlide.rest && <> <span>{currentSlide.rest}</span></>}</h2>
-            <p className="mt-3 max-w-[20rem] text-[.69rem] leading-relaxed text-white/70 sm:text-xs">{currentSlide.copy}</p>
-            {currentSlide.hasButton && <button data-testid="button-hero-action" onClick={() => setNotice(`${currentSlide.action} seçildi`)} className="mt-4 flex w-fit items-center gap-2 rounded-lg bg-[linear-gradient(105deg,#a329ff,#6d20d8)] px-4 py-2.5 text-xs font-bold shadow-lg shadow-purple-950/30 transition-transform hover:-translate-y-0.5">{currentSlide.action}<ChevronRight size={15} /></button>}
+          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
+            {banners.map((item, index) => (
+              <button data-testid={`button-slide-dot-${index}`} aria-label={`${index + 1}. banner`} key={item.id} onClick={() => setSlide(index)} className={`h-1.5 rounded-full transition-all ${slide === index ? 'home-hero-dot-on' : 'home-hero-dot'}`} />
+            ))}
           </div>
-          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">{banners.map((item, index) => <button data-testid={`button-slide-dot-${index}`} aria-label={`${index + 1}. banner`} key={item.id} onClick={() => setSlide(index)} className={`h-1.5 rounded-full transition-all ${slide === index ? 'w-5 bg-white' : 'w-1.5 bg-white/45'}`} />)}</div>
-          <button data-testid="button-banner-previous" aria-label="Önceki banner" onClick={() => changeSlide(-1)} className="absolute left-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-white/25 bg-black/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 sm:left-4"><ChevronLeft size={17} /></button>
-          <button data-testid="button-banner-next" aria-label="Sonraki banner" onClick={() => changeSlide(1)} className="absolute right-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-white/25 bg-black/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 sm:right-4"><ChevronRight size={17} /></button>
         </section>
 
-        <section className="mt-7 reveal reveal-delay-1">
-          <div className="mb-3 flex items-center justify-between"><h2 className="font-display text-sm font-bold tracking-[-.02em]">Hızlı Erişim</h2><span className="font-mono text-[.6rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">{selectedQuick}</span></div>
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display text-[.72rem] font-extrabold tracking-[.12em] text-[hsl(var(--muted-foreground))]">HIZLI ERİŞİM</h2>
+          </div>
           <div className="hide-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-5 sm:gap-3">
-            {quickItems.map(({ label, sublabel, icon: Icon, tone }) => <button data-testid={`button-quick-${label.toLowerCase()}`} key={label} onClick={() => handleQuickSelect(label)} className={`quick-card min-w-[7.5rem] flex-1 rounded-xl border px-3 py-3.5 text-center sm:min-w-0 ${selectedQuick === label ? 'border-[hsl(var(--primary)/.35)] bg-[hsl(var(--secondary))] shadow-sm' : 'border-[hsl(var(--border))] bg-white'}`}>
-              <span className={`mx-auto mb-2 grid size-10 place-items-center rounded-xl ${tone === 'violet' ? 'bg-[#ead7ff] text-[#8739df]' : tone === 'amber' ? 'bg-[#ffedc8] text-[#e5a01c]' : tone === 'sky' ? 'bg-[#d7e9ff] text-[#4483e3]' : tone === 'mint' ? 'bg-[#d9f5de] text-[#4aae6b]' : 'bg-[#ffd9ef] text-[#e44da5]'}`}><Icon size={21} strokeWidth={2.2} /></span>
-              <span className="block text-[.64rem] font-bold tracking-wide">{label}</span><span className="mt-1 block truncate text-[.56rem] text-[hsl(var(--muted-foreground))]">{sublabel}</span>
-            </button>)}
+            {quickItems.map(({ label, sublabel, icon: Icon, tone }) => (
+              <button data-testid={`button-quick-${label.toLowerCase()}`} key={label} onClick={() => handleQuickSelect(label)} className={`home-quick min-w-[6.6rem] flex-1 rounded-2xl px-2.5 py-3 text-center sm:min-w-0 ${selectedQuick === label ? 'is-on' : ''}`}>
+                <span className={`home-quick-icon ${tone}`}><Icon size={20} strokeWidth={2.15} /></span>
+                <span className="mt-2 block text-[.62rem] font-extrabold tracking-wide">{label}</span>
+                <span className="mt-0.5 block truncate text-[.5rem] text-[hsl(var(--muted-foreground))]">{sublabel}</span>
+              </button>
+            ))}
           </div>
         </section>
 
-        <section className="mt-7 rounded-2xl border border-[hsl(var(--border))] bg-white p-4 shadow-[0_8px_24px_rgba(77,46,128,.04)] sm:p-5 reveal reveal-delay-2">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="relative grid size-[4.2rem] shrink-0 place-items-center rounded-2xl bg-[radial-gradient(circle_at_35%_30%,#d4aaff,#8f36e7_67%,#6025ae)] text-white shadow-lg shadow-purple-200"><Sparkles className="absolute -right-2 -top-2 text-[#b85aff]" size={18} /><Trophy size={28} strokeWidth={1.7} /></div>
-              <div><p className="font-mono text-[.58rem] font-bold tracking-[.13em] text-[hsl(var(--muted-foreground))]">TOPLULUK</p><h2 className="mt-1 font-display text-base font-bold">BİRLİKTE DAHA GÜÇLÜYÜZ!</h2><p className="mt-1 max-w-[22rem] text-[.68rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Binlerce üye ile sohbet et, turnuvalara katıl, ödülleri kazan!</p><div className="mt-2 flex items-center gap-2"><div className="flex -space-x-1.5">{['A','B','C','D'].map((letter, index) => <span data-testid={`avatar-member-${index}`} key={letter} className={`grid size-5 place-items-center rounded-full border-2 border-white font-mono text-[.48rem] font-bold text-white ${['bg-[#32204e]','bg-[#bc5d81]','bg-[#e39a50]','bg-[#647ac5]'][index]}`}>{letter}</span>)}</div><span className="text-[.6rem] font-bold text-[hsl(var(--muted-foreground))]">+2.5K bugün aktif</span></div></div>
-            </div>
-            <div className="grid grid-cols-2 gap-7 border-t border-[hsl(var(--border))] pt-4 sm:border-l sm:border-t-0 sm:pl-7 sm:pt-0"><div><p className="text-[.57rem] font-bold text-[hsl(var(--muted-foreground))]">AKTİF ÜYE</p><strong className="font-display text-xl tracking-[-.06em]">12.548</strong><span className="ml-1 text-[.58rem] font-bold text-[#42a96a]">↑ 12%</span></div><div><p className="text-[.57rem] font-bold text-[hsl(var(--muted-foreground))]">BUGÜNKÜ AKTİVİTE</p><strong className="font-display text-xl tracking-[-.06em]">3.245</strong><span className="ml-1 text-[.58rem] font-bold text-[#42a96a]">↑ 8%</span></div></div>
+        <section className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2"><CalendarDays size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">HABERLER</h2></div>
+            <button data-testid="button-see-all-news" onClick={() => setNotice('Tüm haberler görüntüleniyor')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
+          </div>
+          <div className="hide-scrollbar flex gap-3 overflow-x-auto pb-1">
+            {newsItems.map((item) => (
+              <article key={item.id} className="home-news-card min-w-[11.5rem] overflow-hidden rounded-2xl sm:min-w-[13rem]">
+                <div className={`home-news-cover ${item.tone}`}>
+                  <span className={`home-news-tag ${item.tone}`}>{item.tag}</span>
+                </div>
+                <div className="p-3">
+                  <h3 className="line-clamp-2 text-[.72rem] font-extrabold leading-snug">{item.title}</h3>
+                  <div className="mt-2 flex items-center justify-between text-[.55rem] text-[hsl(var(--muted-foreground))]">
+                    <span>{item.time}</span>
+                    <span className="inline-flex items-center gap-1"><MessageSquare size={11} />{item.comments}</span>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_.9fr]">
-          <section className="reveal reveal-delay-2">
-            <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><Megaphone size={16} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-sm font-bold">DUYURULAR</h2></div><button data-testid="button-see-all-announcements" onClick={() => setNotice('Tüm duyurular görüntüleniyor')} className="flex items-center gap-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümünü Gör <ChevronRight size={14} /></button></div>
-            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-              {announcements.map(({ id, tag, title, copy, icon: Icon, color }) => <button data-testid={`button-${id}`} key={id} onClick={() => setSelectedAnnouncement(announcements.find((item) => item.id === id) ?? null)} className="group rounded-xl border border-[hsl(var(--border))] bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-100/70"><div className="mb-3 flex items-start justify-between"><span className={`rounded px-1.5 py-1 font-mono text-[.48rem] font-bold ${color === 'violet' ? 'bg-[#eadbff] text-[#8739df]' : color === 'amber' ? 'bg-[#fff0d2] text-[#cb8e0d]' : 'bg-[#dcecff] text-[#4684dd]'}`}>{tag}</span><span className={`grid size-8 place-items-center rounded-lg ${color === 'violet' ? 'bg-[#efe3ff] text-[#8e43db]' : color === 'amber' ? 'bg-[#fff0d2] text-[#d89817]' : 'bg-[#e1efff] text-[#508bdd]'}`}><Icon size={17} /></span></div><h3 className="text-xs font-bold">{title}</h3><p className="mt-1 line-clamp-2 text-[.62rem] leading-relaxed text-[hsl(var(--muted-foreground))]">{copy}</p><span className="mt-3 inline-flex items-center gap-1 text-[.59rem] font-bold text-[hsl(var(--primary))] opacity-0 transition-opacity group-hover:opacity-100">Detayı aç <ChevronRight size={12} /></span></button>)}
-            </div>
-          </section>
+        <section className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2"><Megaphone size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">DUYURULAR</h2></div>
+            <button data-testid="button-see-all-announcements" onClick={() => setNotice('Tüm duyurular görüntüleniyor')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
+          </div>
+          <div className="grid gap-2">
+            {announcements.map(({ id, title, copy, time, icon: Icon, color }) => (
+              <button data-testid={`button-${id}`} key={id} onClick={() => setSelectedAnnouncement(announcements.find((item) => item.id === id) ?? null)} className="home-announce">
+                <span className={`home-announce-icon ${color}`}><Icon size={16} /></span>
+                <span className="min-w-0 flex-1 text-left">
+                  <strong className="block truncate text-[.72rem]">{title}</strong>
+                  <small className="mt-0.5 block truncate text-[.58rem] text-[hsl(var(--muted-foreground))]">{copy}</small>
+                </span>
+                <span className="shrink-0 text-right">
+                  <small className="block text-[.52rem] text-[hsl(var(--muted-foreground))]">{time}</small>
+                  <ChevronRight size={14} className="ml-auto mt-1 text-[hsl(var(--muted-foreground))]" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
 
-          <section className="reveal reveal-delay-3">
-            <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><CalendarDays size={16} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-sm font-bold">YAKLAŞAN ETKİNLİKLER</h2></div><button data-testid="button-see-all-events" onClick={() => setNotice('Tüm etkinlikler görüntüleniyor')} className="flex items-center gap-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tüm Etkinlikler <ChevronRight size={14} /></button></div>
-            <div className="hide-scrollbar flex gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-2">
-              {upcomingEvents.map((event) => { const joined = joinedEvents.includes(event.id); return <article data-testid={`card-${event.id}`} key={event.id} className={`min-w-[14.5rem] overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-white sm:min-w-[16rem] lg:min-w-0 ${event.tone === 'purple' ? 'bg-[linear-gradient(135deg,#f1e6ff,#fbf8ff)]' : event.tone === 'rose' ? 'bg-[linear-gradient(135deg,#fff0f8,#fffafe)]' : event.tone === 'blue' ? 'bg-[linear-gradient(135deg,#edf5ff,#f8fbff)]' : 'bg-[linear-gradient(135deg,#effbf3,#fafffb)]'}`}><div className="relative h-20 overflow-hidden p-3"><div className="absolute -right-2 -top-10 size-28 rounded-full border-[14px] border-white/40 opacity-70" /><span className={`relative rounded px-1.5 py-1 font-mono text-[.48rem] font-bold ${event.tone === 'purple' ? 'bg-[#dfc7ff] text-[#7434c2]' : event.tone === 'rose' ? 'bg-[#ffcce8] text-[#c73d88]' : event.tone === 'blue' ? 'bg-[#cfe2ff] text-[#3c77ce]' : 'bg-[#cfeeda] text-[#31894f]'}`}>{event.category}</span><div className="absolute bottom-2 right-3 text-[2.6rem] font-display font-bold leading-none text-white/70">{event.id.slice(-1)}</div></div><div className="p-3"><h3 className="font-display text-[.72rem] font-bold">{event.title}</h3><p className="mt-1 text-[.61rem] text-[hsl(var(--muted-foreground))]">{event.copy}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-[.52rem] font-semibold text-[hsl(var(--muted-foreground))]"><span className="inline-flex items-center gap-1"><CalendarDays size={11} />{event.date}</span><span className="inline-flex items-center gap-1"><Clock3 size={11} />{event.time}</span></div><button data-testid={`button-join-${event.id}`} onClick={() => toggleJoin(event.id)} className={`mt-3 flex min-h-9 w-full items-center justify-center gap-1 rounded-lg text-[.62rem] font-bold transition-colors ${joined ? 'bg-[#dff5e6] text-[#2e9650]' : 'bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--primary))]'}`}>{joined && <Check size={13} />}{joined ? 'Katıldın' : 'Katıl'}</button></div></article>; })}
-            </div>
-          </section>
-        </div>
-      </main>
+        <section className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2"><CalendarDays size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">ETKİNLİKLER</h2></div>
+            <button data-testid="button-see-all-events" onClick={() => handleNav('Etkinlikler')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
+          </div>
+          <div className="hide-scrollbar flex gap-3 overflow-x-auto pb-1">
+            {upcomingEvents.slice(0, 3).map((event) => (
+              <article data-testid={`card-${event.id}`} key={event.id} className="home-event-card min-w-[13.5rem]">
+                <div className="home-event-date">
+                  <strong>{event.day}</strong>
+                  <span>{event.month}</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-[.78rem] font-extrabold">{event.title}</h3>
+                  <p className="mt-1 inline-flex items-center gap-1 text-[.58rem] text-[hsl(var(--muted-foreground))]"><Clock3 size={11} />{event.time}</p>
+                  <span className={`home-event-status mt-2 ${event.tone}`}>{event.status}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
-      <button data-testid="button-floating-chat" aria-label="Sohbeti aç" onClick={() => setChatOpen(true)} className="pulse-orb fixed bottom-[5.7rem] right-4 z-30 grid size-12 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_8px_25px_rgba(117,36,218,.4)] transition-transform hover:scale-105 sm:right-6 lg:bottom-7"><MessageCircle size={22} /><span className="absolute -right-0.5 -top-0.5 grid size-4 place-items-center rounded-full bg-[#ee4e84] font-mono text-[.53rem] font-bold text-white">5</span></button>
+      {!chatOpen && (
+        <button
+          data-testid="button-floating-chat"
+          aria-label="Canlı sohbeti aç"
+          title="Canlı sohbet"
+          onClick={() => setChatOpen(true)}
+          className="pulse-orb chat-fab fixed bottom-[5.7rem] right-4 z-30 grid size-[3.35rem] place-items-center text-white transition-transform hover:scale-105 sm:right-6 lg:bottom-7"
+        >
+          <MessageCircle size={22} strokeWidth={2.3} />
+          {unreadChatCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-[#ee4e84] px-1 font-mono text-[.58rem] font-bold text-white shadow-sm">{unreadChatCount > 99 ? '99+' : unreadChatCount}</span>}
+        </button>
+      )}
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-[hsl(var(--border)/.9)] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_25px_rgba(54,27,101,.07)] backdrop-blur-xl">
-        <div className="mx-auto flex h-[4.35rem] max-w-[40rem] items-center justify-around px-2">
-          {([{ label: 'Ana Sayfa', icon: HomeIcon }, { label: 'Etkinlikler', icon: CalendarDays }, { label: 'Menü', icon: Menu }, { label: 'Oyunlar', icon: Gamepad2 }, { label: 'Profil', icon: UserRound }]).map(({ label, icon: Icon }) => <button data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`} key={label} onClick={() => handleNav(label)} className={`relative flex min-w-[3.5rem] flex-col items-center justify-center gap-1 text-[.55rem] font-bold transition-colors ${activeNav === label ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))]'}`}>{label === 'Menü' ? <span className="nav-menu-orb grid size-11 -translate-y-3 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_7px_18px_rgba(117,36,218,.35)]"><Icon size={21} /></span> : <Icon size={18} strokeWidth={activeNav === label ? 2.5 : 1.8} />}{label !== 'Menü' && <span>{label}</span>}{label === 'Menü' && <span className="-mt-2">MENÜ</span>}{activeNav === label && label !== 'Menü' && <span className="absolute -bottom-1 size-1 rounded-full bg-[hsl(var(--primary))]" />}</button>)}
+        <div className="mx-auto flex h-[4.35rem] max-w-[40rem] items-center justify-around px-1">
+          {([
+            { label: 'Ana Sayfa', icon: HomeIcon },
+            { label: 'Sohbet', icon: MessageCircle },
+            { label: 'Menü', icon: Zap, orb: true },
+            { label: 'Oyunlar', icon: Gamepad2 },
+            { label: 'Profil', icon: UserRound },
+          ] as const).map(({ label, icon: Icon, orb }) => {
+            const active = orb ? menuOpen : label === 'Sohbet' ? chatOpen : activeNav === label;
+            return (
+              <button
+                data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`}
+                key={label}
+                onClick={() => handleNav(label)}
+                className={`relative flex min-w-[3.4rem] flex-col items-center justify-center gap-1 text-[.52rem] font-bold transition-colors ${active ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))]'}`}
+              >
+                {orb ? (
+                  <span className="nav-menu-orb grid size-12 -translate-y-3 place-items-center rounded-full bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white shadow-[0_7px_18px_rgba(117,36,218,.35)]">
+                    <Icon size={22} strokeWidth={2.4} />
+                  </span>
+                ) : (
+                  <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
+                )}
+                {!orb && <span>{label}</span>}
+                {active && !orb && <span className="absolute -bottom-1 size-1 rounded-full bg-[hsl(var(--primary))]" />}
+              </button>
+            );
+          })}
         </div>
       </nav>
 
-      {adminPanelOpen && <div data-testid="panel-admin" className="fixed inset-0 z-[60] overflow-y-auto bg-[#170b28]/55 p-3 backdrop-blur-sm sm:p-6">
-        <div className="mx-auto min-h-[calc(100dvh-1.5rem)] max-w-6xl overflow-hidden rounded-[1.5rem] border border-white/70 bg-[hsl(var(--background))] shadow-[0_30px_100px_rgba(27,10,50,.3)] sm:min-h-[calc(100dvh-3rem)]">
-          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] bg-white px-4 py-3 sm:px-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[linear-gradient(135deg,#8b2ce4,#5c1dab)] text-white shadow-md shadow-purple-200"><Shield size={19} /></div><div><p className="font-mono text-[.56rem] font-bold tracking-[.15em] text-[hsl(var(--primary))]">MOD CLUB YÖNETİMİ</p><h2 className="font-display text-lg font-bold">Admin paneli</h2></div></div><button data-testid="button-close-admin" aria-label="Admin panelini kapat" onClick={() => setAdminPanelOpen(false)} className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"><X size={18} /></button></div>
-          <div className="grid min-h-[calc(100dvh-7rem)] grid-rows-[auto_1fr] lg:grid-cols-[15rem_1fr] lg:grid-rows-1">
-            <aside className="border-b border-[hsl(var(--border))] bg-white p-3 lg:border-b-0 lg:border-r"><div className="hide-scrollbar flex gap-2 overflow-x-auto lg:block lg:space-y-1">{['Genel Bakış', 'Kullanıcılar', 'Bannerlar', 'Sayfalar'].map((section) => <button key={section} onClick={() => setAdminSection(section)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition-colors lg:w-full ${adminSection === section ? 'bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'}`}>{section === 'Genel Bakış' ? <LayoutDashboard size={16} /> : section === 'Kullanıcılar' ? <Users size={16} /> : section === 'Bannerlar' ? <Megaphone size={16} /> : <PanelRightOpen size={16} />}{section}</button>)}</div><div className="mt-5 hidden rounded-2xl bg-[linear-gradient(145deg,#27103f,#6120a2)] p-4 text-white lg:block"><ShieldCheck size={18} className="text-[#d69cff]" /><p className="mt-3 text-xs font-bold">Tam yetki açık</p><p className="mt-1 text-[.62rem] leading-relaxed text-white/65">Sayfaları, üyeleri ve topluluk içeriklerini buradan yönetebilirsin.</p></div></aside>
-            <section className="min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
-              {adminSection === 'Genel Bakış' && <div className="space-y-6"><div><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">KONTROL MERKEZİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Kulübün bugün nasıl?</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">MOD CLUB alanlarını tek ekrandan takip et ve düzenle.</p></div><div className="grid gap-3 sm:grid-cols-3"><div className="admin-stat-card"><UsersRound size={18} /><strong>12.548</strong><span>Toplam üye</span></div><div className="admin-stat-card admin-stat-pink"><Megaphone size={18} /><strong>{banners.length}</strong><span>Aktif banner</span></div><div className="admin-stat-card admin-stat-green"><ShieldCheck size={18} /><strong>184</strong><span>Çevrimiçi üye</span></div></div><div className="grid gap-4 md:grid-cols-2"><button onClick={() => setAdminSection('Kullanıcılar')} className="admin-action-card"><Users size={20} className="text-[hsl(var(--primary))]" /><span><strong>Kullanıcıları yönet</strong><small>Rolleri düzenle, kullanıcıları denetle.</small></span><ChevronRight size={17} /></button><button onClick={() => setAdminSection('Bannerlar')} className="admin-action-card"><Megaphone size={20} className="text-[hsl(var(--primary))]" /><span><strong>Bannerları düzenle</strong><small>Butonlu veya butonsuz yeni duyurular ekle.</small></span><ChevronRight size={17} /></button></div><div className="rounded-2xl border border-[#f3d8a0] bg-[#fff9e9] p-4 text-xs text-[#8f6d25]"><strong className="block">Admin notu</strong><span className="mt-1 block leading-relaxed">Sohbet başlığındaki çöp kutusu yalnızca admin hesabına görünür ve tüm geçmişi temizler.</span></div></div>}
+      {adminPanelOpen && (
+        <div data-testid="panel-admin" className="fixed inset-0 z-[60] overflow-y-auto bg-black/50 p-3 backdrop-blur-sm sm:p-5">
+          <div className="admin-panel mx-auto flex min-h-[calc(100dvh-1.5rem)] max-w-5xl flex-col overflow-hidden rounded-[1.35rem] border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--foreground))] shadow-2xl sm:min-h-[calc(100dvh-2.5rem)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-3 sm:px-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <ClubLogo size={36} className="club-logo-mark size-9" />
+                <div className="min-w-0">
+                  <p className="font-mono text-[.52rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">YÖNETİM</p>
+                  <h2 className="font-display text-base font-bold">Admin paneli</h2>
+                </div>
+              </div>
+              <button data-testid="button-close-admin" aria-label="Admin panelini kapat" onClick={() => setAdminPanelOpen(false)} className="grid size-9 place-items-center rounded-xl bg-[hsl(var(--muted))] text-[hsl(var(--foreground))]">
+                <X size={17} />
+              </button>
+            </div>
 
-              {adminSection === 'Kullanıcılar' && <div><div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÜYE YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Kullanıcılar</h3></div><span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">{adminUsers.length} kayıt</span></div><div className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white">{adminUsers.map((user) => <div key={user.id} className="flex flex-wrap items-center gap-3 border-b border-[hsl(var(--border))] p-3 last:border-b-0 sm:p-4"><img src={user.photo} alt={`${user.name} profil fotoğrafı`} className="size-10 rounded-full object-cover" /><div className="min-w-[9rem] flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold">{user.name}</p><span className={`rounded-full px-2 py-0.5 font-mono text-[.48rem] font-bold ${user.role === 'ADMIN' ? 'bg-[#fbe0ef] text-[#c13f87]' : user.role === 'MODERATOR' ? 'bg-[#eadbff] text-[#7837bd]' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'}`}>{user.role}</span></div><p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{user.email} · <span className={user.status === 'Çevrimiçi' ? 'text-[#39a861]' : ''}>{user.status}</span></p></div><div className="flex items-center gap-1.5"><button onClick={() => setAdminUsers((users) => users.map((item) => item.id === user.id ? { ...item, role: item.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE' } : item))} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-2 text-[.58rem] font-bold hover:border-[hsl(var(--primary)/.35)] hover:text-[hsl(var(--primary))]">{user.role === 'ÜYE' ? 'Mod. yap' : 'Üyeye çevir'}</button><button aria-label={`${user.name} kullanıcısını sil`} onClick={() => setAdminUsers((users) => users.filter((item) => item.id !== user.id))} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))] hover:bg-red-50"><Trash2 size={15} /></button></div></div>)}</div></div>}
+            <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[13.5rem_1fr]">
+              <aside className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2.5 lg:border-b-0 lg:border-r">
+                <div className="hide-scrollbar flex gap-1.5 overflow-x-auto lg:flex-col">
+                  {(['Genel Bakış', 'Bildirimler', 'Kullanıcılar', 'Bannerlar', 'Çekilişler', 'Filmler', 'Uygulamalar', 'Sayfalar'] as const).map((section) => (
+                    <button
+                      key={section}
+                      onClick={() => setAdminSection(section)}
+                      className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold lg:w-full ${adminSection === section ? 'bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]'}`}
+                    >
+                      {section === 'Genel Bakış' ? <LayoutDashboard size={15} /> : section === 'Bildirimler' ? <Bell size={15} /> : section === 'Kullanıcılar' ? <Users size={15} /> : section === 'Bannerlar' ? <Megaphone size={15} /> : section === 'Çekilişler' ? <Gift size={15} /> : section === 'Filmler' ? <Film size={15} /> : section === 'Uygulamalar' ? <Download size={15} /> : <PanelRightOpen size={15} />}
+                      {section}
+                    </button>
+                  ))}
+                </div>
+              </aside>
 
-              {adminSection === 'Bannerlar' && <div><div className="mb-5"><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">İÇERİK YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Bannerlar</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Ana sayfa bannerlarını ekle, kaldır ve buton görünürlüğünü belirle.</p></div><form onSubmit={(event) => { event.preventDefault(); addBanner(); }} className="mb-6 rounded-2xl border border-[hsl(var(--border))] bg-white p-4 sm:p-5"><div className="mb-4 flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Plus size={16} /></span><strong className="text-sm">Yeni banner ekle</strong></div><div className="grid gap-3 sm:grid-cols-2"><input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="Banner başlığı" className="h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-3 text-xs outline-none focus:border-[hsl(var(--primary))]" /><input value={bannerCopy} onChange={(event) => setBannerCopy(event.target.value)} placeholder="Kısa açıklama" className="h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-3 text-xs outline-none focus:border-[hsl(var(--primary))]" /></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><label className="flex cursor-pointer items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={bannerHasButton} onChange={(event) => setBannerHasButton(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />Banner üzerinde buton göster</label><button type="submit" className="flex items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-4 py-2.5 text-xs font-bold text-white hover:bg-[hsl(var(--primary))]"><Plus size={15} />Banner ekle</button></div></form><div className="grid gap-3">{banners.map((banner, index) => <div key={banner.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[hsl(var(--border))] bg-white p-3 sm:p-4"><div className="grid size-14 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#21063b,#8f31e1)] text-white"><Megaphone size={20} /></div><div className="min-w-[10rem] flex-1"><p className="font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--primary))]">{banner.eyebrow}</p><p className="mt-1 text-sm font-bold">{banner.title} <span className="font-normal text-[hsl(var(--primary))]">{banner.accent}</span></p><p className="mt-1 line-clamp-1 text-[.62rem] text-[hsl(var(--muted-foreground))]">{banner.copy}</p></div><span className={`rounded-full px-2 py-1 font-mono text-[.5rem] font-bold ${banner.hasButton ? 'bg-[#e4f7e8] text-[#319555]' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'}`}>{banner.hasButton ? 'BUTONLU' : 'BUTONSUZ'}</span><button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { setBanners((items) => items.filter((item) => item.id !== banner.id)); setSlide((current) => Math.min(current, Math.max(0, banners.length - 2))); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 size={16} /></button></div>)}</div></div>}
+              <section className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {adminSection === 'Genel Bakış' && (
+                  <div className="space-y-5">
+                    <div>
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">KONTROL</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Özet</h3>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="admin-stat-card"><UsersRound size={16} className="text-[hsl(var(--primary))]" /><strong>12.548</strong><span>Toplam üye</span></div>
+                      <div className="admin-stat-card"><Gift size={16} className="text-[hsl(var(--primary))]" /><strong>{giveaways.length}</strong><span>Çekiliş</span></div>
+                      <div className="admin-stat-card"><ShieldCheck size={16} className="text-[hsl(var(--primary))]" /><strong>{openGiveaways.length}</strong><span>Açık çekiliş</span></div>
+                    </div>
+                    <div className="grid gap-2">
+                      <button onClick={() => setAdminSection('Bildirimler')} className="admin-action-card"><Bell size={18} className="text-[hsl(var(--primary))]" /><span><strong>Bildirim gönder</strong><small>Tüm cihazlara kayan duyuru</small></span><ChevronRight size={16} /></button>
+                      <button onClick={() => setAdminSection('Çekilişler')} className="admin-action-card"><Gift size={18} className="text-[hsl(var(--primary))]" /><span><strong>Çekilişler</strong><small>Tarih, ödül ve kazanan</small></span><ChevronRight size={16} /></button>
+                      <button onClick={() => setAdminSection('Filmler')} className="admin-action-card"><Film size={18} className="text-[hsl(var(--primary))]" /><span><strong>Film İzle</strong><small>Site, açıklama ve link</small></span><ChevronRight size={16} /></button>
+                      <button onClick={() => setAdminSection('Uygulamalar')} className="admin-action-card"><Download size={18} className="text-[hsl(var(--primary))]" /><span><strong>Uygulama İndir</strong><small>Resim, açıklama ve indirme</small></span><ChevronRight size={16} /></button>
+                      <button onClick={() => setAdminSection('Bannerlar')} className="admin-action-card"><Megaphone size={18} className="text-[hsl(var(--primary))]" /><span><strong>Bannerlar</strong><small>Ana sayfa duyuruları</small></span><ChevronRight size={16} /></button>
+                    </div>
+                    <div className="admin-note"><strong>Not</strong><span>Çekiliş süre bitince kazanan otomatik seçilir. Sohbette nick görünür, ID nicke dokununca açılır.</span></div>
+                  </div>
+                )}
 
-              {adminSection === 'Sayfalar' && <div><div className="mb-5"><p className="font-mono text-[.58rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">GÖRÜNÜM YÖNETİMİ</p><h3 className="mt-1 font-display text-2xl font-bold tracking-[-.05em]">Sayfalar</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Üyelerin erişebileceği MOD CLUB alanlarını yönet.</p></div><div className="grid gap-3">{managedPages.map((page) => <div key={page.name} className="flex items-center gap-3 rounded-2xl border border-[hsl(var(--border))] bg-white p-4"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]">{page.name === 'Ana Sayfa' ? <HomeIcon size={18} /> : page.name === 'Etkinlikler' ? <CalendarDays size={18} /> : page.name === 'Menü' ? <Menu size={18} /> : <UserRound size={18} />}</div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{page.name}</p><p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{page.description}</p></div><button role="switch" aria-checked={page.enabled} onClick={() => setManagedPages((pages) => pages.map((item) => item.name === page.name ? { ...item, enabled: !item.enabled } : item))} className={`relative h-7 w-12 rounded-full p-1 transition-colors ${page.enabled ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--muted-foreground)/.35)]'}`}><span className={`block size-5 rounded-full bg-white shadow-sm transition-transform ${page.enabled ? 'translate-x-5' : ''}`} /></button></div>)}</div></div>}
-            </section>
+                {adminSection === 'Bildirimler' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">DUYURU</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Bildirim gönder</h3>
+                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Yazdığın metin tüm açık cihazlarda kayarak görünür. Bildirim izni varsa telefona da gider.</p>
+                    </div>
+                    <form
+                      onSubmit={(event) => { event.preventDefault(); void sendAdminBroadcast(); }}
+                      className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4"
+                    >
+                      <input
+                        data-testid="input-broadcast-title"
+                        value={broadcastTitle}
+                        onChange={(event) => setBroadcastTitle(event.target.value)}
+                        placeholder="Başlık (ör. Duyuru)"
+                        maxLength={80}
+                        className="admin-field"
+                      />
+                      <textarea
+                        data-testid="input-broadcast-body"
+                        value={broadcastBody}
+                        onChange={(event) => setBroadcastBody(event.target.value)}
+                        placeholder="Tüm üyelere gidecek mesajı yaz..."
+                        maxLength={280}
+                        rows={4}
+                        className="admin-field admin-area"
+                      />
+                      <p className="text-[.58rem] font-semibold text-[hsl(var(--muted-foreground))]">{broadcastBody.length}/280</p>
+                      <button type="submit" data-testid="button-broadcast-send" disabled={broadcastSending} className="admin-btn">
+                        <Send size={15} />{broadcastSending ? 'Gönderiliyor...' : 'Bildirim gönder'}
+                      </button>
+                    </form>
+                    {broadcastLog.length > 0 && (
+                      <div className="grid gap-2">
+                        {broadcastLog.map((item) => (
+                          <div key={item.id} className="admin-row">
+                            <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Bell size={16} /></span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold">{item.title}</p>
+                              <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.body}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {adminSection === 'Kullanıcılar' && (
+                  <div>
+                    <div className="mb-4 flex items-end justify-between gap-3">
+                      <div>
+                        <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÜYELER</p>
+                        <h3 className="mt-1 font-display text-xl font-bold">Kullanıcılar</h3>
+                        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">ELDER / ASSTN yalnızca görsel unvandır.</p>
+                      </div>
+                      <span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">{adminUsers.length}</span>
+                    </div>
+                    <div className="grid gap-2">
+                      {adminUsers.map((member) => {
+                        const memberTitle = cosmeticTitles[member.nick.toLowerCase()];
+                        return (
+                          <div key={member.id} className="admin-row">
+                            <img src={member.photo} alt="" className="size-10 rounded-full object-cover" />
+                            <div className="min-w-[8rem] flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <RankedName name={member.nick} role={member.role} title={memberTitle} size="sm" onDark={colorMode === 'dark'} />
+                                <span className="rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 font-mono text-[.48rem] font-bold text-[hsl(var(--muted-foreground))]">{member.role}</span>
+                              </div>
+                              <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">@{member.nick} · {member.status}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; setCosmeticTitle(member.nick, next || null); setCosmeticTitles(readCosmeticTitles()); setNotice(next ? `${member.nick} artık ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[6.5rem] px-2 text-[.58rem] font-bold">
+                                <option value="">Unvan yok</option>
+                                <option value="ELDER">ELDER</option>
+                                <option value="ASSTN">ASSTN</option>
+                              </select>
+                              {member.role !== 'ADMIN' && (
+                                <button onClick={() => setAdminUsers((users) => users.map((item) => { if (item.id !== member.id) return item; const role = item.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE'; const account = readAccounts().find((entry) => entry.nick.toLowerCase() === item.nick.toLowerCase() || entry.username.toLowerCase() === item.nick.toLowerCase()); if (account) upsertAccount({ ...account, role }); return { ...item, role }; }))} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-1.5 text-[.58rem] font-bold text-[hsl(var(--foreground))]">
+                                  {member.role === 'ÜYE' ? 'Yetkili yap' : 'Üyeye çevir'}
+                                </button>
+                              )}
+                              <button aria-label={`${member.name} kullanıcısını sil`} onClick={() => setAdminUsers((users) => users.filter((item) => item.id !== member.id))} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={15} /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Bannerlar' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">İÇERİK</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Bannerlar</h3>
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addBanner(); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
+                      <input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="Başlık" className="admin-field" />
+                      <input value={bannerCopy} onChange={(event) => setBannerCopy(event.target.value)} placeholder="Kısa açıklama" className="admin-field" />
+                      <label className="flex items-center gap-2 text-xs font-semibold text-[hsl(var(--foreground))]">
+                        <input type="checkbox" checked={bannerHasButton} onChange={(event) => setBannerHasButton(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />
+                        Buton göster
+                      </label>
+                      <button type="submit" className="admin-btn"><Plus size={15} />Banner ekle</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {banners.map((banner) => (
+                        <div key={banner.id} className="admin-row">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold">{banner.title} <span className="font-normal text-[hsl(var(--primary))]">{banner.accent}</span></p>
+                            <p className="mt-0.5 truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{banner.copy}</p>
+                          </div>
+                          <button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { setBanners((items) => items.filter((item) => item.id !== banner.id)); setSlide((current) => Math.min(current, Math.max(0, banners.length - 2))); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] disabled:opacity-30"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Çekilişler' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÖDÜL</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Çekilişler</h3>
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addGiveaway(); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <input value={giveawayTitle} onChange={(event) => setGiveawayTitle(event.target.value)} placeholder="Çekiliş adı" className="admin-field" />
+                      <input value={giveawayPrize} onChange={(event) => setGiveawayPrize(event.target.value)} placeholder="Ödül" className="admin-field" />
+                      <input value={giveawayImage} onChange={(event) => setGiveawayImage(event.target.value)} placeholder="Ödül resmi linki" className="admin-field" />
+                      <input type="datetime-local" value={giveawayWhen} onChange={(event) => setGiveawayWhen(event.target.value)} className="admin-field" />
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Çekiliş yayınla</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {giveaways.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          {item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-cover" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Gift size={18} /></div>}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold">{item.title}</p>
+                            <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül yok'} · {item.participants.length} katılım{item.winner ? ` · ${item.winner}` : ''}</p>
+                          </div>
+                          <button aria-label={`${item.title} çekilişini sil`} onClick={() => persistGiveaways(giveaways.filter((current) => current.id !== item.id))} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Filmler' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">İÇERİK</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Film İzle</h3>
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addContentCard('film'); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <input value={filmTitle} onChange={(event) => setFilmTitle(event.target.value)} placeholder="Film / site adı" className="admin-field" />
+                      <input value={filmLink} onChange={(event) => setFilmLink(event.target.value)} placeholder="Site linki" className="admin-field" />
+                      <input value={filmImage} onChange={(event) => setFilmImage(event.target.value)} placeholder="Kapak resmi" className="admin-field" />
+                      <input value={filmCopy} onChange={(event) => setFilmCopy(event.target.value)} placeholder="Açıklama" className="admin-field" />
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Film kartı ekle</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {films.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Film size={16} /></span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.link}</p></div>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = films.filter((current) => current.id !== item.id); saveFilms(items); setFilms(items); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Uygulamalar' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">İÇERİK</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Uygulama İndir</h3>
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addContentCard('app'); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <input value={appTitle} onChange={(event) => setAppTitle(event.target.value)} placeholder="Uygulama adı" className="admin-field" />
+                      <input value={appLink} onChange={(event) => setAppLink(event.target.value)} placeholder="İndirme linki" className="admin-field" />
+                      <input value={appImage} onChange={(event) => setAppImage(event.target.value)} placeholder="Uygulama resmi" className="admin-field" />
+                      <input value={appCopy} onChange={(event) => setAppCopy(event.target.value)} placeholder="Açıklama" className="admin-field" />
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Uygulama ekle</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {apps.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Download size={16} /></span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.link}</p></div>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = apps.filter((current) => current.id !== item.id); saveApps(items); setApps(items); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Sayfalar' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">GÖRÜNÜM</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Sayfalar</h3>
+                    </div>
+                    <div className="grid gap-2">
+                      {managedPages.map((page) => (
+                        <div key={page.name} className="admin-row">
+                          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]">
+                            {page.name === 'Ana Sayfa' ? <HomeIcon size={16} /> : page.name === 'Etkinlikler' ? <CalendarDays size={16} /> : page.name === 'Menü' ? <Menu size={16} /> : <UserRound size={16} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold">{page.name}</p>
+                            <p className="text-[.62rem] text-[hsl(var(--muted-foreground))]">{page.description}</p>
+                          </div>
+                          <button role="switch" aria-checked={page.enabled} onClick={() => setManagedPages((pages) => pages.map((item) => item.name === page.name ? { ...item, enabled: !item.enabled } : item))} className={`relative h-7 w-12 rounded-full p-1 ${page.enabled ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--muted))]'}`}>
+                            <span className={`block size-5 rounded-full bg-[hsl(var(--primary-foreground))] shadow-sm transition-transform ${page.enabled ? 'translate-x-5' : ''}`} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
           </div>
+        </div>
+      )}
+
+      {giveawayOpen && <div data-testid="panel-giveaways" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setGiveawayOpen(false)}>
+        <div className="max-h-[min(40rem,calc(100dvh-2rem))] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className="mb-4 flex items-start justify-between">
+            <div><p className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÇEKİLİŞLER</p><h2 className="mt-1 font-display text-xl font-bold">Çekilişe katıl</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Katılım son ana kadar açık. Süre bitince kazanan otomatik açıklanır.</p></div>
+            <button type="button" aria-label="Çekilişleri kapat" onClick={() => setGiveawayOpen(false)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button>
+          </div>
+          {giveaways.length === 0 ? <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Admin henüz çekiliş açmadı. Buton o zaman aktif olur.</p> : (
+            <div className="grid gap-3">
+              {giveaways.map((item) => {
+                const status = giveawayStatus(item, now);
+                const joined = item.participants.includes(nick);
+                const announceAt = new Date(item.announceAt).getTime();
+                return (
+                  <article key={item.id} className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.25)]">
+                    {item.prizeImage && <img src={item.prizeImage} alt={item.title} className="h-32 w-full object-cover" />}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül açıklaması yok'}</p></div>
+                        <span className="rounded-full bg-white px-2 py-1 font-mono text-[.5rem] font-bold text-[hsl(var(--primary))]">{item.participants.length} kişi</span>
+                      </div>
+                      <p className="mt-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">
+                        {status === 'open' && <>Kalan süre: {formatCountdown(announceAt, now)}</>}
+                        {status === 'announced' && <>Kazanan: <strong className="text-[hsl(var(--foreground))]">{item.winner || 'Katılım yok'}</strong></>}
+                      </p>
+                      <button type="button" disabled={status !== 'open' || joined} onClick={() => joinGiveaway(item.id)} className="giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide disabled:opacity-40">
+                        <Gift size={15} />{joined ? 'Katıldın' : status === 'open' ? 'Çekilişe Katıl' : 'Açıklandı'}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>}
 
       {selectedAnnouncement && <div data-testid="modal-announcement" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setSelectedAnnouncement(null)}><div className="w-full max-w-md rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-start justify-between"><div><span className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">{selectedAnnouncement.tag}</span><h2 className="mt-1 font-display text-xl font-bold">{selectedAnnouncement.title}</h2></div><button data-testid="button-close-announcement" aria-label="Duyuruyu kapat" onClick={() => setSelectedAnnouncement(null)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button></div><p className="text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{selectedAnnouncement.copy}</p><button data-testid="button-announcement-done" onClick={() => { setSelectedAnnouncement(null); setNotice('Duyuru okundu olarak işaretlendi'); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] py-3 text-sm font-bold text-white">Anladım <Check size={16} /></button></div></div>}
 
       {chatOpen && <div data-testid="panel-chat" className="fixed bottom-[5.7rem] right-2 z-40 flex h-[min(38rem,calc(100dvh-8rem))] w-[min(25rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[1.35rem] border border-[hsl(var(--border))] bg-white shadow-[0_18px_60px_rgba(55,22,104,.25)] sm:bottom-7 sm:right-6">
+        {chatProfile && (
+          <div className="chat-profile-overlay" onClick={() => setChatProfile(null)}>
+            <div className="chat-profile-card" data-testid="card-chat-profile" onClick={(event) => event.stopPropagation()}>
+              <button type="button" aria-label="Profil kartını kapat" onClick={() => setChatProfile(null)} className="absolute right-2 top-2 grid size-8 place-items-center rounded-lg text-[hsl(var(--muted-foreground))]"><X size={16} /></button>
+              <img src={chatProfile.photo} alt="" className="mx-auto size-20 rounded-full object-cover ring-4 ring-[hsl(var(--secondary))]" />
+              <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Takma ad</p>
+              <p className="mt-0.5 font-display text-lg font-bold">{chatProfile.nick}</p>
+              <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">ID</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-[hsl(var(--primary))]">{getAppId(chatProfile.nick) || 'ID yok'}</p>
+              <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Yetki</p>
+              <p className="mt-0.5 text-sm font-extrabold">{yetkiLabel(chatProfile.role, chatProfile.title)}</p>
+            </div>
+          </div>
+        )}
         <div className="flex shrink-0 items-center justify-between bg-[linear-gradient(105deg,#281043,#6820ae)] px-4 py-3 text-white">
-          <div className="flex min-w-0 items-center gap-3"><div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-1 ring-white/20"><img src="https://i.pravatar.cc/96?img=12" alt="" className="size-full object-cover" /><span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#54208b] bg-[#63dd89]" /></div><div className="min-w-0"><p className="truncate font-display text-sm font-bold">MOD Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
-          <div className="flex items-center gap-0.5">{isAdmin && <button data-testid="button-delete-chat-history" aria-label="Tüm sohbet geçmişini sil" onClick={clearChatHistory} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trash2 size={16} /></button>}<button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => setChatOpen(false)} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+          <div className="flex min-w-0 items-center gap-3"><ClubLogo size={44} className="club-logo-mark size-11 shrink-0" /><div className="min-w-0"><p className="truncate font-display text-sm font-bold">Sohbet</p><p className="text-[.63rem] text-white/65">2.548 üye · 184 çevrimiçi</p></div></div>
+          <div className="flex items-center gap-0.5">{isAdmin && <button data-testid="button-delete-chat-history" aria-label="Tüm sohbet geçmişini sil" onClick={clearChatHistory} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-red-400/20 hover:text-white"><Trash2 size={16} /></button>}<button type="button" data-testid="button-chat-mute-panel" aria-label={chatMuted ? 'Sohbet bildirimlerini aç' : 'Sessize al'} onClick={toggleChatMute} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white">{chatMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><button data-testid="button-chat-more" aria-label="Sohbet seçenekleri" onClick={() => setNotice('Sohbet seçenekleri')} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><MoreVertical size={18} /></button><button data-testid="button-close-chat" aria-label="Sohbeti kapat" onClick={() => { setChatProfile(null); setChatOpen(false); }} className="grid size-9 place-items-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
         </div>
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
           <div className="space-y-3">
-            {chatMessages.length === 0 ? <div className="flex min-h-full flex-col items-center justify-center py-10 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-white text-[hsl(var(--primary))] shadow-sm"><Trash2 size={22} /></div><p className="mt-3 text-xs font-bold">Sohbet geçmişi temizlendi</p><p className="mt-1 max-w-[15rem] text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Yeni bir mesaj göndererek sohbeti yeniden başlatabilirsin.</p></div> : chatMessages.map((message) => <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
-              {!message.mine && <span className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={message.photo} alt={`${message.author} profil fotoğrafı`} className="size-full object-cover" /></span>}
-              <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
-                {!message.mine && <div className="mb-1 ml-1"><span className={message.role ? 'moderator-label mb-1 block w-fit' : 'hidden'}>{message.role}</span><p className={`text-[.6rem] font-bold ${message.role ? 'moderator-name' : 'text-[hsl(var(--primary))]'}`}>{message.author}</p></div>}
-                <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
-                  {message.mine && message.role && <div className="mb-1 text-right"><span className="moderator-label mb-1 inline-block">{message.role}</span><p className="moderator-name text-[.6rem] font-bold">{message.author}</p></div>}
-                  {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
-                  <p className="text-[.72rem] leading-relaxed">{message.message}</p>
-                  <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
+            {chatMessages.length === 0 ? <div className="flex min-h-full flex-col items-center justify-center py-10 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-white text-[hsl(var(--primary))] shadow-sm"><Trash2 size={22} /></div><p className="mt-3 text-xs font-bold">Sohbet geçmişi temizlendi</p><p className="mt-1 max-w-[15rem] text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Yeni bir mesaj göndererek sohbeti yeniden başlatabilirsin.</p></div> : chatMessages.map((message) => {
+              if (message.kind === 'winner') {
+                return (
+                  <article key={message.id} className="giveaway-win-card mx-auto w-[min(100%,18rem)] overflow-hidden rounded-2xl border border-amber-300/70 bg-[linear-gradient(160deg,#1a0b2e,#3b1468_55%,#6b21a8)] text-white shadow-[0_12px_28px_rgba(88,28,135,.35)]">
+                    <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+                      <Gift size={14} className="text-amber-300" />
+                      <span className="font-mono text-[.5rem] font-extrabold tracking-[.16em] text-amber-200">ÇEKİLİŞ SONUCU</span>
+                    </div>
+                    {message.prizeImage && <img src={message.prizeImage} alt="" className="h-24 w-full object-cover" />}
+                    <div className="px-3 py-3">
+                      <p className="text-[.58rem] font-bold uppercase tracking-[.12em] text-amber-200/90">Kazanan</p>
+                      <p className="mt-0.5 font-display text-lg font-bold leading-none">{message.winner}</p>
+                      <p className="mt-2 text-[.68rem] text-white/80">{message.prizeTitle}</p>
+                      <p className="mt-1 text-[.72rem] font-extrabold text-amber-200">{message.prizeText || 'Ödül'}</p>
+                    </div>
+                  </article>
+                );
+              }
+              if (message.kind === 'mute') {
+                const left = message.winner ? activeChatTimeout(message.winner, now) : null;
+                return (
+                  <div key={message.id} className="mx-auto flex w-[min(100%,18rem)] items-start gap-2 rounded-2xl border border-rose-200 bg-[#fff5f6] px-3 py-2 text-[#9f1239]">
+                    <MicOff size={14} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[.68rem] font-extrabold">{message.winner} susturuldu</p>
+                      <p className="mt-0.5 text-[.58rem] leading-relaxed text-[#be123c]/80">{message.muteLabel} · {message.mutedBy}{left ? ` · kalan ${formatMuteRemaining(left.until, now)}` : ''}</p>
+                    </div>
+                  </div>
+                );
+              }
+              const authorMuted = Boolean(activeChatTimeout(message.author, now));
+              const authorTitle = message.title || cosmeticTitles[message.author.toLowerCase()];
+              return (
+                <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
+                  {!message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={avatarFor(message.author, message.photo)} alt="" className="size-full object-cover" /></button>}
+                  <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
+                    {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle} muted={authorMuted} revealId /></div>}
+                    <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
+                      {message.mine && <div className="mb-1 flex justify-end"><RankedName name={message.author} role={message.role} title={authorTitle} align="end" onDark muted={authorMuted} revealId /></div>}
+                      {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
+                      <p className="text-[.72rem] leading-relaxed">{message.message}</p>
+                      <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
+                    </div>
+                    <div className={`absolute -bottom-3 flex gap-1 ${message.mine ? '-left-16' : '-right-16'}`}>
+                      <button type="button" onClick={() => setReplyTo(message)} className="grid size-7 place-items-center rounded-full border border-[hsl(var(--border))] bg-white text-[hsl(var(--muted-foreground))] opacity-0 shadow-sm transition-opacity hover:text-[hsl(var(--primary))] group-hover:opacity-100" aria-label={`${message.author} mesajını yanıtla`}><Reply size={13} /></button>
+                      {canMuteAuthor(message) && (
+                        <span className="relative">
+                          <button type="button" onClick={() => { const live = activeChatTimeout(message.author); if (live) liftMute(message.author); else startMute(message.author); }} className="grid size-7 place-items-center rounded-full border border-rose-200 bg-white text-[#be123c] opacity-0 shadow-sm transition-opacity hover:bg-rose-50 group-hover:opacity-100" aria-label={activeChatTimeout(message.author) ? `${message.author} susturmasını kaldır` : `${message.author} kullanıcısını sustur`}><MicOff size={13} /></button>
+                          {isAdmin && muteTarget === message.author && (
+                            <div className="absolute bottom-8 right-0 z-20 w-36 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-white py-1 shadow-lg">
+                              {ADMIN_MUTE_OPTIONS.map((option) => (
+                                <button key={option.label} type="button" onClick={() => applyMute(message.author, option.ms, option.label)} className="block w-full px-3 py-1.5 text-left text-[.62rem] font-bold hover:bg-rose-50">{option.label}</button>
+                              ))}
+                            </div>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={myPhoto} alt="" className="size-full object-cover" /></button>}
                 </div>
-                <button type="button" onClick={() => setReplyTo(message)} className={`absolute -bottom-3 ${message.mine ? '-left-8' : '-right-8'} grid size-7 place-items-center rounded-full border border-[hsl(var(--border))] bg-white text-[hsl(var(--muted-foreground))] opacity-0 shadow-sm transition-opacity hover:text-[hsl(var(--primary))] group-hover:opacity-100`} aria-label={`${message.author} mesajını yanıtla`}><Reply size={13} /></button>
-              </div>
-              {message.mine && <span className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={message.photo} alt={`${message.author} profil fotoğrafı`} className="size-full object-cover" /></span>}
-            </div>)}
+              );
+            })}
           </div>
           <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Kaydırarak veya oka basarak cevapla</span></div>
         </div>
         {replyTo && <div className="flex shrink-0 items-center gap-2 border-t border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.55)] px-3 py-2"><Reply size={15} className="shrink-0 text-[hsl(var(--primary))]" /><div className="min-w-0 flex-1 border-l-2 border-[hsl(var(--primary))] pl-2"><p className="text-[.59rem] font-bold text-[hsl(var(--primary))]">{replyTo.author} yanıtlanıyor</p><p className="truncate text-[.63rem] text-[hsl(var(--muted-foreground))]">{replyTo.message}</p></div><button type="button" aria-label="Yanıtlamayı iptal et" onClick={() => setReplyTo(null)} className="grid size-7 place-items-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-white"><X size={14} /></button></div>}
         <div className="relative shrink-0 border-t border-[hsl(var(--border))] bg-white p-2.5">
           {emojiPickerOpen && <div data-testid="panel-emoji-picker" className="absolute bottom-[4.35rem] left-2 z-10 grid w-[min(18rem,calc(100vw-2rem))] grid-cols-6 gap-1 rounded-2xl border border-[hsl(var(--border))] bg-white p-2.5 shadow-[0_12px_35px_rgba(56,25,107,.18)]">{chatEmojis.map((emoji) => <button type="button" key={emoji} onClick={() => { setChatText((current) => `${current}${emoji}`); chatInputRef.current?.focus(); }} className="grid size-9 place-items-center rounded-lg text-xl transition-colors hover:bg-[hsl(var(--muted))]">{emoji}</button>)}</div>}
+          {selfMute ? (
+            <div className="flex items-center gap-2 rounded-2xl bg-[#fff5f6] px-3 py-2.5 text-[#9f1239]">
+              <MicOff size={16} className="shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[.7rem] font-extrabold">Susturuldun</p>
+                <p className="text-[.58rem]">{selfMute.label} · kalan {formatMuteRemaining(selfMute.until, now)}</p>
+              </div>
+            </div>
+          ) : !user.appId ? (
+            <div className="flex items-center gap-2 rounded-2xl bg-[hsl(var(--secondary))] px-3 py-2.5">
+              <KeyRound size={16} className="shrink-0 text-[hsl(var(--primary))]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[.7rem] font-extrabold">Sohbet için uygulama ID’si gerekli</p>
+                <p className="text-[.58rem] text-[hsl(var(--muted-foreground))]">Profilinden uygulamanın içindeki ID’ni gir.</p>
+              </div>
+              <button type="button" onClick={() => { setChatOpen(false); handleNav('Profil'); }} className="rounded-lg bg-[hsl(var(--primary))] px-2.5 py-1.5 text-[.6rem] font-bold text-white">Profil</button>
+            </div>
+          ) : (
           <form className="flex items-end gap-1.5" onSubmit={(event) => { event.preventDefault(); sendChat(); }}>
             <button type="button" aria-label="Dosya ekle" onClick={() => setNotice('Dosya ekleme yakında')} className="grid size-10 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--primary))]"><Paperclip size={18} /></button>
             <div className="flex min-h-10 min-w-0 flex-1 items-end rounded-2xl bg-[hsl(var(--muted)/.7)] px-3 py-1"><textarea ref={chatInputRef} data-testid="input-chat" rows={1} value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); } }} placeholder="Mesaj yaz..." className="max-h-24 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[.72rem] leading-relaxed outline-none placeholder:text-[hsl(var(--muted-foreground))]" /><button type="button" aria-label="Emoji seç" onClick={() => setEmojiPickerOpen((open) => !open)} className="grid size-8 shrink-0 place-items-center rounded-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]"><Smile size={18} /></button></div>
             <button data-testid="button-send-chat" aria-label="Mesaj gönder" type="submit" disabled={!chatText.trim()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[hsl(var(--primary))] text-white shadow-md shadow-violet-200 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"><Send size={16} /></button>
           </form>
-          <p className="mt-1 hidden pl-12 text-[.52rem] text-[hsl(var(--muted-foreground))] sm:block">Enter gönderir · Shift + Enter yeni satır</p>
+          )}
+          <p className="mt-1 hidden pl-12 text-[.52rem] text-[hsl(var(--muted-foreground))] sm:block">{selfMute ? 'Susturma bitince yazabilirsin' : 'Enter gönderir · Shift + Enter yeni satır'}</p>
         </div>
       </div>}
+
+      {ticker && (
+        <div className="club-ticker" data-testid="ticker-broadcast" role="status" aria-live="polite">
+          <span className="club-ticker-icon" aria-hidden="true"><Bell size={14} /></span>
+          <div className="club-ticker-mask">
+            <div className="club-ticker-track">
+              <span><strong>{ticker.title}</strong> {ticker.body}</span>
+              <span aria-hidden="true"><strong>{ticker.title}</strong> {ticker.body}</span>
+            </div>
+          </div>
+          <button type="button" data-testid="button-ticker-close" aria-label="Kayan bildirimi kapat" onClick={() => setTicker(null)} className="club-ticker-close">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {notifyPromptOpen && (
+        <div className="fixed inset-x-3 bottom-[5.5rem] z-[45] mx-auto max-w-md rounded-2xl border border-violet-200 bg-white p-4 shadow-[0_18px_50px_rgba(76,29,149,.22)] sm:bottom-8">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white"><Bell size={18} /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">Telefon bildirimleri</p>
+              <p className="mt-1 text-[.72rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Çekiliş açılınca ve sohbette mesaj gelince tüm telefonlara bildirim gitsin. Arka planda da çalışır.</p>
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={() => void allowPhoneNotify()} className="rounded-xl bg-[hsl(var(--primary))] px-3 py-2 text-[.68rem] font-bold text-white">İzin ver</button>
+                <button type="button" onClick={() => { markNotifyPrompted(); setNotifyPromptOpen(false); }} className="rounded-xl bg-[hsl(var(--muted))] px-3 py-2 text-[.68rem] font-bold text-[hsl(var(--muted-foreground))]">Şimdi değil</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const installSteps = ['Hoş geldin', 'Veritabanı kurulumu', 'Admin hesabı', 'MOD CLUB ayarları', 'Tema seçimi', 'Kurulum tamamlandı'];
 
-function InstallWizard() {
+function InstallWizard({ onInstalled }: { onInstalled?: () => void }) {
   const [, setLocation] = useLocation();
   const [step, setStep] = useState(0);
   const [clubName, setClubName] = useState('MOD CLUB');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
+  const [adminUsername, setAdminUsername] = useState('admin');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
   const [theme, setTheme] = useState('electric');
-  const [installed, setInstalled] = useState(() => typeof window !== 'undefined' && window.localStorage.getItem('mod-club-installed') === 'true');
+  const [wasInstalled] = useState(() => typeof window !== 'undefined' && isClubInstalled());
 
-  const finishInstall = () => {
+  const finishInstall = async () => {
+    const settings: ClubSettings = {
+      clubName: clubName.trim() || 'MOD CLUB',
+      adminName: adminName.trim(),
+      adminEmail: adminEmail.trim(),
+      adminUsername: adminUsername.trim(),
+      adminPassword: adminPassword.trim(),
+      theme,
+    };
+    try {
+      const saved = await saveServerSetup(settings);
+      cachePublicSetup(saved);
+    } catch {
+      window.localStorage.setItem('mod-club-installed', 'true');
+    }
     window.localStorage.setItem('mod-club-installed', 'true');
-    window.localStorage.setItem('mod-club-settings', JSON.stringify({ clubName, adminName, adminEmail, theme }));
-    setInstalled(true);
+    window.localStorage.setItem('mod-club-settings', JSON.stringify(settings));
+    writeAdminSession(settings);
     setStep(5);
   };
 
-  if (installed) {
+  const enterApp = () => {
+    onInstalled?.();
+    setLocation('/');
+  };
+
+  if (wasInstalled) {
     return (
       <div className="install-page grain min-h-[100dvh] px-4 py-8 sm:px-6">
         <div className="install-card mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col justify-center rounded-[2rem] border border-[hsl(var(--border))] bg-white p-6 shadow-[0_24px_80px_rgba(81,38,145,.12)] sm:p-10">
@@ -394,25 +2129,25 @@ function InstallWizard() {
     );
   }
 
-  const canContinue = step !== 2 || (adminName.trim().length > 1 && adminEmail.includes('@'));
+  const canContinue = step !== 2 || (adminName.trim().length > 1 && adminEmail.includes('@') && adminUsername.trim().length >= 3 && adminPassword.trim().length >= 4);
   return (
     <div className="install-page grain min-h-[100dvh] px-4 py-6 sm:px-6 sm:py-10">
-      <div className="install-card mx-auto w-full max-w-5xl overflow-hidden rounded-[2rem] border border-[hsl(var(--border))] bg-white shadow-[0_24px_80px_rgba(81,38,145,.12)]">
+      <div className="install-card mx-auto w-full max-w-5xl overflow-visible rounded-[2rem] border border-[hsl(var(--border))] bg-white shadow-[0_24px_80px_rgba(81,38,145,.12)]">
         <div className="grid lg:grid-cols-[.75fr_1.25fr]">
           <aside className="install-aside p-6 text-white sm:p-10 lg:p-12">
-            <button onClick={() => setLocation('/')} className="flex items-center gap-1 text-left"><span className="font-display text-xl font-bold tracking-[-.08em] text-[#d98cff]">MOD</span><span className="font-display text-lg font-bold tracking-[-.07em]">CLUB</span></button>
+            <button onClick={() => setLocation('/')} className="text-left" aria-label="MOD CLUB"><ClubLogo size={72} className="club-logo-mark size-[4.5rem]" /></button>
             <div className="mt-14 lg:mt-24"><p className="font-mono text-[.62rem] font-bold tracking-[.18em] text-[#dba9ff]">KURULUM SİHİRBAZI</p><h1 className="mt-3 font-display text-[clamp(2rem,5vw,3.8rem)] font-bold leading-[.95] tracking-[-.07em]">Kulübünü<br /><span className="text-[#c25aff]">enerjiyle</span> başlat.</h1><p className="mt-5 max-w-sm text-sm leading-relaxed text-white/65">Birkaç kısa adımda MOD CLUB deneyimini kendi topluluğun için hazırla.</p></div>
             <div className="mt-12 hidden space-y-3 lg:block">{installSteps.map((label, index) => <div key={label} className={`flex items-center gap-3 text-xs ${index === step ? 'font-bold text-white' : index < step ? 'text-[#d49dff]' : 'text-white/40'}`}><span className={`grid size-7 place-items-center rounded-full border text-[.65rem] ${index < step ? 'border-[#b858ff] bg-[#9e3be5]' : index === step ? 'border-white bg-white/15' : 'border-white/20'}`}>{index < step ? <Check size={14} /> : index + 1}</span>{label}</div>)}</div>
           </aside>
           <section className="p-6 sm:p-10 lg:p-14">
             <div className="mb-8 flex items-center justify-between lg:hidden"><span className="font-mono text-[.62rem] font-bold tracking-[.16em] text-[hsl(var(--muted-foreground))]">ADIM {step + 1} / 6</span><div className="h-1.5 w-28 overflow-hidden rounded-full bg-[hsl(var(--muted))]"><div className="h-full rounded-full bg-[hsl(var(--primary))] transition-all" style={{ width: `${((step + 1) / installSteps.length) * 100}%` }} /></div></div>
             {step === 0 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Sparkles size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 01</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Hoş geldin.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">MOD CLUB, topluluğunu tek bir yerde buluşturmak için hazır. Kurulum yaklaşık iki dakika sürer.</p><div className="mt-8 grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><Server size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Bağımsız yapı</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Herhangi bir platforma bağlı kalmadan çalışır.</p></div><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><ShieldCheck size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Güvenli başlangıç</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Ayarlarını yalnızca senin cihazında saklar.</p></div></div></div>}
-            {step === 1 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e8f1ff] text-[#4b86dc]"><Server size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 02</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Veritabanı hazır.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Bağımsız kurulum için yerel veri alanı oluşturuldu. İstersen daha sonra sunucu ayarlarından harici bir PostgreSQL bağlantısına geçebilirsin.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[#ccebd5] bg-[#f0fcf4] p-4 text-sm font-semibold text-[#2f9650]"><Check size={18} /> Yerel veri alanı bağlantısı başarılı</div></div>}
-            {step === 2 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#fff0d8] text-[#d48a1b]"><UserRound size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 03</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Admin hesabını oluştur.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kulübünü yönetmek için ilk yönetici bilgilerini gir.</p><div className="mt-7 grid gap-4"><label className="grid gap-2 text-xs font-bold">Ad soyad<input value={adminName} onChange={(event) => setAdminName(event.target.value)} placeholder="Örn. Ece Yılmaz" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">E-posta<input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="admin@modclub.com" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label></div></div>}
+            {step === 1 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e8f1ff] text-[#4b86dc]"><Server size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 02</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Yerel kurulum hazır.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Ek bir platform veya harici servis gerekmez. Ayarların bu kurulumda saklanır. İstersen sonra kendi PostgreSQL sunucuna geçebilirsin.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[#ccebd5] bg-[#f0fcf4] p-4 text-sm font-semibold text-[#2f9650]"><Check size={18} /> Node.js ortamı doğrulandı, kuruluma devam edebilirsin</div></div>}
+            {step === 2 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#fff0d8] text-[#d48a1b]"><UserRound size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 03</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Admin hesabını oluştur.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kulübünü yönetmek için ilk yönetici bilgilerini gir.</p><div className="mt-7 grid gap-4"><label className="grid gap-2 text-xs font-bold">Ad soyad<input value={adminName} onChange={(event) => setAdminName(event.target.value)} placeholder="Örn. Ece Yılmaz" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">E-posta<input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="admin@modclub.com" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Kullanıcı adı<input value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} placeholder="admin" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Şifre<input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="En az 4 karakter" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Şifre tekrar<input type="password" value={adminPasswordConfirm} onChange={(event) => setAdminPasswordConfirm(event.target.value)} placeholder="Şifreyi tekrar yaz" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label>{adminPasswordConfirm.length > 0 && adminPassword.trim() !== adminPasswordConfirm.trim() && <p className="text-xs font-semibold text-[#c54d5b]">Şifreler eşleşmiyor.</p>}</div></div>}
             {step === 3 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#f1e2ff] text-[#913be0]"><Palette size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 04</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Kulübünü tanımla.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Üyelerin göreceği kulüp adını belirle.</p><label className="mt-7 grid gap-2 text-xs font-bold">Kulüp adı<input value={clubName} onChange={(event) => setClubName(event.target.value)} className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label></div>}
             {step === 4 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#fce5f3] text-[#d44397]"><Palette size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 05</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Enerjini seç.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">MOD CLUB’ın temel görünümünü belirle. Bunu daha sonra ayarlardan değiştirebilirsin.</p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button onClick={() => setTheme('electric')} className={`rounded-2xl border p-4 text-left transition-all ${theme === 'electric' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] ring-2 ring-[hsl(var(--primary)/.15)]' : 'border-[hsl(var(--border))]'}`}><span className="mb-5 block h-16 rounded-xl bg-[linear-gradient(135deg,#18052e,#9e36ed)]" /><p className="text-sm font-bold">Electric Violet</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Varsayılan MOD enerjisi</p></button><button onClick={() => setTheme('midnight')} className={`rounded-2xl border p-4 text-left transition-all ${theme === 'midnight' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] ring-2 ring-[hsl(var(--primary)/.15)]' : 'border-[hsl(var(--border))]'}`}><span className="mb-5 block h-16 rounded-xl bg-[linear-gradient(135deg,#071125,#1c5b9e)]" /><p className="text-sm font-bold">Midnight Blue</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Daha sakin topluluk modu</p></button></div></div>}
             {step === 5 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e0f7e8] text-[#2caa5a]"><Check size={30} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[#2caa5a]">HAZIR</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">MOD CLUB yayında.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kurulum tamamlandı. Artık topluluğunu büyütmeye ve ilk etkinliğini oluşturmaya hazırsın.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-4 text-sm"><LockKeyhole size={18} className="text-[hsl(var(--primary))]" /><span><strong className="block">Kurulum kilitlendi</strong><small className="text-xs text-[hsl(var(--muted-foreground))]">Ayarların güvenle kaydedildi.</small></span></div></div>}
-            <div className="mt-10 flex items-center justify-between gap-3 border-t border-[hsl(var(--border))] pt-6"><button onClick={() => step === 0 ? setLocation('/') : setStep((current) => current - 1)} className="min-h-11 rounded-xl px-3 text-sm font-bold text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]">{step === 0 ? 'Çıkış' : 'Geri'}</button>{step < 5 ? <button disabled={!canContinue} onClick={() => step === 4 ? finishInstall() : setStep((current) => current + 1)} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40">{step === 4 ? 'Kurulumu tamamla' : 'Devam et'} <ChevronRight size={16} /></button> : <button onClick={() => setLocation('/')} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5">Ana sayfaya geç <ChevronRight size={16} /></button>}</div>
+            <div className="mt-10 flex items-center justify-between gap-3 border-t border-[hsl(var(--border))] pt-6"><button onClick={() => step > 0 && setStep((current) => current - 1)} className={`min-h-11 rounded-xl px-3 text-sm font-bold text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] ${step === 0 ? 'invisible' : ''}`}>Geri</button>{step < 5 ? <button disabled={!canContinue} onClick={() => step === 4 ? void finishInstall() : setStep((current) => current + 1)} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40">{step === 4 ? 'Kurulumu tamamla' : 'Devam et'} <ChevronRight size={16} /></button> : <button onClick={enterApp} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5">Kulübe gir <ChevronRight size={16} /></button>}</div>
           </section>
         </div>
       </div>
@@ -421,11 +2156,79 @@ function InstallWizard() {
 }
 
 function Router() {
+  const [location] = useLocation();
+  const [gate, setGate] = useState<'loading' | 'wizard' | 'app'>('loading');
+  const [session, setSession] = useState<UserSession | null>(() => (typeof window !== 'undefined' ? readStoredSession() : null));
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const remote = await fetchPublicSetup();
+      if (cancelled) return;
+      if (remote?.installed) {
+        cachePublicSetup(remote);
+        setGate('app');
+        return;
+      }
+      if (isLocalApp()) {
+        window.localStorage.setItem('mod-club-installed', 'true');
+        if (!readClubSettings()) {
+          const localSettings: ClubSettings = {
+            clubName: 'MOD CLUB',
+            adminName: 'Admin',
+            adminEmail: 'admin@localhost',
+            adminUsername: 'admin',
+            adminPassword: 'admin',
+            theme: 'electric',
+          };
+          window.localStorage.setItem('mod-club-settings', JSON.stringify(localSettings));
+          upsertAccount({ username: 'admin', password: 'admin', nick: 'Admin', role: 'ADMIN' });
+        }
+        setGate('app');
+        return;
+      }
+      setGate('wizard');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogout = () => {
+    window.localStorage.removeItem('mod-club-session');
+    setSession(null);
+  };
+
+  const handleReset = () => {
+    resetClubSession();
+    setSession(null);
+  };
+
+  if (gate === 'loading') {
+    return (
+      <div className="login-page grain grid min-h-[100dvh] place-items-center px-4">
+        <ClubLogo size={112} className="club-logo-mark size-28" />
+      </div>
+    );
+  }
+
+  if (gate === 'wizard') {
+    return (
+      <InstallWizard
+        onInstalled={() => {
+          setGate('app');
+          setSession(readStoredSession());
+        }}
+      />
+    );
+  }
+
   return (
-    <ErrorBoundary resetKey={useLocation()[0]}>
+    <ErrorBoundary resetKey={location}>
       <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/install" component={InstallWizard} />
+        <Route path="/">
+          {session ? <Home session={session} onLogout={handleLogout} onSession={setSession} /> : <LoginScreen onLogin={setSession} onReset={handleReset} />}
+        </Route>
         <Route component={NotFound} />
       </Switch>
     </ErrorBoundary>
@@ -433,6 +2236,11 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    applyColorMode(readColorMode());
+    void registerClubWorker();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

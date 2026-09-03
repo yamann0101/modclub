@@ -1,3 +1,10 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <rect width="180" height="180" fill="#08080a"/>
+  <circle cx="90" cy="90" r="82" fill="#121218" stroke="#2b2b33" stroke-width="8"/>
+  <circle cx="90" cy="90" r="74" fill="none" stroke="#8b2fd6" stroke-width="3"/>
+  <path d="M58 42 L72 58 H56 L90 28 L124 58 H108 L122 42 L90 18 Z" fill="#f0c14b"/>
+  <polygon points="90,24 93.2,32 90,30 86.8,32" fill="#b44dff"/>
+  <text x="90" y="96" text-anchor="middle" fill="#f4f4f6" font-family="Arial Black, Arial, sans-serif" font-size="34" font-weight="800">MOD</text>
+  <text x="90" y="124" text-anchor="middle" fill="#b44dff" font-family="Arial Black, Arial, sans-serif" font-size="22" font-weight="800">CLUB</text>
+  <polygon points="90,158 96,148 84,148" fill="#8b2fd6"/>
 </svg>
