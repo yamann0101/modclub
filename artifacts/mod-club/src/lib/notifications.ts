@@ -5,7 +5,7 @@ const ASKED_KEY = 'mod-club-notify-prompt';
 const NOTIFY_CHANNEL = 'mod-club-notify';
 
 export type NotifyPayload = {
-  type: 'giveaway' | 'chat' | 'winner' | 'admin';
+  type: 'giveaway' | 'chat' | 'winner' | 'admin' | 'guess';
   title: string;
   body: string;
   sender?: string;
@@ -84,7 +84,7 @@ function playNotifySound() {
 
 export async function showLocalNotice(payload: NotifyPayload, options?: { sound?: boolean }) {
   if (payload.type === 'chat' && isChatMuted()) return;
-  if (options?.sound !== false && (payload.type === 'admin' || (payload.type === 'chat' && !isChatMuted()))) {
+  if (options?.sound !== false && (payload.type === 'admin' || payload.type === 'guess' || payload.type === 'chat')) {
     playNotifySound();
   }
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -94,9 +94,9 @@ export async function showLocalNotice(payload: NotifyPayload, options?: { sound?
     body: payload.body,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    tag: `${payload.type}-${payload.title}`,
+    tag: payload.type === 'chat' ? `chat-${Date.now()}` : `${payload.type}-${payload.title}`,
     renotify: true,
-    data: { url: '/' },
+    data: { url: payload.type === 'chat' || payload.type === 'guess' ? '/?chat=1' : '/' },
   };
   if (registration?.showNotification) {
     await registration.showNotification(payload.title, data);
@@ -138,8 +138,8 @@ export function startNotifyPolling(onRemote: (payload: NotifyPayload) => void) {
   const device = getDeviceId();
   let channel: BroadcastChannel | null = null;
 
-  const deliver = async (event: NotifyPayload, fromPoll: boolean) => {
-    if (fromPoll && event.sender && event.sender === device) return;
+  const deliver = async (event: NotifyPayload) => {
+    if (event.sender && event.sender === device) return;
     onRemote(event);
     await showLocalNotice(event);
   };
@@ -149,7 +149,7 @@ export function startNotifyPolling(onRemote: (payload: NotifyPayload) => void) {
     channel.onmessage = (message) => {
       const event = message.data as NotifyPayload | undefined;
       if (!event?.title || !event.body) return;
-      void deliver(event, false);
+      void deliver(event);
     };
   } catch {
     channel = null;
@@ -162,7 +162,7 @@ export function startNotifyPolling(onRemote: (payload: NotifyPayload) => void) {
       const data = (await response.json()) as { events?: Array<NotifyPayload & { at: number; sender?: string }> };
       for (const event of data.events ?? []) {
         since = Math.max(since, event.at);
-        await deliver(event, true);
+        await deliver(event);
       }
     } catch {
       /* sessiz */

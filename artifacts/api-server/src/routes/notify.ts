@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { addEvent, readEvents } from "../lib/club-data";
 
-const EVENT_TYPES = new Set(["giveaway", "chat", "winner", "admin"]);
+const EVENT_TYPES = new Set(["giveaway", "chat", "winner", "admin", "guess"]);
 const router: IRouter = Router();
 
 router.get("/notify", async (req, res) => {
@@ -15,7 +15,7 @@ router.get("/notify", async (req, res) => {
 
 router.post("/notify", async (req, res) => {
   const body = req.body as { type?: string; title?: string; body?: string; sender?: string };
-  const type = EVENT_TYPES.has(String(body.type)) ? (body.type as "giveaway" | "chat" | "winner" | "admin") : "giveaway";
+  const type = EVENT_TYPES.has(String(body.type)) ? (body.type as "giveaway" | "chat" | "winner" | "admin" | "guess") : "giveaway";
   const title = String(body.title ?? "").trim();
   const text = String(body.body ?? "").trim();
   if (!title || !text) {

@@ -1529,37 +1529,73 @@ html.dark .home-event-status.rose { background: rgba(219, 39, 119, .2); color: #
   padding: .85rem 1rem 1rem;
   border-bottom: 1px solid hsl(var(--border));
   background: linear-gradient(180deg, #f7f1ff, #fff);
+  color: #1a1028;
 }
 .guess-field {
-  height: 2.4rem;
+  height: 2.7rem;
   border-radius: .8rem;
   border: 1px solid hsl(var(--border));
   background: #fff;
   padding: 0 .75rem;
-  font-size: 16px;
+  color: #1a1028;
+  font-size: 18px;
   font-weight: 800;
   outline: none;
 }
 .guess-field:focus { border-color: hsl(var(--primary)); box-shadow: 0 0 0 3px hsl(var(--primary) / .12); }
+.guess-btn-primary {
+  display: inline-flex;
+  height: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  border-radius: .85rem;
+  background: #7c3aed;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 800;
+}
+.guess-btn-ghost {
+  display: inline-flex;
+  height: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: .85rem;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: .78rem;
+  font-weight: 800;
+}
 .guess-live {
   padding: .9rem 1rem 1rem;
   background: linear-gradient(135deg, #1e1140, #4c1d95 55%, #7c3aed);
   color: #fff;
 }
 .guess-live-input {
-  height: 3rem;
+  height: 3.15rem;
   flex: 1;
   min-width: 0;
   border: 0;
   border-radius: 1rem;
-  background: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.18);
   padding: 0 .95rem;
   color: #fff;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   outline: none;
 }
-.guess-live-input::placeholder { color: rgba(255,255,255,.45); }
+.guess-live-input::placeholder { color: rgba(255,255,255,.55); }
+.guess-send {
+  display: grid;
+  width: 3.15rem;
+  height: 3.15rem;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 1rem;
+  background: #f5f0ff;
+  color: #4c1d95;
+}
 .guess-timer {
   display: inline-flex;
   align-items: center;
@@ -1646,8 +1682,61 @@ html.dark .home-event-status.rose { background: rgba(219, 39, 119, .2); color: #
   text-align: center;
 }
 html.dark .guess-setup,
-html.dark .guess-next { background: hsl(var(--card)); }
-html.dark .guess-field { background: hsl(var(--muted) / .45); color: hsl(var(--foreground)); }
+html.dark .guess-next {
+  background: #161022;
+  color: #f4eeff;
+}
+html.dark .guess-setup p,
+html.dark .guess-next p { color: #c4b5fd; }
+html.dark .guess-field {
+  background: #241836;
+  border-color: rgba(196, 181, 253, .35);
+  color: #f8f4ff;
+}
+html.dark .guess-btn-primary,
+html.dark .guess-send {
+  background: #8b5cf6;
+  color: #fff;
+}
+html.dark .guess-btn-ghost {
+  border-color: rgba(196, 181, 253, .35);
+  color: #f4eeff;
+}
+
+.chat-swipe {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.chat-swipe.is-drag { touch-action: none; }
+.chat-swipe-icon {
+  position: absolute;
+  left: .55rem;
+  top: 50%;
+  z-index: 0;
+  display: grid;
+  width: 1.85rem;
+  height: 1.85rem;
+  place-items: center;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  opacity: 0;
+  transform: translate(-6px, -50%) scale(.82);
+  transition: opacity .16s ease, transform .16s ease;
+  pointer-events: none;
+}
+.chat-swipe-icon.is-on {
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+}
+.chat-swipe-row {
+  position: relative;
+  z-index: 1;
+  transition: transform .22s cubic-bezier(.22, 1, .36, 1);
+}
+.chat-swipe-row.is-drag { transition: none; }
+.chat-wallpaper { overscroll-behavior-x: none; }
 
 @media (min-width: 1280px) {
   .desktop-shell { max-width: 1340px; }

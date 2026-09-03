@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Crown, Dices, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Play, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -590,6 +590,55 @@ function WrenchIcon({ size = 20, strokeWidth = 2 }: { size?: number; strokeWidth
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.9L3.5 17.5a2.12 2.12 0 1 0 3 3l5.3-5.3a4.5 4.5 0 0 0 5.9-5.9l-2.6 2.6-3-3 2.6-2.6Z" /><path d="m16 16 5 5" /></svg>;
 }
 
+function SwipeReplyRow({ onReply, children }: { onReply: () => void; children: ReactNode }) {
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef<{ x: number; y: number; locked?: 'h' | 'v' } | null>(null);
+  const offsetRef = useRef(0);
+
+  const finish = (next: number) => {
+    if (next >= 56) onReply();
+    setDragging(false);
+    setOffset(0);
+    offsetRef.current = 0;
+    startRef.current = null;
+  };
+
+  return (
+    <div
+      className={`chat-swipe ${dragging ? 'is-drag' : ''}`}
+      onPointerDown={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        startRef.current = { x: event.clientX, y: event.clientY };
+        offsetRef.current = 0;
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const start = startRef.current;
+        if (!start) return;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (!start.locked) {
+          if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+          start.locked = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+        }
+        if (start.locked !== 'h') return;
+        const next = Math.max(0, Math.min(84, dx));
+        offsetRef.current = next;
+        setDragging(true);
+        setOffset(next);
+      }}
+      onPointerUp={() => finish(offsetRef.current)}
+      onPointerCancel={() => finish(0)}
+    >
+      <span className={`chat-swipe-icon ${offset > 28 ? 'is-on' : ''}`} aria-hidden="true"><Reply size={15} /></span>
+      <div className={`chat-swipe-row ${dragging ? 'is-drag' : ''}`} style={{ transform: `translate3d(${offset}px,0,0)` }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function makeWinnerCard(item: Giveaway): ChatMessage {
   return {
     id: `winner-${item.id}`,
@@ -679,6 +728,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [guessSeconds, setGuessSeconds] = useState('10');
   const [guessNumber, setGuessNumber] = useState('');
   const [guessBusy, setGuessBusy] = useState(false);
+  const guessStatusRef = useRef<PublicGuessGame['status'] | null>(null);
   const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
@@ -774,11 +824,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       mine: isSystemChat(message) ? false : message.author === nick,
     })));
     const nextGame = data.guessGame || null;
-    setGuessGame((current) => {
-      if (nextGame?.status === 'ended' && current?.status !== 'ended') setGuessEndOpen(true);
-      if (nextGame?.status === 'playing') setGuessEndOpen(false);
-      return nextGame;
-    });
+    const prevStatus = guessStatusRef.current;
+    guessStatusRef.current = nextGame?.status ?? null;
+    setGuessGame(nextGame);
+    if (nextGame?.status === 'ended' && (prevStatus === 'playing' || prevStatus === 'revealed')) {
+      setGuessEndOpen(true);
+    }
+    if (nextGame?.status === 'playing') setGuessEndOpen(false);
   };
 
   const pushNotice = (title: string, body: string) => {
@@ -862,9 +914,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   useEffect(() => {
     void registerClubWorker();
     const stop = startNotifyPolling((event) => {
-      pushNotice(event.title, event.body);
-      if (event.type === 'admin') showTicker(event.title, event.body);
+      if (event.type !== 'chat') pushNotice(event.title, event.body);
+      if (event.type === 'admin' || event.type === 'guess') showTicker(event.title, event.body);
       if (event.type === 'chat') setNotice(event.body);
+      if (event.type === 'guess') {
+        setNotice(event.body);
+        setChatOpen(true);
+        void fetchClub().then(applySnapshot).catch(() => undefined);
+      }
       if (event.type === 'giveaway' || event.type === 'winner') {
         setNotice(event.body);
         void fetchClub().then(applySnapshot).catch(() => undefined);
@@ -877,7 +934,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     const next = !chatMuted;
     persistChatMute(next);
     setChatMutedOn(next);
-    setNotice(next ? 'Sohbet sessizde. Bildirim gitmez.' : 'Sohbet bildirimleri açık.');
+    setNotice(next ? 'Sohbet sessizde. Ses ve bildirim gitmez.' : 'Sohbet bildirimleri açık.');
   };
 
   const allowPhoneNotify = async () => {
@@ -1085,6 +1142,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setGuessSecret('');
       setChatOpen(true);
       setNotice('Sayı tahmini oyunu başlıyor');
+      showTicker('Sayı tutmaca', 'Sayı tahmini oyunu başlıyor');
+      void publishClubEvent({
+        type: 'guess',
+        title: 'Sayı tutmaca',
+        body: 'Sayı tahmini oyunu başlıyor',
+        sender: getDeviceId(),
+      });
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
       setNotice(code === 'busy' ? 'Önce bu turu bitir' : code === 'range' ? 'Sayı aralık dışında' : 'Oyun başlatılamadı');
@@ -1892,12 +1956,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             </div>
             <p className="mt-1 text-[.58rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Önce aralığı yaz, sonra gizli sayıyı gir. Süre varsayılan 10 saniye.</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">En az<input type="number" min={1} max={99} inputMode="numeric" value={guessMin} onChange={(event) => setGuessMin(event.target.value)} className="guess-field" /></label>
-              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">En çok<input type="number" min={1} max={99} inputMode="numeric" value={guessMax} onChange={(event) => setGuessMax(event.target.value)} className="guess-field" /></label>
-              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">Gizli sayı<input type="number" min={1} max={99} inputMode="numeric" value={guessSecret} onChange={(event) => setGuessSecret(event.target.value)} className="guess-field" placeholder={`${guessMin}–${guessMax}`} /></label>
-              <label className="grid gap-1 text-[.55rem] font-extrabold uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">Süre (sn)<input type="number" min={5} max={60} inputMode="numeric" value={guessSeconds} onChange={(event) => setGuessSeconds(event.target.value)} className="guess-field" /></label>
+              <label className="grid gap-1 text-[.68rem] font-extrabold text-[hsl(var(--muted-foreground))]">En az<input type="number" min={1} max={99} inputMode="numeric" value={guessMin} onChange={(event) => setGuessMin(event.target.value)} className="guess-field" /></label>
+              <label className="grid gap-1 text-[.68rem] font-extrabold text-[hsl(var(--muted-foreground))]">En çok<input type="number" min={1} max={99} inputMode="numeric" value={guessMax} onChange={(event) => setGuessMax(event.target.value)} className="guess-field" /></label>
+              <label className="grid gap-1 text-[.68rem] font-extrabold text-[hsl(var(--muted-foreground))]">Gizli sayı<input type="number" min={1} max={99} inputMode="numeric" value={guessSecret} onChange={(event) => setGuessSecret(event.target.value)} className="guess-field" placeholder={`${guessMin}–${guessMax}`} /></label>
+              <label className="grid gap-1 text-[.68rem] font-extrabold text-[hsl(var(--muted-foreground))]">Süre (sn)<input type="number" min={5} max={60} inputMode="numeric" value={guessSeconds} onChange={(event) => setGuessSeconds(event.target.value)} className="guess-field" /></label>
             </div>
-            <button type="submit" disabled={guessBusy} className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--foreground))] text-[.72rem] font-extrabold text-white disabled:opacity-50"><Dices size={15} /> Oyunu başlat</button>
+            <button type="submit" disabled={guessBusy} className="guess-btn-primary mt-3 disabled:opacity-50"><Dices size={15} /> Oyunu başlat</button>
           </form>
         )}
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
@@ -2005,7 +2069,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               const authorAccount = accounts.find((item) => nickKey(item.nick) === nickKey(message.author));
               const authorTitle = message.title || authorAccount?.title;
               return (
-                <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
+                <SwipeReplyRow key={message.id} onReply={() => { setReplyTo(message); chatInputRef.current?.focus(); }}>
+                <div className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`}>
                   {!message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={avatarFor(message.author, message.photo)} alt="" className="size-full object-cover" /></button>}
                   <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
                     {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={authorAccount?.appId || undefined} muted={authorMuted} revealId /></div>}
@@ -2033,17 +2098,18 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                   </div>
                   {message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={myPhoto} alt="" className="size-full object-cover" /></button>}
                 </div>
+                </SwipeReplyRow>
               );
             })}
           </div>
-          <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Kaydırarak veya oka basarak cevapla</span></div>
+          <div className="mt-5 flex justify-center"><span className="rounded-full bg-[#fff4d9] px-3 py-1 text-[.57rem] font-semibold text-[#9c761b]">Sağa kaydırarak cevapla</span></div>
         </div>
         {guessPlaying && (
           <form className="guess-live shrink-0" onSubmit={(event) => { event.preventDefault(); void sendGuessNumber(); }}>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="font-display text-[.78rem] font-extrabold">Sayıyı yaz</p>
-                <p className="text-[.58rem] text-white/65">{guessGame?.min}–{guessGame?.max} arası · {guessLeft} sn</p>
+                <p className="font-display text-base font-extrabold">Sayıyı yaz</p>
+                <p className="text-[.72rem] text-white/80">{guessGame?.min}–{guessGame?.max} arası · {guessLeft} sn</p>
               </div>
               <span className="guess-timer"><Timer size={13} />{guessLeft}</span>
             </div>
@@ -2052,7 +2118,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ) : (
               <div className="mt-3 flex items-center gap-2">
                 <input type="number" inputMode="numeric" min={guessGame?.min} max={guessGame?.max} value={guessNumber} onChange={(event) => setGuessNumber(event.target.value)} placeholder={`${guessGame?.min}–${guessGame?.max}`} className="guess-live-input" />
-                <button type="submit" disabled={guessBusy || !guessNumber.trim()} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-[#4c1d95] disabled:opacity-40"><Send size={16} /></button>
+                <button type="submit" disabled={guessBusy || !guessNumber.trim()} className="guess-send disabled:opacity-40"><Send size={16} /></button>
               </div>
             )}
           </form>
@@ -2061,8 +2127,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           <div className="guess-next shrink-0">
             <p className="text-[.62rem] font-bold text-[hsl(var(--muted-foreground))]">Tur bitti{guessGame?.answer ? ` · cevap ${guessGame.answer}` : ''}. Yeni tur veya oyun sonu.</p>
             <div className="mt-2 flex gap-2">
-              <button type="button" onClick={() => setGuessSetupOpen(true)} className="h-9 flex-1 rounded-xl bg-[hsl(var(--foreground))] text-[.65rem] font-extrabold text-white">Yeni tur</button>
-              <button type="button" onClick={() => void finishGuessSession()} className="h-9 flex-1 rounded-xl border border-[hsl(var(--border))] text-[.65rem] font-extrabold">Oyunu bitir</button>
+              <button type="button" onClick={() => setGuessSetupOpen(true)} className="guess-btn-primary flex-1">Yeni tur</button>
+              <button type="button" onClick={() => void finishGuessSession()} className="guess-btn-ghost flex-1">Oyunu bitir</button>
             </div>
           </div>
         )}

@@ -69,7 +69,7 @@ export type ClubSettings = {
 
 export type ClubEvent = {
   id: string;
-  type: "giveaway" | "chat" | "winner" | "admin";
+  type: "giveaway" | "chat" | "winner" | "admin" | "guess";
   title: string;
   body: string;
   sender?: string;
