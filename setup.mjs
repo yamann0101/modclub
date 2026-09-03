@@ -7,15 +7,12 @@ function heading(title) {
 }
 
 heading('MOD CLUB — Railway kurulumu');
-console.log('Veriler tarayıcıda veya bu bilgisayarda durmaz.');
-console.log('PostgreSQL Railway sunucusunda kalır. Variable yazmana gerek yok.');
+console.log('Tek servis + Postgres. 6 workspace kutusunu açma.');
 console.log('');
 console.log('1. GitHub: https://github.com/yamann0101/modclub');
-console.log('2. railway.app → New Project → Deploy from GitHub repo → modclub');
-console.log('3. Root Directory boş bırak (repo kökü).');
-console.log('4. New → Database → PostgreSQL  (DATABASE_URL otomatik gelir)');
-console.log('5. Generate Domain');
-console.log('6. Siteyi aç, kurulum sihirbazını bir kez tamamla.');
-console.log('');
-console.log('Sunucu 0.0.0.0 ve PORT/8080 dinler. Elle port veya şifre yazma.');
+console.log('2. Eski 6 servisli projeyi sil.');
+console.log('3. railway.app → New Project → GitHub → modclub');
+console.log('4. Apply 34 changes / 6 kutu gelirse KAPAT.');
+console.log('5. Tek servis kalsın. Postgres ekle (DATABASE_URL otomatik).');
+console.log('6. Generate Domain, sihirbazı bir kez tamamla.');
 console.log('');
