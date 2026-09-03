@@ -1224,12 +1224,21 @@ html.dark .admin-panel { color-scheme: dark; }
   pointer-events: none;
 }
 .chat-fab-label {
-  font-size: .42rem;
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: .55rem;
   font-weight: 800;
-  letter-spacing: .06em;
-  line-height: 1.05;
-  text-align: center;
-  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  padding: .2rem .5rem;
+  border-radius: .5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  pointer-events: none;
 }
 
 .theme-toggle {

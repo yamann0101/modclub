@@ -10,12 +10,30 @@ function pocketFill(n: number) {
 
 function easeOutQuint(t: number) { return 1 - (1 - t) ** 5; }
 
-function wheelAngle(result: number, progress: number, idle: number) {
+/**
+ * The pointer sits at the top of the canvas (12-o'clock, angle = -π/2).
+ * To make pocket `result` land under the pointer we need the wheel to rotate
+ * so that the CENTER of the result pocket is at -π/2.
+ *
+ * Pocket i occupies from  i*slot  to  (i+1)*slot  (measured CW from the
+ * wheel's local 12-o'clock which is at rot=0 → canvas -π/2).
+ * Its center is at  (i + 0.5) * slot  in wheel-space.
+ *
+ * For that center to align with the fixed pointer the total wheel rotation
+ * (mod 360) must equal  -(i+0.5)*slotDeg  (or equivalently 360 - (i+0.5)*slotDeg).
+ *
+ * We add full extra spins for visual drama.
+ */
+function targetAngle(result: number) {
   const index = EURO_ORDER.indexOf(result);
-  const slot = 360 / EURO_ORDER.length;
-  const land = 360 - (index + 0.5) * slot;
+  const slotDeg = 360 / EURO_ORDER.length;
+  return 360 * 8 + (360 - (index + 0.5) * slotDeg);
+}
+
+function wheelDeg(result: number, progress: number, idle: number) {
   if (progress <= 0) return idle % 360;
-  return idle + easeOutQuint(progress) * (360 * 8 + land);
+  const target = targetAngle(result);
+  return idle + easeOutQuint(progress) * target;
 }
 
 /* ---- audio helpers ---- */
@@ -92,6 +110,7 @@ function drawGlossyRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, o
   ctx.arc(cx, cy, inner, 0, Math.PI * 2, true);
   ctx.fillStyle = grad;
   ctx.fill();
+  // glossy shine arc
   const shine = ctx.createLinearGradient(cx - outer, cy - outer, cx + outer * 0.4, cy - outer * 0.3);
   shine.addColorStop(0, 'rgba(255,255,255,0)');
   shine.addColorStop(0.4, 'rgba(255,255,255,.18)');
@@ -139,6 +158,21 @@ function drawCone(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius:
   ctx.restore();
 }
 
+/* ---- pocket separators (metallic frets) ---- */
+function drawFrets(ctx: CanvasRenderingContext2D, n: number, innerR: number, outerR: number, slotAngle: number) {
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const a = i * slotAngle - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * innerR * 0.55, Math.sin(a) * innerR * 0.55);
+    ctx.lineTo(Math.cos(a) * outerR * 0.98, Math.sin(a) * outerR * 0.98);
+    ctx.strokeStyle = 'rgba(212, 160, 23, .5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function RouletteWheel({
   phase,
   result = 0,
@@ -177,7 +211,7 @@ export function RouletteWheel({
       const outerR = size * 0.48;
       const innerR = outerR * 0.78;
       const pocketR = outerR * 0.72;
-      const numR = outerR * 0.84;
+      const numR = outerR * 0.85;
       const slotAngle = (Math.PI * 2) / EURO_ORDER.length;
 
       idleRef.current += phase === 'betting' ? 0.25 : 0;
@@ -185,7 +219,7 @@ export function RouletteWheel({
       const liveProgress = phase === 'spinning'
         ? Math.min(1, Math.max(0, (Date.now() - spinStartedAt) / duration))
         : phase === 'settled' ? 1 : 0;
-      const deg = wheelAngle(result, liveProgress, idleRef.current);
+      const deg = wheelDeg(result, liveProgress, idleRef.current);
       const rot = (deg * Math.PI) / 180;
 
       if (phase === 'spinning') {
@@ -196,49 +230,87 @@ export function RouletteWheel({
         spinSoundRef.current = false;
       }
 
+      // outer chrome ring
       drawGlossyRing(ctx, cx, cy, outerR, innerR - 4);
       drawGoldBand(ctx, cx, cy, outerR - 2, 3);
       drawGoldBand(ctx, cx, cy, innerR - 2, 2);
 
+      // outer tick marks on chrome ring
       for (let i = 0; i < EURO_ORDER.length; i++) {
-        const a = rot + i * slotAngle - Math.PI / 2;
-        ctx.save();
+        const a = rot + (i + 0.5) * slotAngle - Math.PI / 2;
+        const r1 = innerR + 1;
+        const r2 = outerR - 4;
         ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(a) * innerR * 0.4, cy + Math.sin(a) * innerR * 0.4);
-        ctx.lineTo(cx + Math.cos(a) * outerR * 0.7, cy + Math.sin(a) * outerR * 0.7);
-        ctx.strokeStyle = 'rgba(212, 160, 23, .25)';
-        ctx.lineWidth = 0.5;
+        ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+        ctx.strokeStyle = 'rgba(212, 160, 23, .3)';
+        ctx.lineWidth = 0.8;
         ctx.stroke();
-        ctx.restore();
       }
 
+      // rotating wheel
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(rot);
+
+      // pockets
       EURO_ORDER.forEach((num, i) => {
+        const a1 = i * slotAngle - Math.PI / 2;
+        const a2 = (i + 1) * slotAngle - Math.PI / 2;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.arc(0, 0, pocketR, i * slotAngle - Math.PI / 2, (i + 1) * slotAngle - Math.PI / 2);
+        ctx.arc(0, 0, pocketR, a1, a2);
         ctx.closePath();
         ctx.fillStyle = pocketFill(num);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(212, 160, 23, .45)';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
+
+        // pocket inner shadow for depth
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, pocketR, a1, a2);
+        ctx.closePath();
+        const pShadow = ctx.createRadialGradient(0, 0, pocketR * 0.5, 0, 0, pocketR);
+        pShadow.addColorStop(0, 'transparent');
+        pShadow.addColorStop(1, 'rgba(0,0,0,.6)');
+        ctx.fillStyle = pShadow;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      });
+
+      // frets between pockets
+      drawFrets(ctx, EURO_ORDER.length, innerR, pocketR, slotAngle);
+
+      // numbers
+      EURO_ORDER.forEach((num, i) => {
         ctx.save();
         ctx.rotate(i * slotAngle + slotAngle / 2);
         ctx.fillStyle = '#fff';
         ctx.font = `800 ${Math.max(8, size * 0.034)}px ui-sans-serif, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,.55)';
+        ctx.shadowColor = 'rgba(0,0,0,.6)';
         ctx.shadowBlur = 3;
         ctx.fillText(String(num), 0, -numR);
         ctx.shadowBlur = 0;
         ctx.restore();
       });
 
-      const hubGrad = ctx.createRadialGradient(-innerR * 0.1, -innerR * 0.1, 0, 0, 0, innerR * 0.38);
+      // inner ring dots
+      for (let i = 0; i < EURO_ORDER.length; i++) {
+        const a = (i + 0.5) * slotAngle - Math.PI / 2;
+        const dx = Math.cos(a) * (innerR - 6);
+        const dy = Math.sin(a) * (innerR - 6);
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#d4a017';
+        ctx.fill();
+      }
+
+      // center hub
+      const hubGrad = ctx.createRadialGradient(-innerR * 0.08, -innerR * 0.08, 0, 0, 0, innerR * 0.38);
       hubGrad.addColorStop(0, '#1a1208');
       hubGrad.addColorStop(0.6, '#0e0b04');
       hubGrad.addColorStop(1, '#080604');
@@ -246,62 +318,89 @@ export function RouletteWheel({
       ctx.arc(0, 0, innerR * 0.38, 0, Math.PI * 2);
       ctx.fillStyle = hubGrad;
       ctx.fill();
-      ctx.restore();
 
-      drawCone(ctx, cx, cy, size * 0.045);
+      // hub gold ring
+      ctx.beginPath();
+      ctx.arc(0, 0, innerR * 0.38, 0, Math.PI * 2);
+      ctx.strokeStyle = '#b8860b';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-      for (let i = 0; i < EURO_ORDER.length; i++) {
-        const a = rot + (i + 0.5) * slotAngle - Math.PI / 2;
-        const dx = cx + Math.cos(a) * (innerR - 6);
-        const dy = cy + Math.sin(a) * (innerR - 6);
-        ctx.beginPath();
-        ctx.arc(dx, dy, 1.8, 0, Math.PI * 2);
-        ctx.fillStyle = '#d4a017';
-        ctx.fill();
-      }
+      ctx.restore(); // end wheel rotation
 
-      const pointer = -Math.PI / 2;
+      // center cone (fixed)
+      drawCone(ctx, cx, cy, size * 0.04);
+
+      // pointer at top
+      const pointerX = cx;
+      const pointerY = cy - outerR - 2;
       ctx.save();
       ctx.beginPath();
-      const px2 = cx + Math.cos(pointer) * (outerR + 2);
-      const py2 = cy + Math.sin(pointer) * (outerR + 2);
-      ctx.moveTo(px2, py2);
-      ctx.lineTo(px2 - 6, py2 - 12);
-      ctx.lineTo(px2 + 6, py2 - 12);
+      ctx.moveTo(pointerX, pointerY + 4);
+      ctx.lineTo(pointerX - 7, pointerY - 10);
+      ctx.lineTo(pointerX + 7, pointerY - 10);
       ctx.closePath();
-      ctx.fillStyle = '#d4a017';
+      const pointerGrad = ctx.createLinearGradient(pointerX, pointerY - 10, pointerX, pointerY + 4);
+      pointerGrad.addColorStop(0, '#f5e6a6');
+      pointerGrad.addColorStop(1, '#b8860b');
+      ctx.fillStyle = pointerGrad;
       ctx.fill();
       ctx.strokeStyle = '#8b6914';
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.restore();
 
+      // ball
       const ballProgress = phase === 'spinning'
         ? Math.min(1, Math.max(0, (Date.now() - spinStartedAt) / duration))
         : phase === 'settled' ? 1 : 0;
-      const ballAngle = phase === 'betting'
-        ? (Date.now() / 1200) % (Math.PI * 2)
-        : -rot - Math.PI / 2 + easeOutQuint(ballProgress) * Math.PI * 12;
-      const ballDist = phase === 'betting'
-        ? pocketR * 0.92
-        : pocketR * 0.92 - easeOutQuint(ballProgress) * pocketR * 0.12;
-      const bx = cx + Math.cos(ballAngle) * ballDist;
-      const by = cy + Math.sin(ballAngle) * ballDist;
+
+      let ballScreenAngle: number;
+      let ballDist: number;
+
+      if (phase === 'betting') {
+        // ball orbits slowly around the outer track, counter to wheel
+        ballScreenAngle = -(Date.now() / 800) % (Math.PI * 2);
+        ballDist = pocketR * 0.92;
+      } else {
+        // ball decelerates and lands in the result pocket under the pointer
+        // final resting angle in screen space = -π/2 (top, aligned with pointer)
+        const BALL_SPINS = 6;
+        const finalAngle = -Math.PI / 2;
+        const startAngle = finalAngle - Math.PI * 2 * BALL_SPINS;
+        ballScreenAngle = startAngle + easeOutQuint(ballProgress) * (finalAngle - startAngle);
+        ballDist = pocketR * 0.92 - easeOutQuint(ballProgress) * pocketR * 0.14;
+      }
+
+      const bx = cx + Math.cos(ballScreenAngle) * ballDist;
+      const by = cy + Math.sin(ballScreenAngle) * ballDist;
 
       ctx.save();
-      const ballGrad = ctx.createRadialGradient(bx - 2, by - 2, 0, bx, by, size * 0.016);
+      const ballSize = size * 0.018;
+      const ballGrad = ctx.createRadialGradient(bx - 1.5, by - 1.5, 0, bx, by, ballSize);
       ballGrad.addColorStop(0, '#ffffff');
-      ballGrad.addColorStop(0.5, '#e8e0d0');
-      ballGrad.addColorStop(1, '#b8a888');
+      ballGrad.addColorStop(0.4, '#f0ece0');
+      ballGrad.addColorStop(1, '#b0a080');
       ctx.beginPath();
-      ctx.arc(bx, by, size * 0.016, 0, Math.PI * 2);
+      ctx.arc(bx, by, ballSize, 0, Math.PI * 2);
       ctx.fillStyle = ballGrad;
-      ctx.shadowColor = 'rgba(0,0,0,.6)';
+      ctx.shadowColor = 'rgba(0,0,0,.65)';
       ctx.shadowBlur = 10;
       ctx.shadowOffsetY = 3;
       ctx.fill();
       ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
       ctx.restore();
+
+      // settled: glow ring around ball
+      if (phase === 'settled') {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(bx, by, ballSize + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(245, 215, 120, .5)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       frame = window.requestAnimationFrame(draw);
     };

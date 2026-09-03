@@ -1810,6 +1810,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
         >
           <MessageCircle size={22} strokeWidth={2.3} />
           {unreadChatCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-[#ee4e84] px-1 font-mono text-[.58rem] font-bold text-white shadow-sm">{unreadChatCount > 99 ? '99+' : unreadChatCount}</span>}
+          <span className="chat-fab-label">Sohbet et</span>
         </button>
       )}
 
