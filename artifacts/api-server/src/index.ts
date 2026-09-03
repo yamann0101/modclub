@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { getPool } from "./lib/pg";
+import { connectPostgres } from "./lib/pg";
 import { ensureSchema } from "./lib/club-data";
 
 const rawPort = process.env["PORT"] || process.env["HTTP_PORT"] || "8080";
@@ -12,14 +12,10 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function waitForPostgres() {
-  if (!getPool()) {
-    logger.error("PostgreSQL yok. Railway'de Postgres ekle; DATABASE_URL otomatik gelir.");
-    process.exit(1);
-  }
   let lastError: unknown;
   for (let attempt = 1; attempt <= 15; attempt += 1) {
     try {
-      await getPool()?.query("SELECT 1");
+      await connectPostgres();
       await ensureSchema();
       return;
     } catch (err) {
