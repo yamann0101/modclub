@@ -8,6 +8,8 @@ export type ClubAccount = {
   title?: CosmeticTitle | string | null;
   appId?: string | null;
   photo?: string | null;
+  coins?: number;
+  vipUntil?: number | null;
 };
 
 export type ChatTimeout = {

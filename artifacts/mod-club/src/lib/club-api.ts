@@ -8,6 +8,21 @@ export type SessionUser = {
   title?: string;
   appId?: string;
   photo?: string;
+  coins?: number;
+  vipUntil?: number;
+};
+
+export type PublicRoulette = {
+  status: 'betting' | 'spinning' | 'settled';
+  round: number;
+  bettingEndsAt: number;
+  spinEndsAt: number;
+  settledUntil: number;
+  result?: number;
+  bets: { nick: string; kind: string; number?: number; amount: number }[];
+  winners: { nick: string; payout: number; vip: boolean }[];
+  players: number;
+  presence: string[];
 };
 
 export type PublicGuessGame = {
@@ -38,6 +53,7 @@ export type ClubSnapshot = {
   timeouts: ChatTimeout[];
   notices: ClubNotice[];
   guessGame?: PublicGuessGame;
+  roulette?: PublicRoulette;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -142,4 +158,20 @@ export async function submitGuess(number: number) {
 
 export async function endGuessGame() {
   return request<ClubSnapshot>('/api/guess/end', { method: 'POST', body: '{}' });
+}
+
+export async function adminWallet(username: string, action: 'give' | 'take' | 'reset', amount = 100) {
+  return request<ClubSnapshot>('/api/wallet', { method: 'POST', body: JSON.stringify({ username, action, amount }) });
+}
+
+export async function buyVipPack(pack: '7' | '30') {
+  return request<ClubSnapshot>('/api/store/vip', { method: 'POST', body: JSON.stringify({ pack }) });
+}
+
+export async function rouletteHere() {
+  return request<ClubSnapshot>('/api/roulette/here', { method: 'POST', body: '{}' });
+}
+
+export async function rouletteBet(body: { kind: string; number?: number; amount: number }) {
+  return request<ClubSnapshot>('/api/roulette/bet', { method: 'POST', body: JSON.stringify(body) });
 }

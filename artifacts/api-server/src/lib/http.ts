@@ -39,5 +39,7 @@ export function publicUser(account: ClubAccount) {
     title: account.title || undefined,
     appId: account.appId || undefined,
     photo: account.photo || undefined,
+    coins: account.coins ?? 0,
+    vipUntil: account.vipUntil || undefined,
   };
 }

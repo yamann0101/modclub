@@ -1,4 +1,5 @@
 import { query } from "./pg";
+import { publicRoulette, readRoulette } from "./economy";
 
 export type ClubRole = "ADMIN" | "ÜYE" | "MODERATOR";
 
@@ -10,6 +11,8 @@ export type ClubAccount = {
   title?: string | null;
   appId?: string | null;
   photo?: string | null;
+  coins?: number;
+  vipUntil?: number | null;
 };
 
 export type PublicAccount = Omit<ClubAccount, "password">;
@@ -110,12 +113,15 @@ export async function ensureSchema() {
       expires_at timestamptz NOT NULL
     );
   `);
+  await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS vip_until bigint`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('banners', $1::jsonb) ON CONFLICT (key) DO NOTHING`, [JSON.stringify(DEFAULT_BANNERS)]);
   for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events"]) {
     await query(`INSERT INTO club_docs (key, value) VALUES ($1, '[]'::jsonb) ON CONFLICT (key) DO NOTHING`, [key]);
   }
   await query(`INSERT INTO club_docs (key, value) VALUES ('settings', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('guess_game', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
+  await query(`INSERT INTO club_docs (key, value) VALUES ('roulette', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
 }
 
 async function getDoc<T>(key: string, fallback: T): Promise<T> {
@@ -144,6 +150,8 @@ function rowToAccount(row: {
   title: string | null;
   app_id: string | null;
   photo: string | null;
+  coins?: number | null;
+  vip_until?: number | string | null;
 }): ClubAccount {
   return {
     username: row.username,
@@ -153,6 +161,8 @@ function rowToAccount(row: {
     title: row.title,
     appId: row.app_id,
     photo: row.photo,
+    coins: Math.max(0, Number(row.coins || 0)),
+    vipUntil: row.vip_until ? Number(row.vip_until) : null,
   };
 }
 
@@ -165,7 +175,9 @@ export async function listAccounts(): Promise<ClubAccount[]> {
     title: string | null;
     app_id: string | null;
     photo: string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo FROM club_accounts ORDER BY created_at ASC");
+    coins: number | null;
+    vip_until: number | string | null;
+  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts ORDER BY created_at ASC");
   return result.rows.map(rowToAccount);
 }
 
@@ -178,7 +190,9 @@ export async function findAccount(username: string) {
     title: string | null;
     app_id: string | null;
     photo: string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo FROM club_accounts WHERE lower(username) = lower($1)", [username.trim()]);
+    coins: number | null;
+    vip_until: number | string | null;
+  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(username) = lower($1)", [username.trim()]);
   return result.rows[0] ? rowToAccount(result.rows[0]) : null;
 }
 
@@ -191,7 +205,9 @@ export async function findAccountByNick(nick: string) {
     title: string | null;
     app_id: string | null;
     photo: string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo FROM club_accounts WHERE lower(nick) = lower($1)", [nick.trim()]);
+    coins: number | null;
+    vip_until: number | string | null;
+  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(nick) = lower($1)", [nick.trim()]);
   return result.rows[0] ? rowToAccount(result.rows[0]) : null;
 }
 
@@ -259,7 +275,7 @@ export async function readGiveaways() {
 }
 
 export async function snapshot(username?: string) {
-  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame] = await Promise.all([
+  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame, roulette] = await Promise.all([
     readSettings(),
     listAccounts(),
     getDoc<Banner[]>("banners", DEFAULT_BANNERS),
@@ -270,6 +286,7 @@ export async function snapshot(username?: string) {
     getDoc<ChatTimeout[]>("timeouts", []),
     getDoc<ClubNotice[]>("notices", []),
     readGuessGame(),
+    readRoulette(),
   ]);
   const me = username ? accounts.find((item) => nickKey(item.username) === nickKey(username)) : undefined;
   const staff = me?.role === "ADMIN" || me?.role === "MODERATOR";
@@ -294,6 +311,7 @@ export async function snapshot(username?: string) {
     timeouts: (Array.isArray(timeouts) ? timeouts : []).filter((item) => item?.nick && item.until > Date.now()),
     notices: Array.isArray(notices) ? notices.slice(0, 40) : [],
     guessGame: publicGuessGame(guessGame, staff),
+    roulette: publicRoulette(roulette),
   };
 }
 

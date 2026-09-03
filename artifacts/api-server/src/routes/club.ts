@@ -13,6 +13,7 @@ import {
   submitGuess,
   upsertAccount,
 } from "../lib/club-data";
+import { adminWallet, buyVip, placeRouletteBet, publicRoulette, touchRoulette } from "../lib/economy";
 import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
 
 const router: IRouter = Router();
@@ -230,6 +231,62 @@ router.post("/guess/end", async (req, res) => {
   } catch (err) {
     const code = err instanceof Error ? err.message : "invalid";
     res.status(400).json({ error: code });
+  }
+});
+
+router.post("/wallet", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account || account.role !== "ADMIN") {
+    res.status(403).json({ error: "admin" });
+    return;
+  }
+  const body = req.body as { username?: string; action?: string; amount?: number };
+  try {
+    await adminWallet(account.role, String(body.username || ""), body.action === "take" || body.action === "reset" ? body.action : "give", Number(body.amount));
+    res.json(await snapshot(account.username));
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "missing" ? 404 : 400).json({ error: code });
+  }
+});
+
+router.post("/store/vip", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    await buyVip(account.username, String((req.body as { pack?: string }).pack || ""));
+    res.json(await snapshot(account.username));
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "coins" ? 409 : 400).json({ error: code });
+  }
+});
+
+router.post("/roulette/here", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  const room = await touchRoulette(account.nick);
+  res.json({ ...await snapshot(account.username), roulette: publicRoulette(room) });
+});
+
+router.post("/roulette/bet", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    const room = await placeRouletteBet(account.username, req.body as { kind?: string; number?: number; amount?: number });
+    res.json({ ...await snapshot(account.username), roulette: publicRoulette(room) });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "closed" || code === "coins" ? 409 : 400).json({ error: code });
   }
 });
 

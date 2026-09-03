@@ -1738,6 +1738,138 @@ html.dark .guess-btn-ghost {
 .chat-swipe-row.is-drag { transition: none; }
 .chat-wallpaper { overscroll-behavior-x: none; }
 
+.wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  height: 1.7rem;
+  padding: 0 .55rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fff6c8, #f0d36a);
+  color: #6b4d0e;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.wallet-card {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 1.2rem;
+  background: hsl(var(--card));
+  padding: 1rem;
+}
+.store-pack {
+  border-radius: 1.2rem;
+  padding: 1.1rem;
+  color: #fff;
+  background: linear-gradient(160deg, #1e1140, #6d28d9 60%, #c026d3);
+}
+.store-pack-long { background: linear-gradient(160deg, #111827, #7c2d12 55%, #f59e0b); }
+.roulette-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .75rem;
+  margin-bottom: .85rem;
+  font-size: .68rem;
+  font-weight: 800;
+  color: hsl(var(--muted-foreground));
+}
+.roulette-top strong { color: hsl(var(--foreground)); }
+.roulette-stage {
+  position: relative;
+  height: 16.5rem;
+  overflow: hidden;
+  border-radius: 1.3rem;
+  perspective: 900px;
+  background: radial-gradient(circle at 50% 40%, #0f7a3a, #064422 62%, #032616);
+  box-shadow: inset 0 0 40px rgba(0,0,0,.35);
+}
+.roulette-felt {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  box-shadow: inset 0 0 30px rgba(0,0,0,.25);
+}
+.roulette-canvas {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 15.2rem;
+  height: 15.2rem;
+  transform: translate(-50%, -50%) rotateX(56deg);
+  transform-style: preserve-3d;
+}
+.roulette-hub {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 2.4rem;
+  height: .5rem;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: linear-gradient(#f5e6a6, #b8860b);
+}
+.chip-btn {
+  height: 2rem;
+  min-width: 3.2rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  font-size: .68rem;
+  font-weight: 800;
+}
+.chip-btn.is-on { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+.bet-out, .bet-num {
+  height: 2.2rem;
+  border-radius: .7rem;
+  font-size: .68rem;
+  font-weight: 800;
+  color: #fff;
+  background: #3f3358;
+}
+.bet-out.is-red, .bet-num.is-red { background: #b91c1c; }
+.bet-out.is-black, .bet-num.is-black { background: #171717; }
+.bet-num.is-green { background: #15803d; }
+.roulette-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: .35rem;
+}
+.roulette-win {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  border-radius: .9rem;
+  background: hsl(var(--muted));
+  padding: .55rem .7rem;
+  font-size: .75rem;
+  font-weight: 800;
+}
+.roulette-win.is-vip {
+  background: linear-gradient(135deg, #3b1468, #b45309);
+  color: #fff;
+}
+.roulette-win small {
+  border-radius: 999px;
+  background: #f5e6a6;
+  color: #7a5208;
+  padding: .1rem .4rem;
+  font-size: .5rem;
+  font-weight: 900;
+}
+.rank-name-vip,
+.rank-name.is-vip .rank-name-label {
+  background: linear-gradient(90deg, #f5d76e, #fff4c2, #d4a017);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.rank-name-vip .rank-tag,
+.rank-name.is-vip .rank-tag {
+  color: #b8860b;
+}
+
 @media (min-width: 1280px) {
   .desktop-shell { max-width: 1340px; }
 }

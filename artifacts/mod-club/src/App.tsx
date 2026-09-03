@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Crown, Dices, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Play, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, startGuessGame, submitGuess, type PublicGuessGame, type SessionUser } from '@/lib/club-api';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, rouletteBet, rouletteHere, startGuessGame, submitGuess, type PublicGuessGame, type PublicRoulette, type SessionUser } from '@/lib/club-api';
+import { RED_SET, RouletteWheel } from '@/components/roulette-wheel';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -118,11 +119,16 @@ async function saveUserPhoto(session: UserSession, photo: string) {
   return patchMe({ photo });
 }
 
-function yetkiLabel(role?: string, title?: string) {
+function yetkiLabel(role?: string, title?: string, vip = false) {
   if (role === 'ADMIN') return title ? `Lider · ${title}` : 'Lider';
   if (role === 'MODERATOR') return title ? `Yetkili · ${title}` : 'Yetkili';
+  if (vip) return title ? `VIP · ${title}` : 'VIP';
   if (title === 'ELDER' || title === 'ASSTN') return title;
   return 'Üye';
+}
+
+function isLiveVip(vipUntil?: number | null, now = Date.now()) {
+  return Boolean(vipUntil && vipUntil > now);
 }
 
 function fileToAvatar(file: File) {
@@ -292,9 +298,134 @@ function EventsPage({ events, joinedEvents, onToggle }: { events: { id: string; 
   return <div className="page-view"><div className="page-hero page-hero-events"><div><p className="page-kicker">MOD CLUB TAKVİMİ</p><h1>Etkinlikler</h1><p>Topluluğunla birlikte oynayacağın yeni anları keşfet.</p></div><CalendarDays size={48} /></div><div className="mb-5 flex items-end justify-between"><div><p className="page-kicker">YAKLAŞANLAR</p><h2 className="font-display text-xl font-bold">Seni bekleyen etkinlikler</h2></div><span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.62rem] font-bold text-[hsl(var(--primary))]">{joinedEvents.length} katılım</span></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{events.map((event) => { const joined = joinedEvents.includes(event.id); return <article key={event.id} className={`overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white ${event.tone === 'purple' ? 'shadow-[0_12px_35px_rgba(137,60,216,.1)]' : ''}`}><div className={`relative flex h-32 items-end justify-between overflow-hidden p-4 ${event.tone === 'purple' ? 'bg-[linear-gradient(135deg,#5c1e91,#b24af4)]' : event.tone === 'rose' ? 'bg-[linear-gradient(135deg,#9d286d,#ef6aa9)]' : event.tone === 'blue' ? 'bg-[linear-gradient(135deg,#2567a9,#65b8ec)]' : 'bg-[linear-gradient(135deg,#258b68,#82d59c)]'}`}><span className="rounded-full bg-white/20 px-2 py-1 font-mono text-[.5rem] font-bold text-white">{event.category}</span><span className="font-display text-5xl font-bold text-white/25">{event.id.slice(-1)}</span></div><div className="p-4"><h3 className="font-display text-base font-bold">{event.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{event.copy}</p><div className="mt-4 flex flex-wrap gap-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]"><span className="inline-flex items-center gap-1"><CalendarDays size={13} />{event.date}</span><span className="inline-flex items-center gap-1"><Clock3 size={13} />{event.time}</span></div><button onClick={() => onToggle(event.id)} className={`mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-bold ${joined ? 'bg-[#e2f6e8] text-[#2c9650]' : 'bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--primary))]'}`}>{joined && <Check size={14} />}{joined ? 'Katıldın' : 'Katıl'}</button></div></article>; })}</div></div>;
 }
 
-function GamesPage() {
-  const games = [{ title: 'Arena Clash', genre: 'Rekabetçi · 5v5', players: '1.2K oynuyor', color: 'from-[#5520a1] to-[#a33ee7]', icon: '⚔' }, { title: 'Neon Racers', genre: 'Yarış · Hızlı', players: '864 oynuyor', color: 'from-[#146a9f] to-[#55c5ef]', icon: '✦' }, { title: 'Puzzle Party', genre: 'Zeka · Takım', players: '542 oynuyor', color: 'from-[#ba4f83] to-[#f48ba4]', icon: '◈' }, { title: 'Pixel Quest', genre: 'Macera · RPG', players: '328 oynuyor', color: 'from-[#238663] to-[#77d69b]', icon: '✚' }];
-  return <div className="page-view"><div className="page-hero page-hero-games"><div><p className="page-kicker">OYUN ALANI</p><h1>Oyunlar</h1><p>Takımını kur, skorunu yükselt ve toplulukta iz bırak.</p></div><Gamepad2 size={48} /></div><div className="mb-5"><p className="page-kicker">ŞİMDİ POPÜLER</p><h2 className="font-display text-xl font-bold">Bugünün oyunları</h2></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{games.map((game) => <article key={game.title} className="game-card group overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white"><div className={`game-cover bg-gradient-to-br ${game.color}`}><span className="text-5xl font-bold text-white/80 transition-transform group-hover:scale-110">{game.icon}</span><span className="absolute right-3 top-3 rounded-full bg-black/15 px-2 py-1 font-mono text-[.5rem] font-bold text-white">CANLI</span></div><div className="p-4"><h3 className="font-display text-base font-bold">{game.title}</h3><p className="mt-1 text-[.65rem] text-[hsl(var(--muted-foreground))]">{game.genre}</p><div className="mt-4 flex items-center justify-between"><span className="text-[.6rem] font-bold text-[#39a861]">{game.players}</span><button onClick={() => window.alert(`${game.title} açılıyor`)} className="grid size-9 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))] hover:text-white" aria-label={`${game.title} oyununu aç`}><Play size={14} fill="currentColor" /></button></div></div></article>)}</div></div>;
+function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUntil?: number | null; now: number; busy: boolean; onBuy: (pack: '7' | '30') => void }) {
+  const vip = isLiveVip(vipUntil, now);
+  const left = vip && vipUntil ? Math.max(0, vipUntil - now) : 0;
+  const days = Math.ceil(left / 86400000);
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-games">
+        <div>
+          <p className="page-kicker">MAĞAZA</p>
+          <h1>Mağaza</h1>
+          <p>Uygulama coin’inle VIP al. Sohbette ve rulette ismin ayrı durur.</p>
+        </div>
+        <Store size={48} />
+      </div>
+      <div className="wallet-card">
+        <span className="grid size-11 place-items-center rounded-2xl bg-[#f5e6a6] text-[#8a6a12]"><Coins size={22} /></span>
+        <div>
+          <p className="text-[.62rem] font-extrabold uppercase tracking-[.12em] text-[hsl(var(--muted-foreground))]">Cüzdan</p>
+          <p className="font-display text-2xl font-bold">{coins} coin</p>
+        </div>
+        <span className={vip ? 'ml-auto rounded-full bg-[#f5e6a6] px-3 py-1 text-[.62rem] font-extrabold text-[#8a6a12]' : 'ml-auto rounded-full bg-[hsl(var(--muted))] px-3 py-1 text-[.62rem] font-extrabold text-[hsl(var(--muted-foreground))]'}>{vip ? `VIP · ${days} gün` : 'VIP yok'}</span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <article className="store-pack">
+          <p className="font-mono text-[.55rem] font-extrabold tracking-[.14em] text-amber-200">VIP</p>
+          <h2 className="mt-1 font-display text-xl font-bold">7 gün</h2>
+          <p className="mt-1 text-xs text-white/70">Renkli isim, VIP rozeti, rulette kazanan kartı.</p>
+          <button type="button" disabled={busy || coins < 500} onClick={() => onBuy('7')} className="guess-btn-primary mt-4 w-full">500 coin</button>
+        </article>
+        <article className="store-pack store-pack-long">
+          <p className="font-mono text-[.55rem] font-extrabold tracking-[.14em] text-amber-200">VIP</p>
+          <h2 className="mt-1 font-display text-xl font-bold">30 gün</h2>
+          <p className="mt-1 text-xs text-white/70">Aynı VIP görünümü, daha uzun süre.</p>
+          <button type="button" disabled={busy || coins < 1500} onClick={() => onBuy('30')} className="guess-btn-primary mt-4 w-full">1500 coin</button>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function GamesPage({
+  room,
+  coins,
+  nick,
+  now,
+  busy,
+  chip,
+  onChip,
+  onBet,
+}: {
+  room: PublicRoulette | null;
+  coins: number;
+  nick: string;
+  now: number;
+  busy: boolean;
+  chip: number;
+  onChip: (value: number) => void;
+  onBet: (kind: string, number?: number) => void;
+}) {
+  const status = room?.status || 'betting';
+  const left = status === 'betting'
+    ? Math.max(0, Math.ceil(((room?.bettingEndsAt || 0) - now) / 1000))
+    : status === 'spinning'
+      ? Math.max(0, Math.ceil(((room?.spinEndsAt || 0) - now) / 1000))
+      : Math.max(0, Math.ceil(((room?.settledUntil || 0) - now) / 1000));
+  const mine = (room?.bets || []).filter((item) => item.nick === nick);
+  const outside = [
+    { kind: 'red', label: 'Kırmızı', className: 'is-red' },
+    { kind: 'black', label: 'Siyah', className: 'is-black' },
+    { kind: 'odd', label: 'Tek', className: '' },
+    { kind: 'even', label: 'Çift', className: '' },
+    { kind: 'low', label: '1–18', className: '' },
+    { kind: 'high', label: '19–36', className: '' },
+  ];
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-games">
+        <div>
+          <p className="page-kicker">CANLI MASA</p>
+          <h1>Rulet</h1>
+          <p>Tek çark, herkeste aynı anda döner. Bahis uygulama coin’i ile.</p>
+        </div>
+        <Gamepad2 size={48} />
+      </div>
+      <div className="roulette-top">
+        <span>{room?.players || 0} kişi masada</span>
+        <span>Tur {room?.round || 1}</span>
+        <span>{coins} coin</span>
+        <strong>{status === 'betting' ? `Bahis ${left}s` : status === 'spinning' ? 'Dönüyor' : room?.result === 0 ? '0 yeşil' : `Sonuç ${room?.result}`}</strong>
+      </div>
+      <RouletteWheel
+        phase={status}
+        result={room?.result || 0}
+        spinStartedAt={(room?.bettingEndsAt || 0)}
+        spinEndsAt={room?.spinEndsAt || 0}
+        now={now}
+      />
+      <div className="mt-4 flex flex-wrap gap-2">
+        {[10, 50, 100, 500].map((value) => (
+          <button key={value} type="button" onClick={() => onChip(value)} className={`chip-btn ${chip === value ? 'is-on' : ''}`}>{value}</button>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {outside.map((item) => (
+          <button key={item.kind} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet(item.kind)} className={`bet-out ${item.className}`}>{item.label}</button>
+        ))}
+      </div>
+      <div className="roulette-grid mt-3">
+        {Array.from({ length: 37 }, (_, number) => (
+          <button key={number} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', number)} className={`bet-num ${number === 0 ? 'is-green' : RED_SET.has(number) ? 'is-red' : 'is-black'}`}>{number}</button>
+        ))}
+      </div>
+      {mine.length > 0 && (
+        <p className="mt-3 text-[.68rem] font-bold text-[hsl(var(--muted-foreground))]">Bahislerin: {mine.map((item) => `${item.kind === 'straight' ? item.number : item.kind} · ${item.amount}`).join(' · ')}</p>
+      )}
+      {(room?.winners || []).length > 0 && status !== 'betting' && (
+        <ol className="mt-4 space-y-2">
+          {room?.winners.map((winner) => (
+            <li key={`${winner.nick}-${winner.payout}`} className={`roulette-win ${winner.vip ? 'is-vip' : ''}`}>
+              <span className="min-w-0 truncate font-extrabold">{winner.nick}</span>
+              {winner.vip && <small>VIP</small>}
+              <span className="ml-auto">+{winner.payout}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
@@ -303,6 +434,8 @@ function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout
     { title: 'Uygulama İndir', copy: 'Topluluk uygulamalarını gör ve indir.', icon: Download, page: 'Uygulama İndir' },
     { title: 'Topluluk keşfi', copy: 'Yeni ekip arkadaşları ve odalar bul.', icon: UsersRound, page: 'Topluluk' },
     { title: 'Duyurular', copy: 'MOD CLUB haberlerini ve güncellemeleri gör.', icon: Megaphone },
+    { title: 'Sohbet', copy: 'Canlı sohbeti aç.', icon: MessageCircle, page: 'Sohbet' },
+    { title: 'Mağaza', copy: 'Coin ile VIP satın al.', icon: Store, page: 'Mağaza' },
     { title: 'Ayarlar', copy: 'Hesap ve uygulama tercihlerini düzenle.', icon: Settings, page: 'Hesap ayarları' },
   ];
   return <div className="page-view"><div className="page-hero page-hero-menu"><div><p className="page-kicker">KULÜP ARAÇLARI</p><h1>Menü</h1><p>MOD CLUB deneyimini kendi akışına göre yönet.</p></div><Menu size={48} /></div><div className="grid gap-3 sm:grid-cols-2">{items.map(({ title, copy, icon: Icon, page }) => <button key={title} onClick={() => page ? onOpen(page) : window.alert(`${title} yakında açılıyor`)} className="menu-link-card"><span className="grid size-11 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon size={20} /></span><span className="flex-1 text-left"><strong>{title}</strong><small>{copy}</small></span><ChevronRight size={17} /></button>)}<button onClick={onAdmin} className="menu-link-card border-[hsl(var(--primary)/.2)] bg-[hsl(var(--secondary)/.55)]"><span className="grid size-11 place-items-center rounded-xl bg-[hsl(var(--primary))] text-white"><Shield size={20} /></span><span className="flex-1 text-left"><strong>Admin paneli</strong><small>Üyeleri, çekilişleri, film ve uygulamaları yönet.</small></span><ChevronRight size={17} /></button></div><button onClick={onLogout} className="mt-8 flex h-12 items-center justify-center gap-2 rounded-xl border border-[#f2c9d0] bg-[#fff5f6] text-sm font-bold text-[#c44b5a]"><LogOut size={17} />Çıkış yap</button></div>;
@@ -382,7 +515,7 @@ function displayRankKind(role?: string, title?: CosmeticTitle | string) {
   return null;
 }
 
-function RankedName({ name, role, title, appId, size = 'sm', align = 'start', onDark = false, muted = false, revealId = false }: { name: string; role?: string; title?: CosmeticTitle | string; appId?: string; size?: 'sm' | 'lg'; align?: 'start' | 'end'; onDark?: boolean; muted?: boolean; revealId?: boolean }) {
+function RankedName({ name, role, title, appId, size = 'sm', align = 'start', onDark = false, muted = false, revealId = false, vip = false }: { name: string; role?: string; title?: CosmeticTitle | string; appId?: string; size?: 'sm' | 'lg'; align?: 'start' | 'end'; onDark?: boolean; muted?: boolean; revealId?: boolean; vip?: boolean }) {
   const [idOpen, setIdOpen] = useState(false);
   const kind = displayRankKind(role, title);
   const idLine = revealId && idOpen ? <small className="rank-app-id">{appId ? `ID ${appId}` : 'ID yok'}</small> : null;
@@ -392,9 +525,10 @@ function RankedName({ name, role, title, appId, size = 'sm', align = 'start', on
   if (!kind) {
     return (
       <span
-        className={size === 'lg' ? 'font-display text-2xl font-bold' : onDark ? 'text-[.68rem] font-bold text-white' : 'text-[.6rem] font-bold text-[hsl(var(--primary))]'}
+        className={`${vip ? 'rank-name rank-name-vip' : ''} ${size === 'lg' ? 'font-display text-2xl font-bold' : onDark ? 'text-[.68rem] font-bold text-white' : 'text-[.6rem] font-bold text-[hsl(var(--primary))]'}`}
         {...nameProps}
       >
+        {vip && <small className="rank-tag">vip</small>}
         {name}
         {idLine}
         {muted && <small className="rank-muted">susturuldu</small>}
@@ -410,7 +544,7 @@ function RankedName({ name, role, title, appId, size = 'sm', align = 'start', on
   const NameRIcon = fancy?.NameR;
 
   return (
-    <span className={`rank-name rank-name-${kind} ${align === 'end' ? 'is-end' : ''} ${size === 'lg' ? 'is-lg' : ''} ${onDark ? 'on-dark' : ''}`} {...nameProps}>
+    <span className={`rank-name rank-name-${kind} ${vip ? 'is-vip' : ''} ${align === 'end' ? 'is-end' : ''} ${size === 'lg' ? 'is-lg' : ''} ${onDark ? 'on-dark' : ''}`} {...nameProps}>
       {fancy && LeftIcon && RightIcon ? (
         <span className="rank-tag-row">
           <LeftIcon className="rank-glyph rank-glyph-crown" size={glyph} strokeWidth={2.6} aria-hidden="true" />
@@ -510,9 +644,10 @@ function ProfilePage({ session, onLogout, onSession, onNotice }: { session: User
           </div>
           <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2><RankedName name={nick} role={user.role} title={user.title} size="lg" /></h2>
+              <h2><RankedName name={nick} role={user.role} title={user.title} size="lg" vip={isLiveVip(user.vipUntil)} /></h2>
               <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">Giriş: @{user.username}</p>
-              <p className="mt-1 text-xs font-bold text-[hsl(var(--primary))]">{yetkiLabel(user.role, user.title)}</p>
+              <p className="mt-1 text-xs font-bold text-[hsl(var(--primary))]">{yetkiLabel(user.role, user.title, isLiveVip(user.vipUntil))}</p>
+              <p className="mt-1 text-xs font-extrabold text-amber-600">{user.coins ?? 0} coin</p>
               <p className="mt-1 font-mono text-[.7rem] font-bold text-[hsl(var(--primary))]">{user.appId ? `ID ${user.appId}` : 'Uygulama ID’si henüz girilmedi'}</p>
             </div>
             <button onClick={onLogout} className="flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] px-3 py-2 text-xs font-bold text-[hsl(var(--muted-foreground))] hover:text-[#c44b5a]"><LogOut size={15} />Çıkış yap</button>
@@ -729,7 +864,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [guessNumber, setGuessNumber] = useState('');
   const [guessBusy, setGuessBusy] = useState(false);
   const guessStatusRef = useRef<PublicGuessGame['status'] | null>(null);
-  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string } | null>(null);
+  const [roulette, setRoulette] = useState<PublicRoulette | null>(null);
+  const [walletCoins, setWalletCoins] = useState(session.coins ?? 0);
+  const [walletVip, setWalletVip] = useState(session.vipUntil ?? 0);
+  const [storeBusy, setStoreBusy] = useState(false);
+  const [rouletteChip, setRouletteChip] = useState(10);
+  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string; vip?: boolean } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
   const openGiveaways = giveaways.filter((item) => giveawayStatus(item, now) === 'open');
@@ -768,6 +908,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     if (label === 'Sohbet') {
       setMenuOpen(false);
       setChatOpen(true);
+      return;
+    }
+    if (label === 'Film izle' || label === 'Film İzle') {
+      setMenuOpen(false);
+      setChatOpen(false);
+      setActiveNav('Film İzle');
+      setNotice('Film izle açık');
+      return;
+    }
+    if (label === 'Mağaza') {
+      setMenuOpen(false);
+      setChatOpen(false);
+      setActiveNav('Mağaza');
+      setNotice('Mağaza açık');
       return;
     }
     setChatOpen(false);
@@ -831,6 +985,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setGuessEndOpen(true);
     }
     if (nextGame?.status === 'playing') setGuessEndOpen(false);
+    setRoulette(data.roulette || null);
+    setWalletCoins(data.me?.coins ?? 0);
+    setWalletVip(data.me?.vipUntil ?? 0);
+    if (data.me) {
+      onSession({
+        ...session,
+        coins: data.me.coins ?? 0,
+        vipUntil: data.me.vipUntil ?? undefined,
+        photo: data.me.photo || session.photo,
+        nick: data.me.nick || session.nick,
+        title: data.me.title || session.title,
+        appId: data.me.appId || session.appId,
+      });
+    }
   };
 
   const pushNotice = (title: string, body: string) => {
@@ -904,12 +1072,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       }
     };
     void pull();
-    const timer = window.setInterval(() => void pull(), guessGame?.status === 'playing' ? 1000 : 4000);
+    const timer = window.setInterval(() => void pull(), guessGame?.status === 'playing' || activeNav === 'Oyunlar' ? 1000 : 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [nick, guessGame?.status]);
+  }, [nick, guessGame?.status, activeNav]);
 
   useEffect(() => {
     void registerClubWorker();
@@ -1058,6 +1226,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       role: account?.role || message.role,
       title: account?.title || message.title,
       appId: account?.appId || undefined,
+      vip: isLiveVip(account?.vipUntil),
     });
   };
 
@@ -1191,6 +1360,38 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setGuessBusy(false);
     }
   };
+
+  const purchaseVip = async (pack: '7' | '30') => {
+    setStoreBusy(true);
+    try {
+      applySnapshot(await buyVipPack(pack));
+      setNotice('VIP alındı');
+    } catch (err) {
+      setNotice((err as Error).message === 'coins' ? 'Yeterli coin yok' : 'VIP alınamadı');
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
+  const sendRouletteBet = async (kind: string, number?: number) => {
+    setStoreBusy(true);
+    try {
+      applySnapshot(await rouletteBet({ kind, number, amount: rouletteChip }));
+      setNotice('Bahis alındı');
+    } catch (err) {
+      const code = (err as Error).message;
+      setNotice(code === 'coins' ? 'Yeterli coin yok' : code === 'closed' ? 'Bahis kapandı' : 'Bahis yapılamadı');
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeNav !== 'Oyunlar') return;
+    void rouletteHere().then(applySnapshot).catch(() => undefined);
+    const timer = window.setInterval(() => { void rouletteHere().then(applySnapshot).catch(() => undefined); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [activeNav, nick]);
 
   const sendAdminBroadcast = async () => {
     const title = broadcastTitle.trim() || 'Duyuru';
@@ -1336,6 +1537,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               </label>
             )}
             <button data-testid="button-search" aria-label="Ara" onClick={() => setSearchOpen((open) => !open)} className="hidden size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] sm:grid"><Search size={19} /></button>
+            <span className="wallet-chip"><Coins size={13} />{walletCoins}</span>
             <PwaInstallChip />
             <button
               type="button"
@@ -1420,7 +1622,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                   { label: 'Ana Sayfa', icon: HomeIcon, testid: 'button-menu-home' },
                   { label: 'Etkinlikler', icon: CalendarDays, testid: 'button-menu-events' },
                   { label: 'Oyunlar', icon: Gamepad2, testid: 'button-menu-games' },
+                  { label: 'Sohbet', icon: MessageCircle, testid: 'button-menu-chat' },
                   { label: 'Film İzle', icon: Film, testid: 'button-menu-films' },
+                  { label: 'Mağaza', icon: Store, testid: 'button-menu-store' },
                   { label: 'Uygulama İndir', icon: Download, testid: 'button-menu-apps' },
                   { label: 'Topluluk', icon: UsersRound, testid: 'button-menu-community' },
                   { label: 'Profil', icon: UserRound, testid: 'button-menu-profile' },
@@ -1561,7 +1765,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage room={roulette} coins={walletCoins} nick={nick} now={now} busy={storeBusy} chip={rouletteChip} onChip={setRouletteChip} onBet={sendRouletteBet} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button
@@ -1580,12 +1784,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
         <div className="club-nav-inner">
           {([
             { label: 'Ana Sayfa', icon: HomeIcon },
-            { label: 'Sohbet', icon: MessageCircle },
+            { label: 'Film izle', icon: Film },
             { label: 'Menü', icon: Zap, orb: true },
             { label: 'Oyunlar', icon: Gamepad2 },
-            { label: 'Profil', icon: UserRound },
+            { label: 'Mağaza', icon: Store },
           ] as { label: string; icon: LucideIcon; orb?: boolean }[]).map(({ label, icon: Icon, orb }) => {
-            const active = orb ? menuOpen : label === 'Sohbet' ? chatOpen : activeNav === label;
+            const active = orb ? menuOpen : label === 'Film izle' ? activeNav === 'Film İzle' : activeNav === label;
             return (
               <button
                 data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`}
@@ -1723,18 +1927,22 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                     </div>
                     <div className="grid gap-2">
                       {adminUsers.map((member) => {
-                        const memberTitle = accounts.find((item) => nickKey(item.nick) === nickKey(member.nick))?.title;
+                        const account = accounts.find((item) => nickKey(item.username) === nickKey(member.username) || nickKey(item.nick) === nickKey(member.nick));
+                        const memberTitle = account?.title;
                         return (
                           <div key={member.id} className="admin-row">
                             <img src={member.photo} alt="" className="size-10 rounded-full object-cover" />
                             <div className="min-w-[8rem] flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <RankedName name={member.nick} role={member.role} title={memberTitle ?? undefined} size="sm" onDark={colorMode === 'dark'} />
+                                <RankedName name={member.nick} role={member.role} title={memberTitle ?? undefined} size="sm" onDark={colorMode === 'dark'} vip={isLiveVip(account?.vipUntil, now)} />
                                 <span className="rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 font-mono text-[.48rem] font-bold text-[hsl(var(--muted-foreground))]">{member.role}</span>
                               </div>
-                              <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">@{member.nick} · {member.status}</p>
+                              <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">@{member.nick} · {account?.coins ?? 0} coin</p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
+                              <button type="button" onClick={() => { void adminWallet(member.username, 'give', 100).then(applySnapshot); setNotice(`${member.nick} +100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">+100</button>
+                              <button type="button" onClick={() => { void adminWallet(member.username, 'take', 100).then(applySnapshot); setNotice(`${member.nick} −100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">−100</button>
+                              <button type="button" onClick={() => { void adminWallet(member.username, 'reset').then(applySnapshot); setNotice(`${member.nick} cüzdanı sıfırlandı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">Sıfırla</button>
                               <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} artık ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[6.5rem] px-2 text-[.58rem] font-bold">
                                 <option value="">Unvan yok</option>
                                 <option value="ELDER">ELDER</option>
@@ -1940,7 +2148,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">ID</p>
               <p className="mt-0.5 font-mono text-sm font-bold text-[hsl(var(--primary))]">{chatProfile.appId || 'ID yok'}</p>
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Yetki</p>
-              <p className="mt-0.5 text-sm font-extrabold">{yetkiLabel(chatProfile.role, chatProfile.title)}</p>
+              <p className="mt-0.5 text-sm font-extrabold">{yetkiLabel(chatProfile.role, chatProfile.title, chatProfile.vip)}</p>
             </div>
           </div>
         )}
@@ -2073,9 +2281,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                 <div className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`}>
                   {!message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={avatarFor(message.author, message.photo)} alt="" className="size-full object-cover" /></button>}
                   <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
-                    {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={authorAccount?.appId || undefined} muted={authorMuted} revealId /></div>}
+                    {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={authorAccount?.appId || undefined} muted={authorMuted} revealId vip={isLiveVip(authorAccount?.vipUntil, now)} /></div>}
                     <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
-                      {message.mine && <div className="mb-1 flex justify-end"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={user.appId} align="end" onDark muted={authorMuted} revealId /></div>}
+                      {message.mine && <div className="mb-1 flex justify-end"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={user.appId} align="end" onDark muted={authorMuted} revealId vip={isLiveVip(walletVip, now)} /></div>}
                       {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
                       <p className="text-[.72rem] leading-relaxed">{message.message}</p>
                       <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
