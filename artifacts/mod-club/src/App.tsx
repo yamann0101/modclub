@@ -9,7 +9,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
 import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, rouletteBet, rouletteHere, startGuessGame, submitGuess, type PublicGuessGame, type PublicRoulette, type SessionUser } from '@/lib/club-api';
-import { RED_SET, RouletteWheel } from '@/components/roulette-wheel';
+import { RED_SET, RouletteWheel, playCountdown, playWin } from '@/components/roulette-wheel';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -364,6 +364,28 @@ function GamesPage({
       ? Math.max(0, Math.ceil(((room?.spinEndsAt || 0) - now) / 1000))
       : Math.max(0, Math.ceil(((room?.settledUntil || 0) - now) / 1000));
   const mine = (room?.bets || []).filter((item) => item.nick === nick);
+  const allBets = room?.bets || [];
+  const prevStatusRef = useRef(status);
+  const countdownRef = useRef(-1);
+
+  useEffect(() => {
+    if (status === 'betting' && left <= 5 && left > 0 && left !== countdownRef.current) {
+      countdownRef.current = left;
+      playCountdown();
+    }
+    if (status !== 'betting') countdownRef.current = -1;
+  }, [status, left]);
+
+  useEffect(() => {
+    if (prevStatusRef.current === 'spinning' && status === 'settled' && (room?.winners || []).length > 0) {
+      playWin();
+    }
+    prevStatusRef.current = status;
+  }, [status, room?.winners]);
+
+  const chipCounts: Record<number, number> = {};
+  allBets.filter(b => b.kind === 'straight').forEach(b => { chipCounts[b.number!] = (chipCounts[b.number!] || 0) + 1; });
+
   const outside = [
     { kind: 'red', label: 'Kırmızı', className: 'is-red' },
     { kind: 'black', label: 'Siyah', className: 'is-black' },
@@ -373,20 +395,16 @@ function GamesPage({
     { kind: 'high', label: '19–36', className: '' },
   ];
   return (
-    <div className="page-view">
-      <div className="page-hero page-hero-games">
-        <div>
-          <p className="page-kicker">CANLI MASA</p>
-          <h1>Rulet</h1>
-          <p>Tek çark, herkeste aynı anda döner. Bahis uygulama coin’i ile.</p>
+    <div className="page-view roulette-page">
+      <div className="roulette-header">
+        <div className="roulette-meta">
+          <span className="roulette-badge"><Users size={13} /> {room?.players || 0}</span>
+          <span className="roulette-badge">Tur {room?.round || 1}</span>
+          <span className="roulette-badge roulette-badge-coin"><Coins size={13} /> {coins}</span>
         </div>
-        <Gamepad2 size={48} />
-      </div>
-      <div className="roulette-top">
-        <span>{room?.players || 0} kişi masada</span>
-        <span>Tur {room?.round || 1}</span>
-        <span>{coins} coin</span>
-        <strong>{status === 'betting' ? `Bahis ${left}s` : status === 'spinning' ? 'Dönüyor' : room?.result === 0 ? '0 yeşil' : `Sonuç ${room?.result}`}</strong>
+        <div className={`roulette-status ${status === 'betting' ? 'is-betting' : status === 'spinning' ? 'is-spinning' : 'is-settled'}`}>
+          {status === 'betting' ? <><Timer size={15} /> Bahis {left}s</> : status === 'spinning' ? 'Çark dönüyor…' : room?.result === 0 ? '0 yeşil!' : `Sonuç: ${room?.result}`}
+        </div>
       </div>
       <RouletteWheel
         phase={status}
@@ -395,34 +413,49 @@ function GamesPage({
         spinEndsAt={room?.spinEndsAt || 0}
         now={now}
       />
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="roulette-chips-bar">
         {[10, 50, 100, 500].map((value) => (
-          <button key={value} type="button" onClick={() => onChip(value)} className={`chip-btn ${chip === value ? 'is-on' : ''}`}>{value}</button>
+          <button key={value} type="button" onClick={() => onChip(value)} className={`roulette-chip-btn ${chip === value ? 'is-on' : ''}`}>
+            <span className="roulette-chip-icon" />{value}
+          </button>
         ))}
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {outside.map((item) => (
-          <button key={item.kind} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet(item.kind)} className={`bet-out ${item.className}`}>{item.label}</button>
-        ))}
-      </div>
-      <div className="roulette-grid mt-3">
-        {Array.from({ length: 37 }, (_, number) => (
-          <button key={number} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', number)} className={`bet-num ${number === 0 ? 'is-green' : RED_SET.has(number) ? 'is-red' : 'is-black'}`}>{number}</button>
-        ))}
+      <div className="roulette-board">
+        <button type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', 0)} className="rb-zero">0</button>
+        <div className="rb-numbers">
+          {Array.from({ length: 36 }, (_, i) => i + 1).map((n) => (
+            <button key={n} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', n)} className={`rb-num ${RED_SET.has(n) ? 'is-red' : 'is-black'}`}>
+              {n}
+              {chipCounts[n] && <span className="rb-chip-dot">{chipCounts[n]}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="rb-outside">
+          {outside.map((item) => (
+            <button key={item.kind} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet(item.kind)} className={`rb-out ${item.className}`}>{item.label}</button>
+          ))}
+        </div>
       </div>
       {mine.length > 0 && (
-        <p className="mt-3 text-[.68rem] font-bold text-[hsl(var(--muted-foreground))]">Bahislerin: {mine.map((item) => `${item.kind === 'straight' ? item.number : item.kind} · ${item.amount}`).join(' · ')}</p>
+        <div className="roulette-my-bets">
+          {mine.map((item, i) => (
+            <span key={i} className="roulette-my-chip">{item.kind === 'straight' ? item.number : item.kind} · {item.amount}</span>
+          ))}
+        </div>
       )}
       {(room?.winners || []).length > 0 && status !== 'betting' && (
-        <ol className="mt-4 space-y-2">
-          {room?.winners.map((winner) => (
-            <li key={`${winner.nick}-${winner.payout}`} className={`roulette-win ${winner.vip ? 'is-vip' : ''}`}>
-              <span className="min-w-0 truncate font-extrabold">{winner.nick}</span>
-              {winner.vip && <small>VIP</small>}
-              <span className="ml-auto">+{winner.payout}</span>
-            </li>
-          ))}
-        </ol>
+        <div className="roulette-winners-flow">
+          <p className="roulette-winners-title"><Trophy size={15} /> Kazananlar</p>
+          <div className="roulette-winners-list">
+            {room?.winners.map((winner, i) => (
+              <div key={`${winner.nick}-${i}`} className={`roulette-winner-card ${winner.vip ? 'is-vip' : ''}`} style={{ animationDelay: `${i * 0.12}s` }}>
+                <span className="rw-name">{winner.nick}</span>
+                {winner.vip && <span className="rw-vip">VIP</span>}
+                <span className="rw-payout">+{winner.payout}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
