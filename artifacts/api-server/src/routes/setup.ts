@@ -1,18 +1,29 @@
 import { Router, type IRouter } from "express";
-import { isSetupInstalled, publicSetup, readSetup, writeSetup } from "../lib/setup-store";
+import { isInstalled, readSettings, upsertAccount, writeSettings } from "../lib/club-data";
+import { currentAccount, publicUser, setLoginCookie } from "../lib/http";
 
 const router: IRouter = Router();
 
-router.get("/setup", (_req, res) => {
-  res.json(publicSetup());
+router.get("/setup", async (req, res) => {
+  const settings = await readSettings();
+  const me = await currentAccount(req);
+  res.json({
+    installed: isInstalled(settings),
+    clubName: settings?.clubName ?? "MOD CLUB",
+    adminName: settings?.adminName ?? "",
+    adminEmail: settings?.adminEmail ?? "",
+    adminUsername: settings?.adminUsername ?? "",
+    theme: settings?.theme ?? "electric",
+    me: me ? publicUser(me) : null,
+  });
 });
 
-router.post("/setup", (req, res) => {
-  if (isSetupInstalled()) {
-    res.status(409).json({ error: "already_installed", ...publicSetup() });
+router.post("/setup", async (req, res) => {
+  const existing = await readSettings();
+  if (isInstalled(existing)) {
+    res.status(409).json({ error: "already_installed", installed: true });
     return;
   }
-
   const body = req.body as {
     clubName?: string;
     adminName?: string;
@@ -21,44 +32,39 @@ router.post("/setup", (req, res) => {
     adminPassword?: string;
     theme?: string;
   };
-
   const adminName = String(body.adminName ?? "").trim();
   const adminEmail = String(body.adminEmail ?? "").trim();
   const adminUsername = String(body.adminUsername ?? "").trim();
   const adminPassword = String(body.adminPassword ?? "").trim();
-
   if (adminName.length < 2 || !adminEmail.includes("@") || adminUsername.length < 3 || adminPassword.length < 4) {
     res.status(400).json({ error: "invalid_setup" });
     return;
   }
-
-  writeSetup({
-    clubName: String(body.clubName ?? "MOD CLUB"),
+  const settings = {
+    clubName: String(body.clubName ?? "MOD CLUB").trim() || "MOD CLUB",
     adminName,
     adminEmail,
     adminUsername,
     adminPassword,
     theme: String(body.theme ?? "electric"),
-  });
-  res.status(201).json(publicSetup());
-});
-
-router.post("/setup/login", (req, res) => {
-  const record = readSetup();
-  const username = String((req.body as { username?: string }).username ?? "").trim().toLowerCase();
-  const password = String((req.body as { password?: string }).password ?? "").trim();
-  if (!record || record.adminUsername.trim().toLowerCase() !== username || record.adminPassword !== password) {
-    res.status(401).json({ error: "invalid_credentials" });
-    return;
-  }
-
-  const nick = record.adminName.trim() || record.adminUsername.trim();
-  res.json({
-    ok: true,
-    username: record.adminUsername,
-    nick,
-    name: nick,
-    role: "ADMIN",
+  };
+  await writeSettings(settings);
+  const account = {
+    username: adminUsername,
+    password: adminPassword,
+    nick: adminName,
+    role: "ADMIN" as const,
+  };
+  await upsertAccount(account);
+  await setLoginCookie(req, res, account);
+  res.status(201).json({
+    installed: true,
+    clubName: settings.clubName,
+    adminName,
+    adminEmail,
+    adminUsername,
+    theme: settings.theme,
+    me: publicUser(account),
   });
 });
 

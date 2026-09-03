@@ -3,10 +3,10 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from '@/components/error-boundary';
 
-import { applyColorMode, readColorMode } from '@/lib/club-store';
+import { applyColorMode, loadColorMode } from '@/lib/club-store';
 import './index.css';
 
-applyColorMode(readColorMode());
+applyColorMode(loadColorMode());
 
 createRoot(document.getElementById('root')!, {
   // Keeps caught errors off reportError(), which would raise the dev overlay.

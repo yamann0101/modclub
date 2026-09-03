@@ -7,12 +7,13 @@ import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { cachePublicSetup, fetchPublicSetup, isLocalApp, loginServerAdmin, saveServerSetup } from '@/lib/setup-client';
+import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
+import { deleteClubUser, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, type SessionUser } from '@/lib/club-api';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import type { ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
-import { activeChatTimeout, applyColorMode, avatarFor, clearChatTimeout, findAccount, formatCountdown, formatMuteRemaining, getAppId, getCosmeticTitle, getPhoto, giveawayStatus, readAccounts, readApps, readChatFeed, readChatReadAt, readColorMode, readCosmeticTitles, readFilms, readGiveaways, readNotices, saveApps, saveChatFeed, saveChatReadAt, saveChatTimeout, saveFilms, saveGiveaways, saveNotices, setAppId, setCosmeticTitle, setPhoto, upsertAccount, type ClubNotice, type ColorMode } from '@/lib/club-store';
+import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
+import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
 import { getDeviceId, isChatMuted, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, setChatMuted as persistChatMute, startNotifyPolling, wasNotifyPrompted } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 
@@ -26,12 +27,7 @@ const quickItems: { label: string; sublabel: string; icon: LucideIcon; tone: str
   { label: 'AFİŞLER', sublabel: 'Etkinlik afişleri', icon: Ticket, tone: 'pink' },
 ];
 
-const slides = [
-  { id: 'banner-1', eyebrow: 'YENİ SEZON', title: 'MOD CLUB', accent: 'YENİ SEZON', rest: 'BAŞLADI!', copy: 'Turnuvalar, ödüller ve daha fazlası seni bekliyor!', action: 'Hemen Katıl', hasButton: true },
-  { id: 'banner-2', eyebrow: 'TOPLULUK GÜNÜ', title: 'BİRLİKTE', accent: 'DAHA GÜÇLÜYÜZ', rest: '', copy: 'Yeni arkadaşlar, yeni oyunlar ve unutulmaz anlar.', action: 'Keşfet', hasButton: true },
-  { id: 'banner-3', eyebrow: 'HAFTANIN MEYDAN OKUMASI', title: 'SAHNE', accent: 'SENİN!', rest: '', copy: 'Skorunu yükselt, topluluk sıralamasında yerini al.', action: 'Sıralamayı Gör', hasButton: true },
-  { id: 'banner-4', eyebrow: 'ÖDÜL ZAMANI', title: 'KAZANMAYA', accent: 'HAZIR MISIN', rest: '', copy: 'Çekilişler, turnuvalar ve özel ödüller bu sezonda.', action: 'Ödülleri Gör', hasButton: true },
-];
+const slides = DEFAULT_BANNERS;
 
 const announcements = [
   { id: 'announcement-1', tag: 'ETKİNLİK', title: 'Haftalık Etkinlik Takvimi Yayında!', copy: 'Bu haftanın turnuva ve etkinlik programı yayınlandı.', time: '2 saat önce', icon: Gift, color: 'violet' },
@@ -62,7 +58,7 @@ type ChatMessage = {
   time: string;
   mine?: boolean;
   role?: string;
-  title?: CosmeticTitle;
+  title?: string;
   kind?: 'text' | 'winner' | 'mute';
   replyTo?: { author: string; message: string };
   winner?: string;
@@ -75,22 +71,7 @@ type ChatMessage = {
   at?: number;
 };
 
-const initialChatMessages: ChatMessage[] = [
-  { id: 'chat-1', author: 'mertk', initials: 'ME', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Herkese selam! Bu akşamki turnuva için takımlar hazır mı?', time: '19:42' },
-  { id: 'chat-2', author: 'sudey', initials: 'SU', avatar: 'bg-[#ffc4d8] text-[#b13d6b]', photo: 'https://i.pravatar.cc/96?img=47', message: 'Ben hazırım, birazdan takım odasına geçiyorum.', time: '19:44' },
-  { id: 'chat-3', author: 'ardademir', initials: 'AR', avatar: 'bg-[#bfe0ff] text-[#2e6fae]', photo: 'https://i.pravatar.cc/96?img=68', message: 'Son slot için bir kişi daha arıyoruz. Katılmak isteyen var mı?', time: '19:46' },
-  { id: 'chat-4', author: 'ece', initials: 'EC', avatar: 'bg-[#a15be9] text-white', photo: 'https://i.pravatar.cc/96?img=32', role: 'ADMIN', message: 'Ben varım! Özel oyun gecesi için de plan yapalım.', time: '19:48', mine: true },
-  { id: 'chat-5', author: 'mertk', initials: 'ME', avatar: 'bg-[#d8b2ff] text-[#63329c]', photo: 'https://i.pravatar.cc/96?img=12', role: 'MODERATOR', message: 'Harika, seni takıma ekliyorum. Oda 10 dakika sonra açık.', time: '19:49' },
-];
-
 const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
-
-const initialAdminUsers = [
-  { id: 'user-1', name: 'Mert Kaya', nick: 'mertk', email: 'mert@modclub.com', role: 'MODERATOR', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=12' },
-  { id: 'user-2', name: 'Sude Y.', nick: 'sudey', email: 'sude@modclub.com', role: 'ÜYE', status: 'Çevrimdışı', photo: 'https://i.pravatar.cc/96?img=47' },
-  { id: 'user-3', name: 'Arda Demir', nick: 'ardademir', email: 'arda@modclub.com', role: 'ÜYE', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=68' },
-  { id: 'user-4', name: 'Ece Demir', nick: 'ece', email: 'ece@modclub.com', role: 'ADMIN', status: 'Çevrimiçi', photo: 'https://i.pravatar.cc/96?img=32' },
-];
 
 const initialManagedPages = [
   { name: 'Ana Sayfa', description: 'Banner, duyurular ve topluluk özeti', enabled: true },
@@ -99,153 +80,37 @@ const initialManagedPages = [
   { name: 'Profil', description: 'Üye profili ve hesap ayarları', enabled: true },
 ];
 
-type UserSession = {
-  username: string;
-  nick: string;
-  name: string;
-  role: 'ADMIN' | 'ÜYE' | 'MODERATOR';
-  title?: CosmeticTitle;
-  appId?: string;
-  photo?: string;
-};
+type UserSession = SessionUser;
 
 function displayNick(session: Pick<UserSession, 'nick' | 'name' | 'username'>) {
   return session.nick?.trim() || session.name?.trim() || session.username;
 }
 
-type ClubSettings = {
-  clubName: string;
-  adminName: string;
-  adminEmail: string;
-  adminUsername: string;
-  adminPassword: string;
-  theme: string;
-};
-
-function readClubSettings(): ClubSettings | null {
-  try {
-    const raw = window.localStorage.getItem('mod-club-settings');
-    return raw ? (JSON.parse(raw) as ClubSettings) : null;
-  } catch {
-    return null;
-  }
-}
-
-function readStoredSession(): UserSession | null {
-  try {
-    const raw = window.localStorage.getItem('mod-club-session');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as UserSession;
-    if (!parsed?.username) return null;
-    const settings = readClubSettings();
-    const account = findAccount(parsed.username);
-    const nick = account?.nick?.trim() || parsed.nick?.trim() || parsed.name?.trim() || parsed.username;
-    const photo = account?.photo || parsed.photo || getPhoto(nick);
-    if (settings?.adminUsername && normalizeUsername(parsed.username) === normalizeUsername(settings.adminUsername)) {
-      return {
-        ...parsed,
-        nick,
-        name: nick,
-        role: 'ADMIN',
-        photo,
-        appId: account?.appId || parsed.appId || getAppId(nick),
-      };
-    }
-    return { ...parsed, nick, name: nick, photo, appId: account?.appId || parsed.appId || getAppId(nick) };
-  } catch {
-    return null;
-  }
-}
-
-function isClubInstalled() {
-  return window.localStorage.getItem('mod-club-installed') === 'true';
-}
-
 function resolveSession(session: UserSession): UserSession {
-  const settings = readClubSettings();
-  const isAdminAccount = session.role === 'ADMIN'
-    || normalizeUsername(session.username) === 'admin'
-    || Boolean(settings?.adminUsername && normalizeUsername(session.username) === normalizeUsername(settings.adminUsername));
-  const account = findAccount(session.username);
-  const nick = account?.nick?.trim() || displayNick(session);
-  const photo = account?.photo || session.photo || getPhoto(nick);
-  if (isAdminAccount) {
-    return {
-      ...session,
-      nick,
-      name: nick,
-      role: 'ADMIN',
-      photo,
-      appId: account?.appId || session.appId || getAppId(nick),
-    };
-  }
-  const title = account?.title || getCosmeticTitle(account?.nick || nick);
-  return {
-    ...session,
-    nick,
-    name: nick,
-    photo,
-    role: account?.role === 'MODERATOR' ? 'MODERATOR' : session.role === 'MODERATOR' ? 'MODERATOR' : 'ÜYE',
-    title,
-    appId: account?.appId || session.appId || getAppId(nick),
-  };
+  return session;
 }
 
 function normalizeUsername(value: string) {
   return value.trim().toLowerCase();
 }
 
-function persistSession(session: UserSession) {
-  window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+async function saveUserAppId(session: UserSession, appId: string) {
+  return patchMe({ appId });
 }
 
-function saveUserAppId(session: UserSession, appId: string) {
-  const user = resolveSession(session);
-  const value = appId.trim();
-  setAppId(user.nick, value);
-  const account = findAccount(user.username);
-  if (account) upsertAccount({ ...account, appId: value, nick: user.nick, photo: user.photo });
-  const next = { ...user, appId: value };
-  persistSession(next);
-  return next;
-}
-
-function saveUserNick(session: UserSession, nickValue: string) {
-  const user = resolveSession(session);
-  const nextNick = nickValue.trim();
-  const taken = readAccounts().some((item) => item.username.toLowerCase() !== user.username.toLowerCase() && item.nick.trim().toLowerCase() === nextNick.toLowerCase());
-  if (taken) return { error: 'Bu nick kullanımda' as const };
-  const oldNick = user.nick;
-  if (oldNick.toLowerCase() !== nextNick.toLowerCase()) {
-    const appId = user.appId || getAppId(oldNick);
-    if (appId) setAppId(nextNick, appId);
-    const title = getCosmeticTitle(oldNick);
-    if (title) {
-      setCosmeticTitle(nextNick, title);
-      setCosmeticTitle(oldNick, null);
-    }
-    const photo = user.photo || getPhoto(oldNick);
-    if (photo) setPhoto(nextNick, photo);
+async function saveUserNick(session: UserSession, nickValue: string) {
+  try {
+    const next = await patchMe({ nick: nickValue.trim() });
+    return { session: next };
+  } catch (error) {
+    const code = (error as Error).message;
+    if (code === 'nick_taken') return { error: 'Bu nick kullanımda' as const };
+    return { error: 'Nick kaydedilemedi' as const };
   }
-  const account = findAccount(user.username);
-  if (account) upsertAccount({ ...account, nick: nextNick, photo: user.photo, appId: user.appId });
-  if (user.role === 'ADMIN') {
-    const settings = readClubSettings();
-    if (settings) window.localStorage.setItem('mod-club-settings', JSON.stringify({ ...settings, adminName: nextNick }));
-  }
-  const next = { ...user, nick: nextNick, name: nextNick };
-  persistSession(next);
-  return { session: next };
 }
 
-function saveUserPhoto(session: UserSession, photo: string) {
-  const user = resolveSession(session);
-  setPhoto(user.nick, photo);
-  const account = findAccount(user.username);
-  if (account) upsertAccount({ ...account, photo, nick: user.nick });
-  const next = { ...user, photo };
-  persistSession(next);
-  return next;
+async function saveUserPhoto(session: UserSession, photo: string) {
+  return patchMe({ photo });
 }
 
 function yetkiLabel(role?: string, title?: string) {
@@ -296,26 +161,8 @@ function formatNoticeTime(at: number) {
   return new Date(at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function writeAdminSession(settings: ClubSettings) {
-  const nick = settings.adminName.trim() || settings.adminUsername.trim();
-  const session: UserSession = {
-    username: settings.adminUsername.trim(),
-    nick,
-    name: nick,
-    role: 'ADMIN',
-  };
-  upsertAccount({
-    username: session.username,
-    password: settings.adminPassword.trim(),
-    nick,
-    role: 'ADMIN',
-  });
-  window.localStorage.setItem('mod-club-session', JSON.stringify(session));
-  return session;
-}
-
 function resetClubSession() {
-  window.localStorage.removeItem('mod-club-session');
+  void logoutUser();
 }
 
 function PwaInstallChip() {
@@ -343,7 +190,13 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
   const [nick, setNick] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const settings = readClubSettings();
+  const [adminHint, setAdminHint] = useState('');
+
+  useEffect(() => {
+    void fetchPublicSetup().then((data) => {
+      if (data?.adminUsername) setAdminHint(data.adminUsername);
+    });
+  }, []);
 
   const requestInstallReset = () => {
     resetClubSession();
@@ -368,92 +221,26 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
       return;
     }
 
-    const storedUsername = settings?.adminUsername ? normalizeUsername(settings.adminUsername) : '';
-    const isAdminUser = Boolean(storedUsername && normalizeUsername(loginName) === storedUsername);
-    const storedPassword = settings?.adminPassword?.trim() ?? '';
-
-    if (mode === 'register') {
-      if (typedNick.length < 2) {
-        setError('Uygulamadaki gerçek nickini gir. Sohbette bu nick görünür.');
-        return;
-      }
-      if (findAccount(loginName)) {
-        setError('Bu kullanıcı adı zaten kayıtlı. Giriş yapmayı dene.');
-        return;
-      }
-      if (isAdminUser) {
-        setError('Bu kullanıcı adı admin hesabına ait. Giriş ekranından devam et.');
-        return;
-      }
-      upsertAccount({ username: loginName, password: typedPassword, nick: typedNick, role: 'ÜYE' });
-      const session: UserSession = { username: loginName, nick: typedNick, name: typedNick, role: 'ÜYE' };
-      window.localStorage.setItem('mod-club-session', JSON.stringify(session));
-      onLogin(session);
-      return;
-    }
-
-    if (mode === 'login') {
-      const remoteAdmin = await loginServerAdmin(loginName, typedPassword);
-      if (remoteAdmin) {
-        const session: UserSession = {
-          username: remoteAdmin.username,
-          nick: remoteAdmin.nick,
-          name: remoteAdmin.name,
-          role: 'ADMIN',
-        };
-        const current = readClubSettings();
-        window.localStorage.setItem('mod-club-settings', JSON.stringify({
-          clubName: current?.clubName || 'MOD CLUB',
-          adminName: remoteAdmin.nick,
-          adminEmail: current?.adminEmail || '',
-          adminUsername: remoteAdmin.username,
-          adminPassword: typedPassword,
-          theme: current?.theme || 'electric',
-        }));
-        window.localStorage.setItem('mod-club-session', JSON.stringify(session));
+    try {
+      if (mode === 'register') {
+        if (typedNick.length < 2) {
+          setError('Uygulamadaki gerçek nickini gir. Sohbette bu nick görünür.');
+          return;
+        }
+        const session = await registerUser(loginName, typedPassword, typedNick);
         onLogin(session);
         return;
       }
+      const session = await loginUser(loginName, typedPassword);
+      onLogin(session);
+    } catch (err) {
+      const code = (err as Error).message;
+      if (code === 'exists') setError('Bu kullanıcı adı zaten kayıtlı. Giriş yapmayı dene.');
+      else if (code === 'nick_taken') setError('Bu nick kullanımda.');
+      else if (code === 'admin_username') setError('Bu kullanıcı adı admin hesabına ait. Giriş ekranından devam et.');
+      else if (code === 'invalid_credentials') setError('Kullanıcı adı veya şifre hatalı.');
+      else setError('Sunucuya bağlanılamadı. Postgres ve Railway servisinin açık olduğundan emin ol.');
     }
-
-    if (isAdminUser) {
-      if (storedPassword && typedPassword !== storedPassword) {
-        setError('Admin şifresi hatalı.');
-        return;
-      }
-      const nextSettings: ClubSettings = {
-        clubName: settings?.clubName || 'MOD CLUB',
-        adminName: settings?.adminName || loginName,
-        adminEmail: settings?.adminEmail || '',
-        adminUsername: settings?.adminUsername?.trim() || loginName,
-        adminPassword: storedPassword || typedPassword,
-        theme: settings?.theme || 'electric',
-      };
-      window.localStorage.setItem('mod-club-settings', JSON.stringify(nextSettings));
-      onLogin(writeAdminSession(nextSettings));
-      return;
-    }
-
-    const account = findAccount(loginName);
-    if (!account) {
-      setError('Hesap bulunamadı. Önce kayıt ol ve uygulamadaki gerçek nickini gir.');
-      return;
-    }
-    if (account.password !== typedPassword) {
-      setError('Şifre hatalı.');
-      return;
-    }
-    const session: UserSession = {
-      username: account.username,
-      nick: account.nick,
-      name: account.nick,
-      role: account.role === 'ADMIN' ? 'ADMIN' : account.role === 'MODERATOR' ? 'MODERATOR' : 'ÜYE',
-      title: account.title || getCosmeticTitle(account.nick),
-      photo: account.photo,
-      appId: account.appId,
-    };
-    window.localStorage.setItem('mod-club-session', JSON.stringify(session));
-    onLogin(session);
   };
 
   return (
@@ -488,7 +275,7 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
             )}
             <button type="submit" className="mt-2 flex h-13 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(105deg,#9c2af0,#6520ca)] text-sm font-bold text-white shadow-lg shadow-purple-200 transition-transform hover:-translate-y-0.5">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
           </form>
-          <div className="mt-7 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-3 text-[.62rem] leading-relaxed text-[hsl(var(--muted-foreground))]"><strong className="text-[hsl(var(--foreground))]">Admin girişi:</strong> {settings?.adminUsername ? <>kullanıcı adı <b>{settings.adminUsername}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
+          <div className="mt-7 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-3 text-[.62rem] leading-relaxed text-[hsl(var(--muted-foreground))]"><strong className="text-[hsl(var(--foreground))]">Admin girişi:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
           <button type="button" onClick={requestInstallReset} className="mt-3 text-xs font-bold text-[hsl(var(--primary))] hover:underline">Giriş bilgilerini temizle</button>
         </div>
       </div>
@@ -590,10 +377,9 @@ function displayRankKind(role?: string, title?: CosmeticTitle | string) {
   return null;
 }
 
-function RankedName({ name, role, title, size = 'sm', align = 'start', onDark = false, muted = false, revealId = false }: { name: string; role?: string; title?: CosmeticTitle | string; size?: 'sm' | 'lg'; align?: 'start' | 'end'; onDark?: boolean; muted?: boolean; revealId?: boolean }) {
+function RankedName({ name, role, title, appId, size = 'sm', align = 'start', onDark = false, muted = false, revealId = false }: { name: string; role?: string; title?: CosmeticTitle | string; appId?: string; size?: 'sm' | 'lg'; align?: 'start' | 'end'; onDark?: boolean; muted?: boolean; revealId?: boolean }) {
   const [idOpen, setIdOpen] = useState(false);
-  const kind = displayRankKind(role, title || getCosmeticTitle(name));
-  const appId = revealId ? getAppId(name) : undefined;
+  const kind = displayRankKind(role, title);
   const idLine = revealId && idOpen ? <small className="rank-app-id">{appId ? `ID ${appId}` : 'ID yok'}</small> : null;
   const nameProps = revealId
     ? { role: 'button' as const, tabIndex: 0, onClick: () => setIdOpen((open) => !open), title: 'Uygulama ID’sini görmek için dokun' }
@@ -661,26 +447,26 @@ function ProfilePage({ session, onLogout, onSession, onNotice }: { session: User
   const [nickDraft, setNickDraft] = useState(nick);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  const saveId = (event: FormEvent) => {
+  const saveId = async (event: FormEvent) => {
     event.preventDefault();
     const value = appIdDraft.trim();
     if (!value) {
       onNotice('Uygulama ID’si zorunlu. Profilinden gir.');
       return;
     }
-    onSession(saveUserAppId(user, value));
+    onSession(await saveUserAppId(user, value));
     onNotice('Uygulama ID’sin kaydedildi');
   };
 
-  const saveNick = (event: FormEvent) => {
+  const saveNick = async (event: FormEvent) => {
     event.preventDefault();
     const value = nickDraft.trim();
     if (value.length < 2) {
       onNotice('Nick en az 2 karakter olmalı');
       return;
     }
-    const result = saveUserNick(user, value);
-    if ('error' in result) {
+    const result = await saveUserNick(user, value);
+    if ('error' in result && result.error) {
       onNotice(result.error);
       return;
     }
@@ -694,7 +480,7 @@ function ProfilePage({ session, onLogout, onSession, onNotice }: { session: User
     if (!file) return;
     try {
       const nextPhoto = await fileToAvatar(file);
-      onSession(saveUserPhoto(user, nextPhoto));
+      onSession(await saveUserPhoto(user, nextPhoto));
       onNotice('Profil resmi güncellendi');
     } catch {
       onNotice('Resim yüklenemedi. Başka bir görsel dene.');
@@ -829,18 +615,16 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [chatMuted, setChatMutedOn] = useState(() => typeof window !== 'undefined' && isChatMuted());
   const [notifyPromptOpen, setNotifyPromptOpen] = useState(() => typeof window !== 'undefined' && !wasNotifyPrompted() && 'Notification' in window && Notification.permission === 'default');
   const [chatText, setChatText] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
-    const stored = readChatFeed<ChatMessage>();
-    return stored.length > 0 ? stored : initialChatMessages;
-  });
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [muteTarget, setMuteTarget] = useState<string | null>(null);
-  const [cosmeticTitles, setCosmeticTitles] = useState(() => readCosmeticTitles());
+  const [accounts, setAccounts] = useState<ClubAccount[]>([]);
+  const [timeouts, setTimeouts] = useState<ChatTimeout[]>([]);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [banners, setBanners] = useState(slides);
+  const [banners, setBanners] = useState<Banner[]>(slides);
   const [adminPanelOpen, setAdminPanelOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1');
   const [adminSection, setAdminSection] = useState('Genel Bakış');
-  const [adminUsers, setAdminUsers] = useState(initialAdminUsers);
+  const [adminUsers, setAdminUsers] = useState<{ id: string; name: string; nick: string; email: string; role: string; status: string; photo: string; username: string }[]>([]);
   const [managedPages, setManagedPages] = useState(initialManagedPages);
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerCopy, setBannerCopy] = useState('');
@@ -850,9 +634,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastLog, setBroadcastLog] = useState<{ id: string; title: string; body: string; at: number }[]>([]);
   const [ticker, setTicker] = useState<{ id: string; title: string; body: string } | null>(null);
-  const [giveaways, setGiveaways] = useState<Giveaway[]>(() => readGiveaways());
-  const [films, setFilms] = useState<ContentCard[]>(() => readFilms());
-  const [apps, setApps] = useState<ContentCard[]>(() => readApps());
+  const [giveaways, setGiveaways] = useState<Giveaway[]>([]);
+  const [films, setFilms] = useState<ContentCard[]>([]);
+  const [apps, setApps] = useState<ContentCard[]>([]);
   const [giveawayOpen, setGiveawayOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [giveawayTitle, setGiveawayTitle] = useState('');
@@ -867,20 +651,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [appCopy, setAppCopy] = useState('');
   const [appImage, setAppImage] = useState('');
   const [appLink, setAppLink] = useState('');
-  const [colorMode, setColorMode] = useState<ColorMode>(() => (typeof window !== 'undefined' ? readColorMode() : 'dark'));
-  const [notices, setNotices] = useState<ClubNotice[]>(() => (typeof window !== 'undefined' ? readNotices() : []));
-  const [chatReadAt, setChatReadAt] = useState(() => (typeof window !== 'undefined' ? readChatReadAt() : 0));
+  const [colorMode, setColorMode] = useState<ColorMode>(() => (typeof window !== 'undefined' ? loadColorMode() : 'dark'));
+  const [notices, setNotices] = useState<ClubNotice[]>([]);
+  const [chatReadAt, setChatReadAt] = useState(0);
   const user = resolveSession(session);
   const nick = displayNick(user);
   const myPhoto = avatarFor(nick, user.photo);
   const isAdmin = user.role === 'ADMIN';
   const isModerator = user.role === 'MODERATOR';
   const canMuteStaff = isAdmin || isModerator;
-  const selfMute = activeChatTimeout(nick, now);
+  const selfMute = activeChatTimeout(timeouts, nick, now);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
-  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string } | null>(null);
+  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
   const openGiveaways = giveaways.filter((item) => giveawayStatus(item, now) === 'open');
@@ -944,16 +728,41 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   const changeColorMode = (mode: ColorMode) => {
-    applyColorMode(mode);
+    storeColorMode(mode);
     setColorMode(mode);
     setNotice(mode === 'dark' ? 'Gece görünümü açık' : 'Gündüz görünümü açık');
+  };
+
+  const applySnapshot = (data: Awaited<ReturnType<typeof fetchClub>>) => {
+    setBanners(data.banners?.length ? data.banners : slides);
+    setGiveaways(data.giveaways || []);
+    setFilms(data.films || []);
+    setApps(data.apps || []);
+    setTimeouts(data.timeouts || []);
+    setNotices(data.notices || []);
+    setAccounts(data.accounts || []);
+    setAdminUsers((data.accounts || []).map((account) => ({
+      id: account.username,
+      username: account.username,
+      name: account.nick,
+      nick: account.nick,
+      email: '',
+      role: account.role,
+      status: 'Çevrimiçi',
+      photo: avatarFor(account.nick, account.photo),
+    })));
+    const feed = (data.chat || []) as ChatMessage[];
+    setChatMessages(feed.map((message) => ({
+      ...message,
+      mine: message.kind === 'winner' || message.kind === 'mute' ? false : message.author === nick,
+    })));
   };
 
   const pushNotice = (title: string, body: string) => {
     const item: ClubNotice = { id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, body, at: Date.now(), read: false };
     setNotices((current) => {
       const next = [item, ...current].slice(0, 40);
-      saveNotices(next);
+      void patchClub({ notices: next });
       return next;
     });
   };
@@ -961,14 +770,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const markNoticesRead = () => {
     setNotices((current) => {
       const next = current.map((item) => ({ ...item, read: true }));
-      saveNotices(next);
+      void patchClub({ notices: next });
       return next;
     });
     setNotice('Tüm bildirimler okundu');
   };
 
   const clearNotices = () => {
-    saveNotices([]);
+    void patchClub({ notices: [] });
     setNotices([]);
     setNotice('Bildirimler silindi');
   };
@@ -976,7 +785,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const openNotice = (id: string) => {
     setNotices((current) => {
       const next = current.map((item) => item.id === id ? { ...item, read: true } : item);
-      saveNotices(next);
+      void patchClub({ notices: next });
       return next;
     });
   };
@@ -1001,31 +810,27 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      const stamped = Date.now();
-      setNow(stamped);
-      setGiveaways((current) => {
-        const next = readGiveaways();
-        for (const item of next) {
-          const prev = current.find((entry) => entry.id === item.id);
-          if (item.winner && prev && !prev.winner) {
-            void publishClubEvent({
-              type: 'winner',
-              title: 'Kazanan açıklandı',
-              body: `${item.title} çekilişini ${item.winner} kazandı.`,
-            });
-            setChatMessages((current) => {
-              if (current.some((entry) => entry.id === `winner-${item.id}`)) return current;
-              return [...current, makeWinnerCard(item)];
-            });
-          }
-        }
-        const changed = JSON.stringify(current) !== JSON.stringify(next);
-        return changed ? next : current;
-      });
-    }, 1000);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const data = await fetchClub();
+        if (!cancelled) applySnapshot(data);
+      } catch {
+        /* oturum yoksa login */
+      }
+    };
+    void pull();
+    const timer = window.setInterval(() => void pull(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [nick]);
 
   useEffect(() => {
     void registerClubWorker();
@@ -1035,7 +840,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       if (event.type === 'chat') setNotice(event.body);
       if (event.type === 'giveaway' || event.type === 'winner') {
         setNotice(event.body);
-        setGiveaways(readGiveaways());
+        void fetchClub().then(applySnapshot).catch(() => undefined);
       }
     });
     return stop;
@@ -1060,14 +865,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     }
     if (chatOpen) {
       const stamped = Date.now();
-      saveChatReadAt(stamped);
       setChatReadAt(stamped);
     }
   }, [chatOpen, chatMessages]);
-
-  useEffect(() => {
-    saveChatFeed(chatMessages.map(({ mine, ...rest }) => rest));
-  }, [chatMessages]);
 
   useEffect(() => {
     setChatMessages((current) => current.map((message) => ({
@@ -1097,9 +897,11 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   const applyMute = (author: string, ms: number, label: string) => {
-    saveChatTimeout({ nick: author, until: Date.now() + ms, by: nick, label });
+    const nextTimeouts = [...timeouts.filter((item) => nickKey(item.nick) !== nickKey(author)), { nick: author, until: Date.now() + ms, by: nick, label }];
+    setTimeouts(nextTimeouts);
+    void patchClub({ timeouts: nextTimeouts });
     setMuteTarget(null);
-    setChatMessages((current) => [...current, {
+    const muteMessage: ChatMessage = {
       id: `mute-${author}-${Date.now()}`,
       kind: 'mute',
       author: 'MOD CLUB',
@@ -1112,12 +914,19 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       muteLabel: label,
       winner: author,
       at: Date.now(),
-    }]);
+    };
+    setChatMessages((current) => {
+      const next = [...current, muteMessage];
+      void patchClub({ chat: next.map(({ mine: _mine, ...rest }) => rest) });
+      return next;
+    });
     setNotice(`${author} ${label} susturuldu`);
   };
 
   const liftMute = (author: string) => {
-    clearChatTimeout(author);
+    const nextTimeouts = timeouts.filter((item) => nickKey(item.nick) !== nickKey(author));
+    setTimeouts(nextTimeouts);
+    void patchClub({ timeouts: nextTimeouts });
     setMuteTarget(null);
     setNotice(`${author} susturması kaldırıldı`);
   };
@@ -1131,13 +940,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   const openChatProfile = (message: ChatMessage) => {
-    const account = readAccounts().find((item) => item.nick.trim().toLowerCase() === message.author.trim().toLowerCase());
+    const account = accounts.find((item) => nickKey(item.nick) === nickKey(message.author) || nickKey(item.username) === nickKey(message.author));
     const profileNick = account?.nick || message.author;
     setChatProfile({
       nick: profileNick,
       photo: avatarFor(profileNick, message.mine ? myPhoto : account?.photo || message.photo),
       role: account?.role || message.role,
-      title: account?.title || message.title || getCosmeticTitle(profileNick),
+      title: account?.title || message.title,
+      appId: account?.appId || undefined,
     });
   };
 
@@ -1150,25 +960,29 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       handleNav('Profil');
       return;
     }
-    const timeout = activeChatTimeout(nick);
+    const timeout = activeChatTimeout(timeouts, nick);
     if (timeout) {
       setNotice(`Susturuldun. Kalan: ${formatMuteRemaining(timeout.until)}`);
       return;
     }
-    setChatMessages((current) => [...current, {
-      id: `chat-${Date.now()}`,
-      author: nick,
-      initials: nick.slice(0, 2).toUpperCase(),
-      avatar: 'bg-[#a15be9] text-white',
-      photo: myPhoto,
-      message,
-      time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
-      mine: true,
-      role: user.role === 'ADMIN' ? 'ADMIN' : user.role === 'MODERATOR' ? 'MODERATOR' : undefined,
-      title: user.title,
-      replyTo: replyTo ? { author: replyTo.author, message: replyTo.message } : undefined,
-      at: Date.now(),
-    }]);
+    setChatMessages((current) => {
+      const next = [...current, {
+        id: `chat-${Date.now()}`,
+        author: nick,
+        initials: nick.slice(0, 2).toUpperCase(),
+        avatar: 'bg-[#a15be9] text-white',
+        photo: myPhoto,
+        message,
+        time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+        mine: true,
+        role: user.role === 'ADMIN' ? 'ADMIN' : user.role === 'MODERATOR' ? 'MODERATOR' : undefined,
+        title: user.title === 'ELDER' || user.title === 'ASSTN' ? user.title : undefined,
+        replyTo: replyTo ? { author: replyTo.author, message: replyTo.message } : undefined,
+        at: Date.now(),
+      }];
+      void patchClub({ chat: next.map(({ mine: _mine, ...rest }) => rest) });
+      return next;
+    });
     setChatText('');
     setReplyTo(null);
     setEmojiPickerOpen(false);
@@ -1184,6 +998,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const clearChatHistory = () => {
     if (!window.confirm('Tüm sohbet geçmişi silinsin mi? Bu işlem geri alınamaz.')) return;
     setChatMessages([]);
+    void patchClub({ chat: [] });
     setReplyTo(null);
     setNotice('Sohbet geçmişi admin tarafından silindi');
   };
@@ -1212,7 +1027,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setNotice('Banner başlığı ve açıklaması gerekli');
       return;
     }
-    setBanners((items) => [...items, {
+    const next = [...banners, {
       id: `banner-${Date.now()}`,
       eyebrow: 'YENİ DUYURU',
       title,
@@ -1221,15 +1036,17 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       copy,
       action: 'Keşfet',
       hasButton: bannerHasButton,
-    }]);
+    }];
+    setBanners(next);
+    void patchClub({ banners: next });
     setBannerTitle('');
     setBannerCopy('');
     setNotice('Yeni banner yayınlandı');
   };
 
   const persistGiveaways = (items: Giveaway[]) => {
-    saveGiveaways(items);
-    setGiveaways(readGiveaways());
+    setGiveaways(items);
+    void patchClub({ giveaways: items });
   };
 
   const joinGiveaway = (id: string) => {
@@ -1290,8 +1107,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     const next: ContentCard = { id: `${kind}-${Date.now()}`, title, description, image, link };
     if (kind === 'film') {
       const items = [...films, next];
-      saveFilms(items);
       setFilms(items);
+      void patchClub({ films: items });
       setFilmTitle('');
       setFilmCopy('');
       setFilmImage('');
@@ -1300,8 +1117,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       return;
     }
     const items = [...apps, next];
-    saveApps(items);
     setApps(items);
+    void patchClub({ apps: items });
     setAppTitle('');
     setAppCopy('');
     setAppImage('');
@@ -1576,7 +1393,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             { label: 'Menü', icon: Zap, orb: true },
             { label: 'Oyunlar', icon: Gamepad2 },
             { label: 'Profil', icon: UserRound },
-          ] as const).map(({ label, icon: Icon, orb }) => {
+          ] as { label: string; icon: LucideIcon; orb?: boolean }[]).map(({ label, icon: Icon, orb }) => {
             const active = orb ? menuOpen : label === 'Sohbet' ? chatOpen : activeNav === label;
             return (
               <button
@@ -1716,29 +1533,29 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                     </div>
                     <div className="grid gap-2">
                       {adminUsers.map((member) => {
-                        const memberTitle = cosmeticTitles[member.nick.toLowerCase()];
+                        const memberTitle = accounts.find((item) => nickKey(item.nick) === nickKey(member.nick))?.title;
                         return (
                           <div key={member.id} className="admin-row">
                             <img src={member.photo} alt="" className="size-10 rounded-full object-cover" />
                             <div className="min-w-[8rem] flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <RankedName name={member.nick} role={member.role} title={memberTitle} size="sm" onDark={colorMode === 'dark'} />
+                                <RankedName name={member.nick} role={member.role} title={memberTitle ?? undefined} size="sm" onDark={colorMode === 'dark'} />
                                 <span className="rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 font-mono text-[.48rem] font-bold text-[hsl(var(--muted-foreground))]">{member.role}</span>
                               </div>
                               <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">@{member.nick} · {member.status}</p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; setCosmeticTitle(member.nick, next || null); setCosmeticTitles(readCosmeticTitles()); setNotice(next ? `${member.nick} artık ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[6.5rem] px-2 text-[.58rem] font-bold">
+                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} artık ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[6.5rem] px-2 text-[.58rem] font-bold">
                                 <option value="">Unvan yok</option>
                                 <option value="ELDER">ELDER</option>
                                 <option value="ASSTN">ASSTN</option>
                               </select>
                               {member.role !== 'ADMIN' && (
-                                <button onClick={() => setAdminUsers((users) => users.map((item) => { if (item.id !== member.id) return item; const role = item.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE'; const account = readAccounts().find((entry) => entry.nick.toLowerCase() === item.nick.toLowerCase() || entry.username.toLowerCase() === item.nick.toLowerCase()); if (account) upsertAccount({ ...account, role }); return { ...item, role }; }))} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-1.5 text-[.58rem] font-bold text-[hsl(var(--foreground))]">
+                                <button onClick={() => { const role = member.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE'; void patchClubUser(member.username, { role }).then(applySnapshot); }} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-1.5 text-[.58rem] font-bold text-[hsl(var(--foreground))]">
                                   {member.role === 'ÜYE' ? 'Yetkili yap' : 'Üyeye çevir'}
                                 </button>
                               )}
-                              <button aria-label={`${member.name} kullanıcısını sil`} onClick={() => setAdminUsers((users) => users.filter((item) => item.id !== member.id))} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={15} /></button>
+                              <button aria-label={`${member.name} kullanıcısını sil`} onClick={() => { void deleteClubUser(member.username).then(applySnapshot); }} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={15} /></button>
                             </div>
                           </div>
                         );
@@ -1769,7 +1586,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                             <p className="text-sm font-bold">{banner.title} <span className="font-normal text-[hsl(var(--primary))]">{banner.accent}</span></p>
                             <p className="mt-0.5 truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{banner.copy}</p>
                           </div>
-                          <button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { setBanners((items) => items.filter((item) => item.id !== banner.id)); setSlide((current) => Math.min(current, Math.max(0, banners.length - 2))); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] disabled:opacity-30"><Trash2 size={16} /></button>
+                          <button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { const items = banners.filter((item) => item.id !== banner.id); setBanners(items); setSlide((current) => Math.min(current, Math.max(0, items.length - 1))); void patchClub({ banners: items }); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] disabled:opacity-30"><Trash2 size={16} /></button>
                         </div>
                       ))}
                     </div>
@@ -1822,7 +1639,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         <div key={item.id} className="admin-row">
                           <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Film size={16} /></span>
                           <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.link}</p></div>
-                          <button aria-label={`${item.title} sil`} onClick={() => { const items = films.filter((current) => current.id !== item.id); saveFilms(items); setFilms(items); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = films.filter((current) => current.id !== item.id); setFilms(items); void patchClub({ films: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
                         </div>
                       ))}
                     </div>
@@ -1847,7 +1664,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         <div key={item.id} className="admin-row">
                           <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Download size={16} /></span>
                           <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.link}</p></div>
-                          <button aria-label={`${item.title} sil`} onClick={() => { const items = apps.filter((current) => current.id !== item.id); saveApps(items); setApps(items); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = apps.filter((current) => current.id !== item.id); setApps(items); void patchClub({ apps: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
                         </div>
                       ))}
                     </div>
@@ -1931,7 +1748,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Takma ad</p>
               <p className="mt-0.5 font-display text-lg font-bold">{chatProfile.nick}</p>
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">ID</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-[hsl(var(--primary))]">{getAppId(chatProfile.nick) || 'ID yok'}</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-[hsl(var(--primary))]">{chatProfile.appId || 'ID yok'}</p>
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Yetki</p>
               <p className="mt-0.5 text-sm font-extrabold">{yetkiLabel(chatProfile.role, chatProfile.title)}</p>
             </div>
@@ -1963,7 +1780,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                 );
               }
               if (message.kind === 'mute') {
-                const left = message.winner ? activeChatTimeout(message.winner, now) : null;
+                const left = message.winner ? activeChatTimeout(timeouts, message.winner, now) : null;
                 return (
                   <div key={message.id} className="mx-auto flex w-[min(100%,18rem)] items-start gap-2 rounded-2xl border border-rose-200 bg-[#fff5f6] px-3 py-2 text-[#9f1239]">
                     <MicOff size={14} className="mt-0.5 shrink-0" />
@@ -1974,15 +1791,16 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                   </div>
                 );
               }
-              const authorMuted = Boolean(activeChatTimeout(message.author, now));
-              const authorTitle = message.title || cosmeticTitles[message.author.toLowerCase()];
+              const authorMuted = Boolean(activeChatTimeout(timeouts, message.author, now));
+              const authorAccount = accounts.find((item) => nickKey(item.nick) === nickKey(message.author));
+              const authorTitle = message.title || authorAccount?.title;
               return (
                 <div key={message.id} className={`group flex items-end gap-2 ${message.mine ? 'justify-end' : 'justify-start'}`} onPointerDown={(event) => { event.currentTarget.dataset.startX = String(event.clientX); }} onPointerUp={(event) => { const startX = Number(event.currentTarget.dataset.startX ?? event.clientX); if (event.clientX - startX > 45) setReplyTo(message); }}>
                   {!message.mine && <button type="button" aria-label={`${message.author} profil kartı`} onClick={() => openChatProfile(message)} className={`grid size-7 shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[.52rem] font-bold ${message.avatar}`}><img src={avatarFor(message.author, message.photo)} alt="" className="size-full object-cover" /></button>}
                   <div className={`relative max-w-[82%] ${message.mine ? 'items-end' : 'items-start'}`}>
-                    {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle} muted={authorMuted} revealId /></div>}
+                    {!message.mine && <div className="mb-1 ml-1"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={authorAccount?.appId || undefined} muted={authorMuted} revealId /></div>}
                     <div className={`rounded-2xl px-3 py-2 shadow-sm ${message.mine ? 'rounded-br-md bg-[linear-gradient(135deg,#8b35e4,#6a22c2)] text-white' : 'rounded-bl-md border border-[hsl(var(--border))] bg-white text-[hsl(var(--foreground))]'}`}>
-                      {message.mine && <div className="mb-1 flex justify-end"><RankedName name={message.author} role={message.role} title={authorTitle} align="end" onDark muted={authorMuted} revealId /></div>}
+                      {message.mine && <div className="mb-1 flex justify-end"><RankedName name={message.author} role={message.role} title={authorTitle ?? undefined} appId={user.appId} align="end" onDark muted={authorMuted} revealId /></div>}
                       {message.replyTo && <div className={`mb-2 rounded-lg border-l-2 px-2 py-1.5 text-[.6rem] ${message.mine ? 'border-white/60 bg-white/10 text-white/75' : 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}><strong className="block text-[.56rem]">{message.replyTo.author}</strong><span className="line-clamp-1">{message.replyTo.message}</span></div>}
                       <p className="text-[.72rem] leading-relaxed">{message.message}</p>
                       <div className={`mt-1 flex items-center justify-end gap-1 text-[.51rem] ${message.mine ? 'text-white/65' : 'text-[hsl(var(--muted-foreground))]'}`}><span>{message.time}</span>{message.mine && <CheckCheck size={13} />}</div>
@@ -1991,7 +1809,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <button type="button" onClick={() => setReplyTo(message)} className="grid size-7 place-items-center rounded-full border border-[hsl(var(--border))] bg-white text-[hsl(var(--muted-foreground))] opacity-0 shadow-sm transition-opacity hover:text-[hsl(var(--primary))] group-hover:opacity-100" aria-label={`${message.author} mesajını yanıtla`}><Reply size={13} /></button>
                       {canMuteAuthor(message) && (
                         <span className="relative">
-                          <button type="button" onClick={() => { const live = activeChatTimeout(message.author); if (live) liftMute(message.author); else startMute(message.author); }} className="grid size-7 place-items-center rounded-full border border-rose-200 bg-white text-[#be123c] opacity-0 shadow-sm transition-opacity hover:bg-rose-50 group-hover:opacity-100" aria-label={activeChatTimeout(message.author) ? `${message.author} susturmasını kaldır` : `${message.author} kullanıcısını sustur`}><MicOff size={13} /></button>
+                          <button type="button" onClick={() => { const live = activeChatTimeout(timeouts, message.author); if (live) liftMute(message.author); else startMute(message.author); }} className="grid size-7 place-items-center rounded-full border border-rose-200 bg-white text-[#be123c] opacity-0 shadow-sm transition-opacity hover:bg-rose-50 group-hover:opacity-100" aria-label={activeChatTimeout(timeouts, message.author) ? `${message.author} susturmasını kaldır` : `${message.author} kullanıcısını sustur`}><MicOff size={13} /></button>
                           {isAdmin && muteTarget === message.author && (
                             <div className="absolute bottom-8 right-0 z-20 w-36 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-white py-1 shadow-lg">
                               {ADMIN_MUTE_OPTIONS.map((option) => (
@@ -2077,7 +1895,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
 const installSteps = ['Hoş geldin', 'Veritabanı kurulumu', 'Admin hesabı', 'MOD CLUB ayarları', 'Tema seçimi', 'Kurulum tamamlandı'];
 
-function InstallWizard({ onInstalled }: { onInstalled?: () => void }) {
+function InstallWizard({ onInstalled }: { onInstalled?: (session?: UserSession | null) => void }) {
   const [, setLocation] = useLocation();
   const [step, setStep] = useState(0);
   const [clubName, setClubName] = useState('MOD CLUB');
@@ -2087,49 +1905,39 @@ function InstallWizard({ onInstalled }: { onInstalled?: () => void }) {
   const [adminPassword, setAdminPassword] = useState('');
   const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
   const [theme, setTheme] = useState('electric');
-  const [wasInstalled] = useState(() => typeof window !== 'undefined' && isClubInstalled());
+  const [error, setError] = useState('');
 
   const finishInstall = async () => {
-    const settings: ClubSettings = {
-      clubName: clubName.trim() || 'MOD CLUB',
-      adminName: adminName.trim(),
-      adminEmail: adminEmail.trim(),
-      adminUsername: adminUsername.trim(),
-      adminPassword: adminPassword.trim(),
-      theme,
-    };
-    try {
-      const saved = await saveServerSetup(settings);
-      cachePublicSetup(saved);
-    } catch {
-      window.localStorage.setItem('mod-club-installed', 'true');
+    if (adminPassword.trim() !== adminPasswordConfirm.trim()) {
+      setError('Şifreler eşleşmiyor.');
+      return;
     }
-    window.localStorage.setItem('mod-club-installed', 'true');
-    window.localStorage.setItem('mod-club-settings', JSON.stringify(settings));
-    writeAdminSession(settings);
-    setStep(5);
+    try {
+      const saved = await saveServerSetup({
+        clubName: clubName.trim() || 'MOD CLUB',
+        adminName: adminName.trim(),
+        adminEmail: adminEmail.trim(),
+        adminUsername: adminUsername.trim(),
+        adminPassword: adminPassword.trim(),
+        theme,
+      });
+      onInstalled?.(saved.me || {
+        username: saved.adminUsername,
+        nick: saved.adminName,
+        name: saved.adminName,
+        role: 'ADMIN',
+      });
+      setStep(5);
+    } catch {
+      setError('Kurulum kaydedilemedi. Railway’de Postgres bağlı mı?');
+    }
   };
 
   const enterApp = () => {
-    onInstalled?.();
     setLocation('/');
   };
 
-  if (wasInstalled) {
-    return (
-      <div className="install-page grain min-h-[100dvh] px-4 py-8 sm:px-6">
-        <div className="install-card mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col justify-center rounded-[2rem] border border-[hsl(var(--border))] bg-white p-6 shadow-[0_24px_80px_rgba(81,38,145,.12)] sm:p-10">
-          <div className="mb-6 grid size-16 place-items-center rounded-2xl bg-[#e0f7e8] text-[#2caa5a]"><ShieldCheck size={32} /></div>
-          <p className="font-mono text-[.65rem] font-bold tracking-[.18em] text-[hsl(var(--primary))]">MOD CLUB KURULUMU</p>
-          <h1 className="mt-2 font-display text-[clamp(2rem,5vw,3.25rem)] font-bold tracking-[-.07em]">Kurulum kilitli.</h1>
-          <p className="mt-3 max-w-lg text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Bu MOD CLUB kurulumu daha önce tamamlandı. Güvenliğin için kurulum sihirbazı tekrar çalıştırılamaz.</p>
-          <button onClick={() => setLocation('/')} className="mt-8 flex min-h-12 w-fit items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5">Ana sayfaya dön <ChevronRight size={16} /></button>
-        </div>
-      </div>
-    );
-  }
-
-  const canContinue = step !== 2 || (adminName.trim().length > 1 && adminEmail.includes('@') && adminUsername.trim().length >= 3 && adminPassword.trim().length >= 4);
+  const canContinue = step !== 2 || (adminName.trim().length > 1 && adminEmail.includes('@') && adminUsername.trim().length >= 3 && adminPassword.trim().length >= 4 && adminPassword === adminPasswordConfirm);
   return (
     <div className="install-page grain min-h-[100dvh] px-4 py-6 sm:px-6 sm:py-10">
       <div className="install-card mx-auto w-full max-w-5xl overflow-visible rounded-[2rem] border border-[hsl(var(--border))] bg-white shadow-[0_24px_80px_rgba(81,38,145,.12)]">
@@ -2141,12 +1949,13 @@ function InstallWizard({ onInstalled }: { onInstalled?: () => void }) {
           </aside>
           <section className="p-6 sm:p-10 lg:p-14">
             <div className="mb-8 flex items-center justify-between lg:hidden"><span className="font-mono text-[.62rem] font-bold tracking-[.16em] text-[hsl(var(--muted-foreground))]">ADIM {step + 1} / 6</span><div className="h-1.5 w-28 overflow-hidden rounded-full bg-[hsl(var(--muted))]"><div className="h-full rounded-full bg-[hsl(var(--primary))] transition-all" style={{ width: `${((step + 1) / installSteps.length) * 100}%` }} /></div></div>
-            {step === 0 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Sparkles size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 01</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Hoş geldin.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">MOD CLUB, topluluğunu tek bir yerde buluşturmak için hazır. Kurulum yaklaşık iki dakika sürer.</p><div className="mt-8 grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><Server size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Bağımsız yapı</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Herhangi bir platforma bağlı kalmadan çalışır.</p></div><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><ShieldCheck size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Güvenli başlangıç</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Ayarlarını yalnızca senin cihazında saklar.</p></div></div></div>}
-            {step === 1 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e8f1ff] text-[#4b86dc]"><Server size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 02</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Yerel kurulum hazır.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Ek bir platform veya harici servis gerekmez. Ayarların bu kurulumda saklanır. İstersen sonra kendi PostgreSQL sunucuna geçebilirsin.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[#ccebd5] bg-[#f0fcf4] p-4 text-sm font-semibold text-[#2f9650]"><Check size={18} /> Node.js ortamı doğrulandı, kuruluma devam edebilirsin</div></div>}
+            {step === 0 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Sparkles size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 01</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Hoş geldin.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">MOD CLUB, üyeler, bannerlar ve sohbeti Postgres sunucusunda tutar. Kurulum yaklaşık iki dakika sürer.</p><div className="mt-8 grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><Server size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Sunucuda kalıcı</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Veriler tarayıcıda değil, PostgreSQL’de durur.</p></div><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.45)] p-4"><ShieldCheck size={18} className="text-[hsl(var(--primary))]" /><p className="mt-3 text-sm font-bold">Güvenli başlangıç</p><p className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted-foreground))]">Admin hesabın kurulunca sihirbaz kilitlenir.</p></div></div></div>}
+            {step === 1 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e8f1ff] text-[#4b86dc]"><Server size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 02</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Postgres hazır.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Railway Postgres bağlandığında tablolar otomatik kurulur. Variable yazmana gerek yok.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[#ccebd5] bg-[#f0fcf4] p-4 text-sm font-semibold text-[#2f9650]"><Check size={18} /> Veritabanı bağlantısı bekleniyor, kuruluma devam edebilirsin</div></div>}
             {step === 2 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#fff0d8] text-[#d48a1b]"><UserRound size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 03</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Admin hesabını oluştur.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kulübünü yönetmek için ilk yönetici bilgilerini gir.</p><div className="mt-7 grid gap-4"><label className="grid gap-2 text-xs font-bold">Ad soyad<input value={adminName} onChange={(event) => setAdminName(event.target.value)} placeholder="Örn. Ece Yılmaz" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">E-posta<input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="admin@modclub.com" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Kullanıcı adı<input value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} placeholder="admin" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Şifre<input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="En az 4 karakter" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label><label className="grid gap-2 text-xs font-bold">Şifre tekrar<input type="password" value={adminPasswordConfirm} onChange={(event) => setAdminPasswordConfirm(event.target.value)} placeholder="Şifreyi tekrar yaz" className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label>{adminPasswordConfirm.length > 0 && adminPassword.trim() !== adminPasswordConfirm.trim() && <p className="text-xs font-semibold text-[#c54d5b]">Şifreler eşleşmiyor.</p>}</div></div>}
             {step === 3 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#f1e2ff] text-[#913be0]"><Palette size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 04</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Kulübünü tanımla.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Üyelerin göreceği kulüp adını belirle.</p><label className="mt-7 grid gap-2 text-xs font-bold">Kulüp adı<input value={clubName} onChange={(event) => setClubName(event.target.value)} className="h-12 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] px-4 text-sm font-normal outline-none focus:border-[hsl(var(--primary))] focus:ring-2 focus:ring-[hsl(var(--primary)/.15)]" /></label></div>}
             {step === 4 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#fce5f3] text-[#d44397]"><Palette size={27} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[hsl(var(--primary))]">ADIM 05</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">Enerjini seç.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">MOD CLUB’ın temel görünümünü belirle. Bunu daha sonra ayarlardan değiştirebilirsin.</p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button onClick={() => setTheme('electric')} className={`rounded-2xl border p-4 text-left transition-all ${theme === 'electric' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] ring-2 ring-[hsl(var(--primary)/.15)]' : 'border-[hsl(var(--border))]'}`}><span className="mb-5 block h-16 rounded-xl bg-[linear-gradient(135deg,#18052e,#9e36ed)]" /><p className="text-sm font-bold">Electric Violet</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Varsayılan MOD enerjisi</p></button><button onClick={() => setTheme('midnight')} className={`rounded-2xl border p-4 text-left transition-all ${theme === 'midnight' ? 'border-[hsl(var(--primary))] bg-[hsl(var(--secondary))] ring-2 ring-[hsl(var(--primary)/.15)]' : 'border-[hsl(var(--border))]'}`}><span className="mb-5 block h-16 rounded-xl bg-[linear-gradient(135deg,#071125,#1c5b9e)]" /><p className="text-sm font-bold">Midnight Blue</p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Daha sakin topluluk modu</p></button></div></div>}
-            {step === 5 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e0f7e8] text-[#2caa5a]"><Check size={30} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[#2caa5a]">HAZIR</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">MOD CLUB yayında.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kurulum tamamlandı. Artık topluluğunu büyütmeye ve ilk etkinliğini oluşturmaya hazırsın.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-4 text-sm"><LockKeyhole size={18} className="text-[hsl(var(--primary))]" /><span><strong className="block">Kurulum kilitlendi</strong><small className="text-xs text-[hsl(var(--muted-foreground))]">Ayarların güvenle kaydedildi.</small></span></div></div>}
+            {step === 5 && <div className="wizard-step"><div className="grid size-14 place-items-center rounded-2xl bg-[#e0f7e8] text-[#2caa5a]"><Check size={30} /></div><p className="mt-8 font-mono text-[.65rem] font-bold tracking-[.16em] text-[#2caa5a]">HAZIR</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">MOD CLUB yayında.</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">Kurulum tamamlandı. Üyeler, sohbet ve çekilişler Postgres’te kalıcı durur.</p><div className="mt-8 flex items-center gap-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.35)] p-4 text-sm"><LockKeyhole size={18} className="text-[hsl(var(--primary))]" /><span><strong className="block">Kurulum kilitlendi</strong><small className="text-xs text-[hsl(var(--muted-foreground))]">Ayarların sunucuda kaydedildi.</small></span></div></div>}
+            {error && <p className="mt-6 text-xs font-semibold text-[#c54d5b]">{error}</p>}
             <div className="mt-10 flex items-center justify-between gap-3 border-t border-[hsl(var(--border))] pt-6"><button onClick={() => step > 0 && setStep((current) => current - 1)} className={`min-h-11 rounded-xl px-3 text-sm font-bold text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] ${step === 0 ? 'invisible' : ''}`}>Geri</button>{step < 5 ? <button disabled={!canContinue} onClick={() => step === 4 ? void finishInstall() : setStep((current) => current + 1)} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--foreground))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40">{step === 4 ? 'Kurulumu tamamla' : 'Devam et'} <ChevronRight size={16} /></button> : <button onClick={enterApp} className="flex min-h-11 items-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-5 text-sm font-bold text-white transition-transform hover:-translate-y-0.5">Kulübe gir <ChevronRight size={16} /></button>}</div>
           </section>
         </div>
@@ -2158,36 +1967,21 @@ function InstallWizard({ onInstalled }: { onInstalled?: () => void }) {
 function Router() {
   const [location] = useLocation();
   const [gate, setGate] = useState<'loading' | 'wizard' | 'app'>('loading');
-  const [session, setSession] = useState<UserSession | null>(() => (typeof window !== 'undefined' ? readStoredSession() : null));
+  const [session, setSession] = useState<UserSession | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const remote = await fetchPublicSetup();
       if (cancelled) return;
-      if (remote?.installed) {
-        cachePublicSetup(remote);
-        setGate('app');
+      if (!remote?.installed) {
+        setGate('wizard');
         return;
       }
-      if (isLocalApp()) {
-        window.localStorage.setItem('mod-club-installed', 'true');
-        if (!readClubSettings()) {
-          const localSettings: ClubSettings = {
-            clubName: 'MOD CLUB',
-            adminName: 'Admin',
-            adminEmail: 'admin@localhost',
-            adminUsername: 'admin',
-            adminPassword: 'admin',
-            theme: 'electric',
-          };
-          window.localStorage.setItem('mod-club-settings', JSON.stringify(localSettings));
-          upsertAccount({ username: 'admin', password: 'admin', nick: 'Admin', role: 'ADMIN' });
-        }
-        setGate('app');
-        return;
-      }
-      setGate('wizard');
+      const me = remote.me || await fetchMe();
+      if (cancelled) return;
+      setSession(me);
+      setGate('app');
     })();
     return () => {
       cancelled = true;
@@ -2195,12 +1989,12 @@ function Router() {
   }, []);
 
   const handleLogout = () => {
-    window.localStorage.removeItem('mod-club-session');
+    void logoutUser();
     setSession(null);
   };
 
   const handleReset = () => {
-    resetClubSession();
+    void logoutUser();
     setSession(null);
   };
 
@@ -2215,9 +2009,9 @@ function Router() {
   if (gate === 'wizard') {
     return (
       <InstallWizard
-        onInstalled={() => {
+        onInstalled={(next) => {
+          if (next) setSession(next);
           setGate('app');
-          setSession(readStoredSession());
         }}
       />
     );
@@ -2237,7 +2031,7 @@ function Router() {
 
 function App() {
   useEffect(() => {
-    applyColorMode(readColorMode());
+    applyColorMode(loadColorMode());
     void registerClubWorker();
   }, []);
 

@@ -1,38 +1,21 @@
 # MOD CLUB
 
-İndir, kur, kullan. Replit veya başka bir platforma bağlı değildir.
+Kulüp verisi tarayıcıda durmaz. Üyeler, banner, sohbet, çekiliş ve kurulum **Railway PostgreSQL** üzerindedir.
 
-## Yerel kurulum
+Variable yazmana gerek yok. `PORT` ve `DATABASE_URL` Railway’den otomatik gelir. Sunucu `0.0.0.0` ve **8080** (veya Railway’in verdiği port) dinler.
 
-Bilgisayarında [Node.js 20+](https://nodejs.org) olsun. Sonra:
+## Sıfırdan kurulum (Railway)
 
-**Windows:** `setup.bat` dosyasına çift tıkla.
+1. GitHub deposu: [github.com/yamann0101/modclub](https://github.com/yamann0101/modclub)
+2. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → `modclub`
+3. Tek servis aç. **Root Directory boş kalsın** (repo kökü). `@workspace/mod-club` gibi paket seçme.
+4. Aynı projede **New** → **Database** → **PostgreSQL**. Railway `DATABASE_URL` değişkenini kendisi ekler. Variables ekranına elle bir şey yazma.
+5. Servise **Generate Domain** de.
+6. Açılan adrese gir. İlk seferde kurulum sihirbazı gelir; admin hesabını oluştur. Bundan sonra sihirbaz kilitlenir.
+7. Üyeler aynı adresten kayıt olur. Herkes aynı Postgres verisini görür.
 
-**veya terminalde:**
+Deploy takılırsa Postgres’in web servisine bağlı olduğuna bak: Postgres → Connect / Variable Reference → `DATABASE_URL`. Kendin port veya şifre yazma.
 
-```bash
-node setup.mjs
-```
+## Ne kurulur?
 
-Sihirbaz paketleri yükler, `.env` oluşturur ve uygulamayı açar.
-
-Tarayıcı: [http://localhost:5173](http://localhost:5173)
-
-Yerelde kurulum sihirbazı açılmaz; doğrudan giriş ekranı gelir.
-
-Canlı sunucuda sihirbaz yalnızca ilk kurulumda bir kez çıkar. Sonraki dosya güncellemelerinde tekrar gelmez (`data/setup.json` silinmesin).
-
-## Elle çalıştırma
-
-```bash
-pnpm install
-pnpm dev
-```
-
-## Railway (GitHub)
-
-1. Bu repoyu GitHub’a gönder.
-2. Railway’de New Project → Deploy from GitHub repo.
-3. Railway `pnpm run build` ve `start` komutlarını kendi çeker.
-
-Gerekirse Railway’de `NODE_ENV=production` yeter. `PORT` Railway tarafından verilir.
+Tablolar ilk açılışta otomatik oluşur. Volume, `setup.json` veya tarayıcı hafızası kullanılmaz.
