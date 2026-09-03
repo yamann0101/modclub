@@ -68,5 +68,8 @@
     "vaul": "^1.1.2",
     "vite": "^7.3.2",
     "wouter": "^3.3.5"
+  },
+  "dependencies": {
+    "react-casino-roulette": "^1.1.2"
   }
 }

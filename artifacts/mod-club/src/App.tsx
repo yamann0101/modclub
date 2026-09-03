@@ -9,7 +9,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
 import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, rouletteBet, rouletteHere, startGuessGame, submitGuess, type PublicGuessGame, type PublicRoulette, type SessionUser } from '@/lib/club-api';
-import { RED_SET, RouletteWheel, playCountdown, playWin } from '@/components/roulette-wheel';
+import { CasinoRouletteStage, CHIP_ICON, playCountdown, playWin } from '@/components/roulette-wheel';
+import { RouletteTable } from 'react-casino-roulette';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -338,6 +339,40 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
+const TABLE_BET_KINDS = new Set<string | number>(['STRAIGHT_UP', 'RED', 'BLACK', 'ODD', 'EVEN', '1_TO_18', '19_TO_36', '0', 0]);
+
+function serverBetToTableId(bet: { kind: string; number?: number }) {
+  if (bet.kind === 'straight') return bet.number === 0 ? '0' : String(bet.number);
+  if (bet.kind === 'red') return 'RED';
+  if (bet.kind === 'black') return 'BLACK';
+  if (bet.kind === 'odd') return 'ODD';
+  if (bet.kind === 'even') return 'EVEN';
+  if (bet.kind === 'low') return '1_TO_18';
+  if (bet.kind === 'high') return '19_TO_36';
+  return null;
+}
+
+function buildTableBets(allBets: { kind: string; number?: number }[]) {
+  const out: Record<string, { icon: string }> = {};
+  for (const bet of allBets) {
+    const id = serverBetToTableId(bet);
+    if (id) out[id] = { icon: CHIP_ICON };
+  }
+  return out;
+}
+
+function tableBetToApi(bet: string | number, payload: string[]) {
+  if (bet === '0' || bet === 0) return { kind: 'straight', number: 0 };
+  if (bet === 'STRAIGHT_UP') return { kind: 'straight', number: Number(payload[0]) };
+  if (bet === 'RED') return { kind: 'red' };
+  if (bet === 'BLACK') return { kind: 'black' };
+  if (bet === 'ODD') return { kind: 'odd' };
+  if (bet === 'EVEN') return { kind: 'even' };
+  if (bet === '1_TO_18') return { kind: 'low' };
+  if (bet === '19_TO_36') return { kind: 'high' };
+  return null;
+}
+
 function GamesPage({
   room,
   coins,
@@ -367,6 +402,7 @@ function GamesPage({
   const allBets = room?.bets || [];
   const prevStatusRef = useRef(status);
   const countdownRef = useRef(-1);
+  const [tableNote, setTableNote] = useState('');
 
   useEffect(() => {
     if (status === 'betting' && left <= 5 && left > 0 && left !== countdownRef.current) {
@@ -383,17 +419,20 @@ function GamesPage({
     prevStatusRef.current = status;
   }, [status, room?.winners]);
 
-  const chipCounts: Record<number, number> = {};
-  allBets.filter(b => b.kind === 'straight').forEach(b => { chipCounts[b.number!] = (chipCounts[b.number!] || 0) + 1; });
+  const tableBets = buildTableBets(allBets);
 
-  const outside = [
-    { kind: 'red', label: 'Kırmızı', className: 'is-red' },
-    { kind: 'black', label: 'Siyah', className: 'is-black' },
-    { kind: 'odd', label: 'Tek', className: '' },
-    { kind: 'even', label: 'Çift', className: '' },
-    { kind: 'low', label: '1–18', className: '' },
-    { kind: 'high', label: '19–36', className: '' },
-  ];
+  const handleTableBet = ({ bet, payload }: { bet: string | number; payload: string[]; id: string }) => {
+    if (status !== 'betting' || busy || coins < chip) return;
+    if (!TABLE_BET_KINDS.has(bet)) {
+      setTableNote('Sadece tek sayı, kırmızı/siyah, tek/çift ve 1–18 / 19–36 desteklenir.');
+      return;
+    }
+    setTableNote('');
+    const mapped = tableBetToApi(bet, payload);
+    if (!mapped) return;
+    if (mapped.kind === 'straight') onBet('straight', mapped.number);
+    else onBet(mapped.kind);
+  };
   return (
     <div className="page-view roulette-page">
       <div className="roulette-header">
@@ -406,12 +445,10 @@ function GamesPage({
           {status === 'betting' ? <><Timer size={15} /> Bahis {left}s</> : status === 'spinning' ? 'Çark dönüyor…' : room?.result === 0 ? '0 yeşil!' : `Sonuç: ${room?.result}`}
         </div>
       </div>
-      <RouletteWheel
+      <CasinoRouletteStage
         phase={status}
-        result={room?.result || 0}
-        spinStartedAt={(room?.bettingEndsAt || 0)}
-        spinEndsAt={room?.spinEndsAt || 0}
-        now={now}
+        result={room?.result}
+        round={room?.round || 1}
       />
       <div className="roulette-chips-bar">
         {[10, 50, 100, 500].map((value) => (
@@ -420,21 +457,9 @@ function GamesPage({
           </button>
         ))}
       </div>
-      <div className="roulette-board">
-        <button type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', 0)} className="rb-zero">0</button>
-        <div className="rb-numbers">
-          {Array.from({ length: 36 }, (_, i) => i + 1).map((n) => (
-            <button key={n} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet('straight', n)} className={`rb-num ${RED_SET.has(n) ? 'is-red' : 'is-black'}`}>
-              {n}
-              {chipCounts[n] && <span className="rb-chip-dot">{chipCounts[n]}</span>}
-            </button>
-          ))}
-        </div>
-        <div className="rb-outside">
-          {outside.map((item) => (
-            <button key={item.kind} type="button" disabled={busy || status !== 'betting' || coins < chip} onClick={() => onBet(item.kind)} className={`rb-out ${item.className}`}>{item.label}</button>
-          ))}
-        </div>
+      {tableNote && <p className="roulette-table-note">{tableNote}</p>}
+      <div className="roulette-table-wrap">
+        <RouletteTable bets={tableBets} onBet={handleTableBet} />
       </div>
       {mine.length > 0 && (
         <div className="roulette-my-bets">
