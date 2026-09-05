@@ -220,6 +220,8 @@ export type RoomCard = {
   title: string;
   cover: string;
   ownerNick: string;
+  owner?: string;
+  creator?: string;
   locked: boolean;
   watching: number;
   videoTitle: string;
@@ -250,6 +252,7 @@ export type PublicRoom = {
   cover: string;
   owner: string;
   ownerNick: string;
+  creator?: string;
   locked: boolean;
   videoId: string;
   videoTitle: string;
@@ -289,6 +292,10 @@ export async function joinWatchRoom(id: string, password = '') {
 
 export async function leaveWatchRoom(id: string) {
   return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/leave`, { method: 'POST', body: '{}' });
+}
+
+export async function closeWatchRoom(id: string) {
+  return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/close`, { method: 'POST', body: '{}' });
 }
 
 export async function fetchWatchRoom(id: string) {

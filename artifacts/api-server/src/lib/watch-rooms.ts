@@ -4,7 +4,7 @@ import { query } from "./pg";
 const SEATS = 8;
 const MAX_ROOMS = 24;
 const STALE_MS = 25_000;
-const MAX_SIGNALS = 80;
+const MAX_SIGNALS = 200;
 
 export type RoomMember = {
   username: string;
@@ -41,6 +41,7 @@ export type WatchRoom = {
   password?: string;
   owner: string;
   ownerNick: string;
+  creator: string;
   videoId: string;
   videoTitle: string;
   playing: boolean;
@@ -60,6 +61,8 @@ export type PublicRoomCard = {
   title: string;
   cover: string;
   ownerNick: string;
+  owner: string;
+  creator: string;
   locked: boolean;
   watching: number;
   videoTitle: string;
@@ -71,6 +74,7 @@ export type PublicRoom = {
   cover: string;
   owner: string;
   ownerNick: string;
+  creator: string;
   locked: boolean;
   videoId: string;
   videoTitle: string;
@@ -91,6 +95,7 @@ type RoomIndex = {
   cover: string;
   owner: string;
   ownerNick: string;
+  creator: string;
   locked: boolean;
   watching: number;
   videoTitle: string;
@@ -140,7 +145,7 @@ function prune(room: WatchRoom, now = Date.now()): WatchRoom {
     ownerNick = members[0].nick;
   }
   const signals = room.signals.filter((item) => now - item.at < 20_000).slice(-MAX_SIGNALS);
-  return { ...room, members, owner, ownerNick, hosts: room.hosts || [], chats: room.chats || [], signals };
+  return { ...room, members, owner, ownerNick, creator: room.creator || room.owner, hosts: room.hosts || [], chats: room.chats || [], signals };
 }
 
 function toIndex(room: WatchRoom): RoomIndex {
@@ -150,6 +155,7 @@ function toIndex(room: WatchRoom): RoomIndex {
     cover: room.cover,
     owner: room.owner,
     ownerNick: room.ownerNick,
+    creator: room.creator || room.owner,
     locked: Boolean(room.password),
     watching: room.members.length,
     videoTitle: room.videoTitle,
@@ -181,6 +187,8 @@ export function publicCard(room: RoomIndex): PublicRoomCard {
     title: room.title,
     cover: room.cover,
     ownerNick: room.ownerNick,
+    owner: room.owner,
+    creator: room.creator || room.owner,
     locked: room.locked,
     watching: room.watching,
     videoTitle: room.videoTitle,
@@ -195,6 +203,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     cover: room.cover,
     owner: room.owner,
     ownerNick: room.ownerNick,
+    creator: room.creator || room.owner,
     locked: Boolean(room.password),
     videoId: room.videoId,
     videoTitle: room.videoTitle,
@@ -248,6 +257,12 @@ export async function createRoom(input: {
   if (!title) throw new Error("title");
   const index = await getDoc<RoomIndex[]>("rooms_index", []);
   if (index.length >= MAX_ROOMS) throw new Error("full");
+  for (const item of index) {
+    const raw = await readRoom(item.id);
+    if (!raw) continue;
+    const live = prune(raw);
+    if ((live.creator || live.owner) === input.username) throw new Error("owned");
+  }
   const now = Date.now();
   const room: WatchRoom = {
     id: randomBytes(6).toString("hex"),
@@ -256,6 +271,7 @@ export async function createRoom(input: {
     password: input.password?.trim() ? hashPassword(input.password.trim()) : undefined,
     owner: input.username,
     ownerNick: input.nick,
+    creator: input.username,
     videoId: "",
     videoTitle: "",
     playing: false,
@@ -349,6 +365,15 @@ export async function claimSeat(id: string, username: string, seat: number) {
   me.lastSeen = Date.now();
   await writeRoom(room);
   return room;
+}
+
+export async function deleteRoom(id: string, username: string) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const creator = room.creator || room.owner;
+  if (username !== creator && username !== room.owner) throw new Error("owner");
+  await dropRoom(id);
 }
 
 export async function leaveRoom(id: string, username: string) {

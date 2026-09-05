@@ -6,6 +6,7 @@ import {
   ackWatchSignals,
   claimWatchSeat,
   clearWatchChat,
+  closeWatchRoom,
   createWatchRoom,
   fetchRooms,
   fetchWatchRoom,
@@ -27,10 +28,12 @@ import {
 
 const SEATS = 8;
 const ICE: RTCConfiguration = {
+  iceCandidatePoolSize: 4,
   iceServers: [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
 
@@ -158,6 +161,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [pick, setPick] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
   const [needStart, setNeedStart] = useState(false);
+  const [cinemaKey, setCinemaKey] = useState(0);
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
@@ -250,10 +254,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       videoId: open.videoId,
       at: Date.now(),
     };
-    setNeedStart(Boolean(open.videoId && open.playing && !open.you.host));
+    setNeedStart(Boolean(open.videoId));
     let cancelled = false;
-    const box = boxRef.current;
-    void loadYoutube().then(() => {
+    void (async () => {
+      let box = boxRef.current;
+      for (let i = 0; i < 30 && !box && !cancelled; i += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+        box = boxRef.current;
+      }
+      if (cancelled || !box) return;
+      await loadYoutube();
       if (cancelled || !box || !window.YT) return;
       try { playerRef.current?.destroy(); } catch { /* ignore */ }
       playerRef.current = null;
@@ -303,7 +313,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 player.cueVideoById(live.videoId, cinemaTime(live, receivedAtRef.current));
               }
             } catch {
-              setNeedStart(Boolean(live.videoId && live.playing && !live.you.host));
+              setNeedStart(Boolean(live.videoId));
             }
           },
           onStateChange: (event: { data: number }) => {
@@ -324,15 +334,15 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           },
         },
       });
-    });
+    })();
     return () => {
       cancelled = true;
       playerReady.current = false;
       try { playerRef.current?.destroy(); } catch { /* ignore */ }
       playerRef.current = null;
-      if (box) box.innerHTML = '';
+      if (boxRef.current) boxRef.current.innerHTML = '';
     };
-  }, [open?.id]);
+  }, [open?.id, cinemaKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -370,7 +380,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     });
   }, [speakerOn]);
 
-  function adopt(room: PublicRoom) {
+  function adopt(room: PublicRoom, remount = false) {
     roomRef.current = room;
     receivedAtRef.current = Date.now();
     lastPushRef.current = {
@@ -379,6 +389,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       videoId: room.videoId,
       at: Date.now(),
     };
+    if (remount) {
+      lastVideo.current = '';
+      lastRevRef.current = -1;
+      playerReady.current = false;
+      setNeedStart(Boolean(room.videoId));
+      setCinemaKey((value) => value + 1);
+    }
     setOpen(room);
   }
 
@@ -404,7 +421,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         } else {
           player.cueVideoById(room.videoId, target);
         }
-        if (room.playing && !room.you.host) setNeedStart(true);
+        if (room.playing) setNeedStart(true);
         return;
       }
       const rev = room.mediaRev ?? 0;
@@ -439,7 +456,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       else if (drift > 0.22) player.setPlaybackRate?.(0.94);
       else player.setPlaybackRate?.(1);
     } catch {
-      if (room.playing && !room.you.host) setNeedStart(true);
+      if (room.playing) setNeedStart(true);
     }
   }
 
@@ -525,6 +542,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function watchLevel(name: string, stream: MediaStream) {
+    if (name !== user.username) return;
     try {
       if (!audioCtx.current) audioCtx.current = new AudioContext();
       const context = audioCtx.current;
@@ -547,13 +565,30 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
+  function bindRemoteAudio(name: string, stream: MediaStream) {
+    let audio = remoteAudio.current.get(name);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('autoplay', '');
+      audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;';
+      document.body.appendChild(audio);
+      remoteAudio.current.set(name, audio);
+    }
+    if (audio.srcObject !== stream) audio.srcObject = stream;
+    audio.muted = !speakerOnRef.current;
+    void audio.play().catch(() => undefined);
+  }
+
   async function attachLocal(peer: RTCPeerConnection) {
-    const track = localStream.current?.getAudioTracks()[0] || null;
+    const stream = localStream.current;
+    const track = stream?.getAudioTracks().find((item) => item.readyState === 'live') || null;
     const sender = peer.getSenders().find((item) => item.track?.kind === 'audio' || item.track === null);
     if (sender) {
       if (sender.track !== track) await sender.replaceTrack(track);
-    } else if (track && localStream.current) {
-      peer.addTrack(track, localStream.current);
+    } else if (track && stream) {
+      peer.addTrack(track, stream);
     }
   }
 
@@ -626,20 +661,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       if (event.candidate) void sendWatchSignal(room.id, { to: peerName, type: 'ice', payload: event.candidate.toJSON() });
     };
     peer.ontrack = (event) => {
-      let audio = remoteAudio.current.get(peerName);
-      if (!audio) {
-        audio = new Audio();
-        audio.autoplay = true;
-        audio.setAttribute('playsinline', 'true');
-        remoteAudio.current.set(peerName, audio);
-      }
-      audio.muted = !speakerOnRef.current;
-      audio.srcObject = event.streams[0] || new MediaStream([event.track]);
-      void audio.play().catch(() => undefined);
-      if (event.streams[0]) watchLevel(peerName, event.streams[0]);
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      bindRemoteAudio(peerName, stream);
+      unlockAudio();
     };
     peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'failed') {
+      if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
         try { peer.restartIce(); } catch { /* ignore */ }
       }
     };
@@ -655,20 +682,27 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         peers.current.get(name)?.close();
         peers.current.delete(name);
         iceBag.current.delete(name);
-        remoteAudio.current.get(name)?.pause();
+        const audio = remoteAudio.current.get(name);
+        if (audio) {
+          audio.pause();
+          audio.srcObject = null;
+          audio.remove();
+        }
         remoteAudio.current.delete(name);
       }
     }
     for (const member of others) {
       const peer = peers.current.get(member.username);
-      if (!peer || peer.connectionState === 'failed' || peer.connectionState === 'closed') {
-        if (user.username.localeCompare(member.username) < 0) await ensurePeer(room, member.username, true);
+      const dead = !peer || peer.connectionState === 'failed' || peer.connectionState === 'closed';
+      if (dead) {
+        await ensurePeer(room, member.username, user.username.localeCompare(member.username) < 0);
       } else {
         await attachLocal(peer);
       }
     }
     remoteAudio.current.forEach((audio) => {
       audio.muted = !speakerOnRef.current;
+      void audio.play().catch(() => undefined);
     });
   }
 
@@ -677,7 +711,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     localStream.current = null;
     peers.current.forEach((peer) => peer.close());
     peers.current.clear();
-    remoteAudio.current.forEach((audio) => audio.pause());
+    remoteAudio.current.forEach((audio) => {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
+    });
     remoteAudio.current.clear();
     iceBag.current.clear();
     makingOffer.current.clear();
@@ -695,6 +733,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
     if (!open.you.micOn) {
       try {
+        await syncVoice(open);
         localStream.current = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
           video: false,
@@ -749,13 +788,14 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     setBusy(true);
     try {
       const data = await createWatchRoom({ title, cover, password: password || undefined });
-      adopt(data.room);
+      adopt(data.room, true);
       setCreateOpen(false);
       setTitle('');
       setCover('');
       setPassword('');
     } catch (err) {
-      setNotice((err as Error).message === 'title' ? 'Oda başlığı yaz' : 'Oda açılamadı');
+      const code = (err as Error).message;
+      setNotice(code === 'title' ? 'Oda başlığı yaz' : code === 'owned' ? 'Zaten bir odan var. Önce onu sil.' : 'Oda açılamadı');
     } finally {
       setBusy(false);
     }
@@ -768,7 +808,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
     setBusy(true);
     try {
-      adopt((await joinWatchRoom(room.id)).room);
+      adopt((await joinWatchRoom(room.id)).room, true);
     } catch (err) {
       const code = (err as Error).message;
       setNotice(code === 'full' ? 'Oda dolu' : code === 'banned' ? 'Bu odadan atıldın' : 'Odaya girilemedi');
@@ -781,7 +821,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!joinId) return;
     setBusy(true);
     try {
-      adopt((await joinWatchRoom(joinId, joinPassword)).room);
+      adopt((await joinWatchRoom(joinId, joinPassword)).room, true);
       setJoinId(null);
       setJoinPassword('');
     } catch {
@@ -795,10 +835,37 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!open) return;
     teardownVoice();
     await leaveWatchRoom(open.id).catch(() => undefined);
-    playerRef.current?.destroy();
+    try { playerRef.current?.destroy(); } catch { /* ignore */ }
     playerRef.current = null;
+    playerReady.current = false;
+    lastVideo.current = '';
+    lastRevRef.current = -1;
+    setNeedStart(false);
+    setCinemaKey((value) => value + 1);
     setOpen(null);
     void refreshList();
+  }
+
+  async function onCloseRoom(id: string) {
+    setBusy(true);
+    try {
+      if (open?.id === id) {
+        teardownVoice();
+        try { playerRef.current?.destroy(); } catch { /* ignore */ }
+        playerRef.current = null;
+        playerReady.current = false;
+        lastVideo.current = '';
+        setOpen(null);
+        setCinemaKey((value) => value + 1);
+      }
+      await closeWatchRoom(id);
+      setPick(null);
+      void refreshList();
+    } catch {
+      setNotice('Oda silinemedi');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onSearch(event: FormEvent) {
@@ -827,7 +894,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     lastVideo.current = hit.id;
     adopt((await setWatchMedia(open.id, { videoId: hit.id, videoTitle: hit.title, playing: true, position: 0 })).room);
     lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
-    playerRef.current?.loadVideoById(hit.id, 0);
+    if (playerRef.current && playerReady.current) playerRef.current.loadVideoById(hit.id, 0);
+    else {
+      setNeedStart(true);
+      setCinemaKey((value) => value + 1);
+    }
     setHits([]);
     setQuery('');
   }
@@ -856,15 +927,23 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     return Array.from({ length: SEATS }, (_, seat) => map.get(seat) || null);
   }, [open?.members]);
 
+  const ownsOpen = Boolean(open && (open.you.owner || open.owner === user.username || open.creator === user.username));
+  const mineId = rooms.find((room) => room.creator === user.username || room.owner === user.username)?.id;
+
   if (open) {
     const iHost = Boolean(open.you.host);
     return (
-      <div className="page-view room-page">
+      <div className="page-view room-page" onPointerDown={unlockAudio}>
         <div className="room-top">
           <div>
             <p className="page-kicker">CANLI ODA</p>
             <h1>{open.title}</h1>
             <small>{open.locked ? 'Şifreli' : 'Açık'} · yönetici {open.ownerNick}</small>
+            {ownsOpen && (
+              <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
+                Odayı sil
+              </button>
+            )}
           </div>
           <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
             <X size={18} />
@@ -875,7 +954,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           <div className="room-tv">
             <div ref={boxRef} className="room-player" />
             {!iHost && <div className="room-tv-lock" onClick={startGuestVideo} />}
-            {needStart && open.videoId && !iHost && (
+            {needStart && open.videoId && (
               <button type="button" className="room-tv-start" onClick={startGuestVideo}>
                 <Play size={18} /> Videoyu aç
               </button>
@@ -1027,7 +1106,17 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         <Sofa size={48} />
       </div>
       <div className="room-list-bar">
-        <button type="button" className="room-create-btn" onClick={() => setCreateOpen(true)}>
+        <button
+          type="button"
+          className="room-create-btn"
+          onClick={() => {
+            if (mineId) {
+              setNotice('Zaten bir odan var. Önce onu sil.');
+              return;
+            }
+            setCreateOpen(true);
+          }}
+        >
           <Plus size={16} /> Oda aç
         </button>
       </div>
@@ -1043,7 +1132,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 <h2>{room.title}</h2>
                 <small>{room.ownerNick} · {room.watching} kişi{room.videoTitle ? ` · ${room.videoTitle}` : ''}</small>
               </div>
-              <button type="button" disabled={busy} onClick={() => void onJoin(room)}>Gir</button>
+              <div className="room-card-actions">
+                <button type="button" disabled={busy} onClick={() => void onJoin(room)}>Gir</button>
+                {(room.creator === user.username || room.owner === user.username) && (
+                  <button type="button" className="room-card-kill" disabled={busy} onClick={() => void onCloseRoom(room.id)}>Sil</button>
+                )}
+              </div>
             </div>
           </article>
         ))}

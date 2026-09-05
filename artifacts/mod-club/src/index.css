@@ -1995,6 +1995,17 @@ html.dark .guess-btn-ghost {
 .room-top { position: relative; display: flex; align-items: flex-start; gap: .7rem; padding: 0 2.4rem .1rem 0; }
 .room-top h1 { font-family: var(--app-font-display); font-size: 1.18rem; }
 .room-top small { color: hsl(var(--muted-foreground)); }
+.room-kill {
+  margin-top: .35rem;
+  border-radius: 999px;
+  background: #7f1d1d;
+  color: #fecaca;
+  padding: .22rem .55rem;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.room-card-actions { display: flex; gap: .35rem; flex-shrink: 0; }
+.room-card-kill { background: #7f1d1d !important; color: #fecaca !important; }
 .room-exit {
   position: absolute;
   top: -.35rem;

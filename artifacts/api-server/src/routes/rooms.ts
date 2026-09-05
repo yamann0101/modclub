@@ -6,6 +6,7 @@ import {
   claimSeat,
   clearChat,
   createRoom,
+  deleteRoom,
   joinRoom,
   kickMember,
   leaveRoom,
@@ -28,7 +29,7 @@ function fail(res: { status: (code: number) => { json: (body: unknown) => void }
   const status = code === "auth" ? 401
     : code === "password" || code === "banned" || code === "owner" ? 403
     : code === "missing" || code === "member" ? 404
-    : code === "full" ? 409
+    : code === "full" || code === "owned" ? 409
     : 400;
   res.status(status).json({ error: code });
 }
@@ -102,6 +103,17 @@ router.post("/rooms/:id/leave", async (req, res) => {
   if (!account) return fail(res, "auth");
   await leaveRoom(req.params.id, account.username);
   res.json({ ok: true });
+});
+
+router.post("/rooms/:id/close", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    await deleteRoom(req.params.id, account.username);
+    res.json({ ok: true });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
 });
 
 router.post("/rooms/:id/ping", async (req, res) => {
