@@ -74,23 +74,68 @@ export function playSpin() {
   } catch {/* */}
 }
 
+function markLandedPit(root: HTMLElement | null, number?: number | null) {
+  const inner = root?.querySelector<HTMLElement>('.roulette-wheel-inner');
+  if (!inner) return;
+  inner.querySelectorAll('.roulette-wheel-bet-number.is-landed').forEach((node) => node.classList.remove('is-landed'));
+  if (number === undefined || number === null) {
+    inner.classList.remove('is-snapped');
+    return;
+  }
+  const pit = inner.querySelector(`.roulette-wheel-bet-number[data-bet="${number}"]`);
+  pit?.classList.add('is-landed');
+  inner.classList.add('is-snapped');
+}
+
 export function CasinoRouletteStage({
   phase,
   result,
   round,
+  onLanded,
 }: {
   phase: 'betting' | 'spinning' | 'settled';
   result?: number;
   round: number;
+  onLanded?: (number: number) => void;
 }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [start, setStart] = useState(false);
   const [winningBet, setWinningBet] = useState<WheelBet>('-1');
+  const [landed, setLanded] = useState<number | null>(null);
   const spinRoundRef = useRef<number | null>(null);
   const spinSoundRef = useRef(false);
+  const resultRef = useRef(result);
+  const onLandedRef = useRef(onLanded);
+  resultRef.current = result;
+  onLandedRef.current = onLanded;
+
+  const lockLanded = () => {
+    const number = resultRef.current;
+    if (number === undefined) return;
+    setLanded(number);
+    markLandedPit(wrapRef.current, number);
+    onLandedRef.current?.(number);
+  };
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const fit = () => {
+      const box = wrap.getBoundingClientRect();
+      const scale = Math.min(box.width / 374, box.height / 374, 1);
+      wrap.style.setProperty('--wheel-scale', String(Math.max(0.28, scale * 0.96)));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (phase === 'spinning' && result !== undefined && spinRoundRef.current !== round) {
       spinRoundRef.current = round;
+      setLanded(null);
+      markLandedPit(wrapRef.current, null);
       setStart(false);
       setWinningBet(resultToBet(result));
       if (!spinSoundRef.current) { spinSoundRef.current = true; playSpin(); }
@@ -107,23 +152,32 @@ export function CasinoRouletteStage({
       spinRoundRef.current = null;
       setStart(false);
       setWinningBet('-1');
+      setLanded(null);
+      markLandedPit(wrapRef.current, null);
+      return;
     }
-  }, [phase, round]);
+    if (phase === 'settled' && result !== undefined) {
+      lockLanded();
+    }
+  }, [phase, round, result]);
 
   return (
-    <div className={`roulette-stage casino-stage ${phase === 'spinning' ? 'is-zoom' : ''} ${phase === 'settled' ? 'is-settled-glow' : ''}`}>
-      <div className="casino-wheel-wrap">
+    <div className={`roulette-stage casino-stage ${phase === 'settled' ? 'is-settled-glow' : ''}`}>
+      <div className="casino-wheel-wrap" ref={wrapRef}>
         <CasinoWheel
           start={start}
           winningBet={winningBet}
-          onSpinningEnd={() => setStart(false)}
-          withAnimation
-          addRest
+          onSpinningEnd={() => {
+            setStart(false);
+            lockLanded();
+          }}
+          withAnimation={phase !== 'settled'}
+          addRest={false}
         />
       </div>
-      {phase === 'settled' && result !== undefined && (
-        <div className={`roulette-result-pop ${result === 0 ? 'is-green' : RED_SET.has(result) ? 'is-red' : 'is-black'}`}>
-          {result}
+      {phase === 'settled' && landed !== null && (
+        <div className={`roulette-result-pop ${landed === 0 ? 'is-green' : RED_SET.has(landed) ? 'is-red' : 'is-black'}`}>
+          {landed}
         </div>
       )}
     </div>

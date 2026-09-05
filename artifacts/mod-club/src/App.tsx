@@ -402,7 +402,13 @@ function GamesPage({
   const allBets = room?.bets || [];
   const prevStatusRef = useRef(status);
   const countdownRef = useRef(-1);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
   const [tableNote, setTableNote] = useState('');
+  const [landedNumber, setLandedNumber] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (status === 'betting' || status === 'spinning') setLandedNumber(null);
+  }, [status, room?.round]);
 
   useEffect(() => {
     if (status === 'betting' && left <= 5 && left > 0 && left !== countdownRef.current) {
@@ -420,6 +426,27 @@ function GamesPage({
   }, [status, room?.winners]);
 
   const tableBets = buildTableBets(allBets);
+
+  useEffect(() => {
+    const node = tableWrapRef.current;
+    if (!node) return;
+    const fit = () => {
+      const inner = node.querySelector<HTMLElement>('.roulette-table-inner');
+      const table = node.querySelector<HTMLElement>('.roulette-table-container');
+      if (!inner) return;
+      const pad = 6;
+      const width = 720;
+      const height = Math.max(table?.scrollHeight || 0, 368);
+      inner.style.width = `${width}px`;
+      inner.style.height = `${height}px`;
+      const scale = Math.min((node.clientWidth - pad) / width, (node.clientHeight - pad) / height, 1);
+      node.style.setProperty('--table-scale', String(Math.max(0.18, scale)));
+    };
+    const timer = window.setTimeout(fit, 30);
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    return () => { window.clearTimeout(timer); observer.disconnect(); };
+  }, [tableBets]);
 
   const handleTableBet = ({ bet, payload }: { bet: string | number; payload: string[]; id: string }) => {
     if (status !== 'betting' || busy || coins < chip) return;
@@ -442,13 +469,14 @@ function GamesPage({
           <span className="roulette-badge roulette-badge-coin"><Coins size={13} /> {coins}</span>
         </div>
         <div className={`roulette-status ${status === 'betting' ? 'is-betting' : status === 'spinning' ? 'is-spinning' : 'is-settled'}`}>
-          {status === 'betting' ? <><Timer size={15} /> Bahis {left}s</> : status === 'spinning' ? 'Çark dönüyor…' : room?.result === 0 ? '0 yeşil!' : `Sonuç: ${room?.result}`}
+          {status === 'betting' ? <><Timer size={15} /> Bahis {left}s</> : landedNumber !== null ? (landedNumber === 0 ? '0 yeşil!' : `Sonuç: ${landedNumber}`) : 'Çark dönüyor…'}
         </div>
       </div>
       <CasinoRouletteStage
         phase={status}
         result={room?.result}
         round={room?.round || 1}
+        onLanded={setLandedNumber}
       />
       <div className="roulette-chips-bar">
         {[10, 50, 100, 500].map((value) => (
@@ -458,8 +486,10 @@ function GamesPage({
         ))}
       </div>
       {tableNote && <p className="roulette-table-note">{tableNote}</p>}
-      <div className="roulette-table-wrap">
-        <RouletteTable bets={tableBets} onBet={handleTableBet} />
+      <div className="roulette-table-wrap" ref={tableWrapRef}>
+        <div className="roulette-table-inner">
+          <RouletteTable bets={tableBets} onBet={handleTableBet} />
+        </div>
       </div>
       {mine.length > 0 && (
         <div className="roulette-my-bets">
@@ -1575,7 +1605,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   return (
-    <div className="mod-app grain min-h-[100dvh] pb-28">
+    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-roulette' : 'pb-28'}`}>
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -1823,7 +1853,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage room={roulette} coins={walletCoins} nick={nick} now={now} busy={storeBusy} chip={rouletteChip} onChip={setRouletteChip} onBet={sendRouletteBet} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' roulette-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage room={roulette} coins={walletCoins} nick={nick} now={now} busy={storeBusy} chip={rouletteChip} onChip={setRouletteChip} onBet={sendRouletteBet} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button
