@@ -1955,6 +1955,25 @@ html.dark .guess-btn-ghost {
 .room-stage { border-radius: 1.2rem; background: #0b0614; padding: .7rem; }
 .room-tv { position: relative; overflow: hidden; border-radius: 1rem; background: #000; aspect-ratio: 16/9; }
 .room-player, .room-player iframe { width: 100%; height: 100%; }
+.room-tv-lock { position: absolute; inset: 0; z-index: 3; }
+.room-vol {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin-top: .55rem;
+  color: #ddd6fe;
+}
+.room-vol button {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: .65rem;
+  background: #1e1233;
+  color: #fff;
+}
+.room-vol input { flex: 1; accent-color: #a78bfa; }
+.room-vol span { min-width: 1.6rem; font-size: .68rem; font-weight: 800; }
 .room-empty-tv { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; color: #efe0a8; text-align: center; font-size: .8rem; }
 .room-search { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .65rem; color: #c4b5fd; }
 .room-search input { flex: 1 1 10rem; border-radius: .7rem; border: 0; background: #1e1233; color: #fff; padding: .5rem .7rem; }

@@ -64,6 +64,12 @@ type YtPlayer = {
   seekTo: (seconds: number, allow: boolean) => void;
   getCurrentTime: () => number;
   getPlayerState: () => number;
+  setVolume: (value: number) => void;
+  getVolume: () => number;
+  mute: () => void;
+  unMute: () => void;
+  isMuted: () => boolean;
+  setPlaybackRate: (value: number) => void;
   destroy: () => void;
 };
 
@@ -140,6 +146,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [busy, setBusy] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [talking, setTalking] = useState<string[]>([]);
+  const [videoVol, setVideoVol] = useState(80);
+  const [videoMuted, setVideoMuted] = useState(false);
   const playerRef = useRef<YtPlayer | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
@@ -194,7 +202,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       }
     };
     void tick();
-    const timer = window.setInterval(() => { void tick(); }, 1200);
+    const timer = window.setInterval(() => { void tick(); }, 400);
     return () => {
       live = false;
       window.clearInterval(timer);
@@ -227,14 +235,24 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           rel: 0,
           modestbranding: 1,
           playsinline: 1,
+          fs: 0,
+          iv_load_policy: 3,
           origin: window.location.origin,
           controls: open.you.owner ? 1 : 0,
-          disablekb: open.you.owner ? 0 : 1,
+          disablekb: 1,
         },
         events: {
           onReady: () => {
+            const player = playerRef.current;
+            if (player) applyLocalVolume(player);
             const room = roomRef.current;
-            if (room) followCinema(room, playerRef.current as YtPlayer);
+            if (room && player) followCinema(room, player);
+          },
+          onStateChange: (event: { data: number }) => {
+            const room = roomRef.current;
+            const player = playerRef.current;
+            if (!room || !player || room.you.owner) return;
+            if (room.playing && (event.data === 2 || event.data === 0)) player.playVideo();
           },
         },
       });
@@ -250,11 +268,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       if (!room || !player) return;
       if (room.you.owner) void pushOwnerClock(room, player);
       else followCinema(room, player);
-    }, 700);
+    }, 350);
     return () => window.clearInterval(timer);
   }, [open?.id]);
 
   useEffect(() => () => teardownVoice(), []);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (player) applyLocalVolume(player);
+  }, [videoVol, videoMuted]);
 
   function adopt(room: PublicRoom) {
     roomRef.current = room;
@@ -292,12 +315,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       return;
     }
     if (!room.playing) {
+      player.setPlaybackRate?.(1);
       if (state === 1) player.pauseVideo();
-      if (Math.abs(time - room.position) > 0.75) player.seekTo(room.position, true);
+      if (Math.abs(time - room.position) > 0.25) player.seekTo(room.position, true);
       return;
     }
     if (state === 2 || state === 5) player.playVideo();
-    if (state !== 3 && Math.abs(time - target) > 2.2) player.seekTo(target, true);
+    const drift = time - target;
+    if (state === 3) return;
+    if (Math.abs(drift) > 0.7) {
+      player.setPlaybackRate?.(1);
+      player.seekTo(target, true);
+      return;
+    }
+    if (drift < -0.18) player.setPlaybackRate?.(1.12);
+    else if (drift > 0.18) player.setPlaybackRate?.(0.92);
+    else player.setPlaybackRate?.(1);
+  }
+
+  function applyLocalVolume(player: YtPlayer) {
+    player.setVolume(videoVol);
+    if (videoMuted || videoVol === 0) player.mute();
+    else player.unMute();
   }
 
   async function pushOwnerClock(room: PublicRoom, player: YtPlayer) {
@@ -625,7 +664,25 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         <div className="room-stage">
           <div className="room-tv">
             <div ref={hostRef} className="room-player" />
+            {!open.you.owner && <div className="room-tv-lock" />}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
+          </div>
+          <div className="room-vol">
+            <button type="button" onClick={() => setVideoMuted((value) => !value)}>
+              {videoMuted || videoVol === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={videoMuted ? 0 : videoVol}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setVideoVol(value);
+                setVideoMuted(value === 0);
+              }}
+            />
+            <span>{videoMuted ? 0 : videoVol}</span>
           </div>
           {open.you.owner && (
             <form className="room-search" onSubmit={(event) => void onSearch(event)}>
