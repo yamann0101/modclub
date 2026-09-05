@@ -1326,35 +1326,6 @@ html.dark .home-hero-glow {
     repeating-linear-gradient(155deg, transparent 0 30px, rgba(255,255,255,.07) 31px 32px, transparent 33px 70px);
 }
 
-.home-quick {
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  box-shadow: 0 8px 20px rgba(77, 46, 128, .05);
-}
-.home-quick.is-on { border-color: hsl(var(--primary) / .4); box-shadow: 0 0 0 1px hsl(var(--primary) / .18); }
-.home-quick-icon {
-  margin: 0 auto;
-  display: grid;
-  width: 2.35rem;
-  height: 2.35rem;
-  place-items: center;
-  border-radius: .85rem;
-}
-.home-quick-icon.violet { background: #ead7ff; color: #8739df; }
-.home-quick-icon.amber { background: #ffedc8; color: #e5a01c; }
-.home-quick-icon.sky { background: #d7e9ff; color: #4483e3; }
-.home-quick-icon.mint { background: #d9f5de; color: #4aae6b; }
-.home-quick-icon.pink { background: #ffd9ef; color: #e44da5; }
-html.dark .home-quick {
-  background: hsl(var(--card));
-  box-shadow: 0 0 0 1px rgba(168, 85, 247, .12), 0 10px 24px rgba(0,0,0,.22);
-}
-html.dark .home-quick-icon.violet { background: rgba(139, 92, 246, .18); color: #c4b5fd; }
-html.dark .home-quick-icon.amber { background: rgba(245, 158, 11, .16); color: #fbbf24; }
-html.dark .home-quick-icon.sky { background: rgba(56, 189, 248, .16); color: #7dd3fc; }
-html.dark .home-quick-icon.mint { background: rgba(74, 222, 128, .16); color: #86efac; }
-html.dark .home-quick-icon.pink { background: rgba(244, 114, 182, .16); color: #f9a8d4; }
-
 .home-news-card {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));

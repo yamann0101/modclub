@@ -20,14 +20,6 @@ import { cn } from '@/lib/utils';
 
 const queryClient = new QueryClient();
 
-const quickItems: { label: string; sublabel: string; icon: LucideIcon; tone: string }[] = [
-  { label: 'SOHBET', sublabel: 'Sesli odalara katıl', icon: MessageCircle, tone: 'violet' },
-  { label: 'DUYURULAR', sublabel: 'Son duyuruları gör', icon: Megaphone, tone: 'amber' },
-  { label: 'OYUNLAR', sublabel: 'Oyna, kazan, eğlen', icon: Gamepad2, tone: 'sky' },
-  { label: 'TOPLULUK', sublabel: 'Üyelerle tanış', icon: UsersRound, tone: 'mint' },
-  { label: 'AFİŞLER', sublabel: 'Etkinlik afişleri', icon: Ticket, tone: 'pink' },
-];
-
 const slides = DEFAULT_BANNERS;
 
 const announcements = [
@@ -748,7 +740,6 @@ function makeWinnerCard(item: Giveaway): ChatMessage {
 
 function Home({ session, onLogout, onSession }: { session: UserSession; onLogout: () => void; onSession: (session: UserSession) => void }) {
   const [slide, setSlide] = useState(0);
-  const [selectedQuick, setSelectedQuick] = useState('SOHBET');
   const [activeNav, setActiveNav] = useState('Ana Sayfa');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -833,28 +824,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
   const changeSlide = (direction: number) => {
     setSlide((current) => (current + direction + banners.length) % banners.length);
-  };
-
-  const handleQuickSelect = (label: string) => {
-    setSelectedQuick(label);
-    if (label === 'SOHBET') {
-      setChatOpen(true);
-      setNotice('Canlı sohbet açık');
-      return;
-    }
-    if (label === 'OYUNLAR') {
-      handleNav('Oyunlar');
-      return;
-    }
-    if (label === 'TOPLULUK') {
-      handleNav('Topluluk');
-      return;
-    }
-    if (label === 'DUYURULAR') {
-      setNotice('Duyurular listeleniyor');
-      return;
-    }
-    setNotice(`${label.toLocaleLowerCase('tr-TR')} alanına göz atıyorsun`);
   };
 
   const handleNav = (label: string) => {
@@ -1622,21 +1591,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
             {banners.map((item, index) => (
               <button data-testid={`button-slide-dot-${index}`} aria-label={`${index + 1}. banner`} key={item.id} onClick={() => setSlide(index)} className={`h-1.5 rounded-full transition-all ${slide === index ? 'home-hero-dot-on' : 'home-hero-dot'}`} />
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-[.72rem] font-extrabold tracking-[.12em] text-[hsl(var(--muted-foreground))]">HIZLI ERİŞİM</h2>
-          </div>
-          <div className="hide-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-5 sm:gap-3">
-            {quickItems.map(({ label, sublabel, icon: Icon, tone }) => (
-              <button data-testid={`button-quick-${label.toLowerCase()}`} key={label} onClick={() => handleQuickSelect(label)} className={`home-quick min-w-[6.6rem] flex-1 rounded-2xl px-2.5 py-3 text-center sm:min-w-0 ${selectedQuick === label ? 'is-on' : ''}`}>
-                <span className={`home-quick-icon ${tone}`}><Icon size={20} strokeWidth={2.15} /></span>
-                <span className="mt-2 block text-[.62rem] font-extrabold tracking-wide">{label}</span>
-                <span className="mt-0.5 block truncate text-[.5rem] text-[hsl(var(--muted-foreground))]">{sublabel}</span>
-              </button>
             ))}
           </div>
         </section>
