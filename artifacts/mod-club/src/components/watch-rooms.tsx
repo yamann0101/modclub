@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DoorOpen, Lock, Mic, MicOff, Pause, Play, Plus, Search, SkipBack, SkipForward, Sofa, UserX, VolumeX, X } from 'lucide-react';
+import { DoorOpen, Lock, Mic, MicOff, Pause, Play, Plus, Search, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
+  claimWatchSeat,
   createWatchRoom,
   fetchRooms,
   fetchWatchRoom,
@@ -22,6 +23,29 @@ import {
 } from '@/lib/club-api';
 
 const SEATS = 8;
+const ICE: RTCConfiguration = {
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  ],
+};
+
+function localYoutubeId(value: string) {
+  const text = value.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(text)) return text;
+  try {
+    const url = new URL(text);
+    if (url.hostname.includes('youtu.be')) return url.pathname.replace('/', '').slice(0, 11);
+    const fromQuery = url.searchParams.get('v');
+    if (fromQuery && /^[a-zA-Z0-9_-]{11}$/.test(fromQuery)) return fromQuery;
+    const embed = url.pathname.match(/\/(?:embed|shorts)\/([a-zA-Z0-9_-]{11})/);
+    if (embed) return embed[1];
+  } catch {
+    /* not a url */
+  }
+  return '';
+}
 
 declare global {
   interface Window {
@@ -111,12 +135,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [hits, setHits] = useState<YoutubeHit[]>([]);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const [talking, setTalking] = useState<string[]>([]);
   const playerRef = useRef<YtPlayer | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
   const peers = useRef(new Map<string, RTCPeerConnection>());
   const localStream = useRef<MediaStream | null>(null);
   const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
+  const talkingRef = useRef(new Set<string>());
+  const lastSpeakPing = useRef(false);
 
   const refreshList = async () => {
     try {
@@ -223,6 +251,47 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!room.playing && state === 1) player.pauseVideo();
   }
 
+  function markTalk(name: string, on: boolean) {
+    const bag = talkingRef.current;
+    if (on === bag.has(name)) return;
+    if (on) bag.add(name);
+    else bag.delete(name);
+    setTalking([...bag]);
+    if (name === user.username && lastSpeakPing.current !== on && open) {
+      lastSpeakPing.current = on;
+      void pingWatchRoom(open.id, { speaking: on });
+    }
+  }
+
+  function watchLevel(name: string, stream: MediaStream) {
+    try {
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      const loop = () => {
+        analyser.getByteFrequencyData(buffer);
+        let sum = 0;
+        for (const value of buffer) sum += value;
+        markTalk(name, sum / buffer.length > 14);
+        requestAnimationFrame(loop);
+      };
+      void context.resume();
+      loop();
+    } catch {
+      /* analyser not available */
+    }
+  }
+
+  async function attachLocal(peer: RTCPeerConnection) {
+    const track = localStream.current?.getAudioTracks()[0] || null;
+    const sender = peer.getSenders().find((item) => !item.track || item.track.kind === 'audio');
+    if (sender) await sender.replaceTrack(track);
+    else if (track && localStream.current) peer.addTrack(track, localStream.current);
+  }
+
   async function consumeSignals(room: PublicRoom, signals: { id: string; from: string; type: 'offer' | 'answer' | 'ice'; payload: unknown }[]) {
     for (const signal of signals) {
       const peer = await ensurePeer(room, signal.from, false);
@@ -232,7 +301,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
           await sendWatchSignal(room.id, { to: signal.from, type: 'answer', payload: answer });
-        } else if (signal.type === 'answer') {
+        } else if (signal.type === 'answer' && peer.signalingState === 'have-local-offer') {
           await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
         } else if (signal.type === 'ice' && signal.payload) {
           await peer.addIceCandidate(signal.payload as RTCIceCandidateInit);
@@ -245,10 +314,15 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   async function ensurePeer(room: PublicRoom, peerName: string, initiate: boolean) {
     const existing = peers.current.get(peerName);
-    if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') return existing;
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') {
+      await attachLocal(existing);
+      return existing;
+    }
+    existing?.close();
+    const peer = new RTCPeerConnection(ICE);
     peers.current.set(peerName, peer);
-    localStream.current?.getTracks().forEach((track) => peer.addTrack(track, localStream.current as MediaStream));
+    peer.addTransceiver('audio', { direction: 'sendrecv' });
+    await attachLocal(peer);
     peer.onicecandidate = (event) => {
       if (event.candidate) void sendWatchSignal(room.id, { to: peerName, type: 'ice', payload: event.candidate.toJSON() });
     };
@@ -259,7 +333,15 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         audio.autoplay = true;
         remoteAudio.current.set(peerName, audio);
       }
+      audio.muted = !speakerOn;
       audio.srcObject = event.streams[0];
+      void audio.play().catch(() => undefined);
+      if (event.streams[0]) watchLevel(peerName, event.streams[0]);
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'failed') {
+        try { peer.restartIce(); } catch { /* ignore */ }
+      }
     };
     if (initiate) {
       const offer = await peer.createOffer();
@@ -270,9 +352,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function syncVoice(room: PublicRoom) {
-    const others = room.members.filter((member) => member.username !== user.username && member.micOn && !member.muted);
+    const others = room.members.filter((member) => member.username !== user.username);
     const names = new Set(others.map((member) => member.username));
-    for (const name of peers.current.keys()) {
+    for (const name of [...peers.current.keys()]) {
       if (!names.has(name)) {
         peers.current.get(name)?.close();
         peers.current.delete(name);
@@ -280,12 +362,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         remoteAudio.current.delete(name);
       }
     }
-    if (!room.you.micOn || room.you.muted) return;
     for (const member of others) {
       if (!peers.current.has(member.username) && user.username.localeCompare(member.username) < 0) {
         await ensurePeer(room, member.username, true);
       }
     }
+    for (const peer of peers.current.values()) await attachLocal(peer);
+    remoteAudio.current.forEach((audio) => { audio.muted = !speakerOn; });
   }
 
   function teardownVoice() {
@@ -295,6 +378,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     peers.current.clear();
     remoteAudio.current.forEach((audio) => audio.pause());
     remoteAudio.current.clear();
+    talkingRef.current.clear();
+    setTalking([]);
   }
 
   async function toggleMic() {
@@ -306,18 +391,48 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!open.you.micOn) {
       try {
         localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        peers.current.forEach((peer) => {
-          localStream.current?.getTracks().forEach((track) => peer.addTrack(track, localStream.current as MediaStream));
-        });
-        await pingWatchRoom(open.id, true);
+        watchLevel(user.username, localStream.current);
+        for (const [name, peer] of peers.current) {
+          await attachLocal(peer);
+          if (user.username.localeCompare(name) < 0 && peer.signalingState === 'stable') {
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            await sendWatchSignal(open.id, { to: name, type: 'offer', payload: offer });
+          }
+        }
+        const next = await pingWatchRoom(open.id, { micOn: true });
+        setOpen(next.room);
       } catch {
-        setNotice('Mikrofon izni gerekli');
+        setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
       }
       return;
     }
     localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = null;
-    await pingWatchRoom(open.id, false);
+    markTalk(user.username, false);
+    for (const peer of peers.current.values()) await attachLocal(peer);
+    const next = await pingWatchRoom(open.id, { micOn: false, speaking: false });
+    setOpen(next.room);
+  }
+
+  function toggleSpeaker() {
+    const next = !speakerOn;
+    setSpeakerOn(next);
+    remoteAudio.current.forEach((audio) => { audio.muted = !next; });
+  }
+
+  async function sitOn(seat: number) {
+    if (!open) return;
+    const taken = open.members.find((member) => member.seat === seat);
+    if (taken && taken.username !== user.username) {
+      setNotice('Bu mik dolu');
+      return;
+    }
+    try {
+      setOpen((await claimWatchSeat(open.id, seat)).room);
+    } catch (err) {
+      setNotice((err as Error).message === 'taken' ? 'Bu mik dolu' : 'Mik değişmedi');
+    }
   }
 
   async function onCreate(event: FormEvent) {
@@ -380,11 +495,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   async function onSearch(event: FormEvent) {
     event.preventDefault();
     if (!query.trim()) return;
+    const direct = localYoutubeId(query);
+    if (direct) {
+      setHits([{ id: direct, title: 'YouTube video', thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }]);
+      setNotice('');
+      return;
+    }
     setBusy(true);
     try {
-      setHits((await searchWatchYoutube(query)).items);
+      const items = (await searchWatchYoutube(query)).items;
+      setHits(items);
+      setNotice(items.length ? '' : 'Sonuç yok. YouTube linkini yapıştır.');
     } catch {
-      setNotice('YouTube araması olmadı');
+      setNotice('Arama olmadı. YouTube linkini yapıştır.');
     } finally {
       setBusy(false);
     }
@@ -421,10 +544,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             <h1>{open.title}</h1>
             <small>{open.locked ? 'Şifreli' : 'Açık'} · yönetici {open.ownerNick}</small>
           </div>
-          <button type="button" className={`room-mic ${open.you.micOn ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
-            {open.you.micOn ? <Mic size={16} /> : <MicOff size={16} />}
-            {open.you.muted ? 'Susturuldu' : open.you.micOn ? 'Mikrofon açık' : 'Mikrofon'}
-          </button>
         </div>
 
         <div className="room-stage">
@@ -462,22 +581,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             <div className="room-seats">
               {seats.map((member, seat) => {
                 const host = member?.username === open.owner;
+                const live = Boolean(member && (member.speaking || talking.includes(member.username)));
                 return (
-                  <article key={seat} className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${host ? 'is-host' : ''} ${member?.micOn ? 'is-talk' : ''}`}>
+                  <article
+                    key={seat}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${host ? 'is-host' : ''} ${live ? 'is-talk' : ''}`}
+                    onClick={() => { if (!member) void sitOn(seat); }}
+                  >
                     <div className="mic-ring">
                       {host && <span className="mic-wings" aria-hidden="true" />}
+                      {live && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
                       <div className="mic-avatar">
                         {member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
                       </div>
-                      <span className="mic-ribbon">{host ? 'Yönetici' : member?.muted ? 'Susturuldu' : member?.micOn ? 'Canlı' : `Mik ${seat + 1}`}</span>
+                      <span className="mic-ribbon">{host ? 'Yönetici' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'}</span>
                     </div>
-                    <strong>{member ? member.nick : 'Boş'}</strong>
+                    <strong>{member ? member.nick : `Mik ${seat + 1}`}</strong>
                     {open.you.owner && member && member.username !== user.username && (
                       <div className="room-seat-admin">
-                        <button type="button" onClick={() => void muteWatchMember(open.id, member.username, !member.muted)}>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); void muteWatchMember(open.id, member.username, !member.muted); }}>
                           <VolumeX size={13} /> {member.muted ? 'Aç' : 'Sustur'}
                         </button>
-                        <button type="button" onClick={() => void kickWatchMember(open.id, member.username)}>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); void kickWatchMember(open.id, member.username); }}>
                           <UserX size={13} /> At
                         </button>
                       </div>
@@ -487,6 +612,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               })}
             </div>
           </div>
+        </div>
+        <div className="room-dock">
+          <button type="button" className={`room-mic ${open.you.micOn ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
+            {open.you.micOn ? <Mic size={16} /> : <MicOff size={16} />}
+            {open.you.muted ? 'Susturuldu' : open.you.micOn ? 'Mik açık' : 'Mik aç'}
+          </button>
+          <button type="button" className={`room-mic ${speakerOn ? 'is-on' : 'is-off'}`} onClick={toggleSpeaker}>
+            {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            {speakerOn ? 'Oda sesi açık' : 'Oda sesi kapalı'}
+          </button>
         </div>
         {notice && <p className="room-note">{notice}</p>}
       </div>

@@ -232,6 +232,7 @@ export type RoomMember = {
   seat: number;
   muted: boolean;
   micOn: boolean;
+  speaking?: boolean;
   lastSeen: number;
 };
 
@@ -283,8 +284,12 @@ export async function fetchWatchRoom(id: string) {
   return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
 }
 
-export async function pingWatchRoom(id: string, micOn?: boolean) {
-  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify({ micOn }) });
+export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean } = {}) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function claimWatchSeat(id: string, seat: number) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/seat`, { method: 'POST', body: JSON.stringify({ seat }) });
 }
 
 export async function setWatchMedia(id: string, body: { videoId?: string; videoTitle?: string; playing?: boolean; position?: number }) {

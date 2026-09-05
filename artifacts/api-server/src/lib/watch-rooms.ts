@@ -13,6 +13,7 @@ export type RoomMember = {
   seat: number;
   muted: boolean;
   micOn: boolean;
+  speaking: boolean;
   lastSeen: number;
 };
 
@@ -187,7 +188,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     position: room.position,
     updatedAt: room.updatedAt,
     serverNow: Date.now(),
-    members: room.members,
+    members: room.members.map((member) => ({ ...member, speaking: Boolean(member.speaking), micOn: Boolean(member.micOn) })),
     you: {
       username,
       owner: room.owner === username,
@@ -249,6 +250,7 @@ export async function createRoom(input: {
       seat: 0,
       muted: false,
       micOn: false,
+      speaking: false,
       lastSeen: now,
     }],
     banned: [],
@@ -289,13 +291,14 @@ export async function joinRoom(input: {
     seat,
     muted: false,
     micOn: false,
+    speaking: false,
     lastSeen: Date.now(),
   });
   await writeRoom(room);
   return room;
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean }) {
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
@@ -303,7 +306,26 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   if (!member) throw new Error("member");
   member.lastSeen = Date.now();
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
-  if (member.muted) member.micOn = false;
+  if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
+  if (member.muted) {
+    member.micOn = false;
+    member.speaking = false;
+  }
+  if (!member.micOn) member.speaking = false;
+  await writeRoom(room);
+  return room;
+}
+
+export async function claimSeat(id: string, username: string, seat: number) {
+  if (!Number.isInteger(seat) || seat < 0 || seat >= SEATS) throw new Error("seat");
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const me = room.members.find((item) => item.username === username);
+  if (!me) throw new Error("member");
+  if (room.members.some((item) => item.seat === seat && item.username !== username)) throw new Error("taken");
+  me.seat = seat;
+  me.lastSeen = Date.now();
   await writeRoom(room);
   return room;
 }
@@ -431,44 +453,101 @@ export function parseYoutubeId(value: string) {
   return "";
 }
 
+function collectVideos(node: unknown, out: { id: string; title: string; thumb: string }[], seen = new Set<string>()) {
+  if (!node || out.length >= 8) return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectVideos(item, out, seen);
+    return;
+  }
+  if (typeof node !== "object") return;
+  const row = node as Record<string, unknown>;
+  const video = (row.videoRenderer || row.compactVideoRenderer) as Record<string, unknown> | undefined;
+  if (video?.videoId) {
+    const id = String(video.videoId);
+    if (/^[a-zA-Z0-9_-]{11}$/.test(id) && !seen.has(id)) {
+      const titleNode = video.title as { runs?: { text?: string }[]; simpleText?: string } | undefined;
+      const title = titleNode?.runs?.[0]?.text || titleNode?.simpleText || "YouTube";
+      seen.add(id);
+      out.push({ id, title: String(title).slice(0, 120), thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` });
+    }
+  }
+  for (const value of Object.values(row)) collectVideos(value, out, seen);
+}
+
+async function searchInnertube(q: string) {
+  const response = await fetch("https://www.youtube.com/youtubei/v1/search?prettyPrint=false", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "user-agent": "Mozilla/5.0",
+    },
+    body: JSON.stringify({
+      context: { client: { clientName: "WEB", clientVersion: "2.20260326.01.00", hl: "tr", gl: "TR" } },
+      query: q,
+    }),
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) return [];
+  const items: { id: string; title: string; thumb: string }[] = [];
+  collectVideos(await response.json(), items);
+  return items;
+}
+
+async function searchPiped(q: string) {
+  const hosts = ["https://pipedapi.kavin.rocks", "https://pipedapi.adminforge.de", "https://api.piped.private.coffee"];
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`${host}/search?q=${encodeURIComponent(q)}&filter=videos`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as { items?: { url?: string; title?: string; thumbnail?: string }[] };
+      const items = (data.items || [])
+        .map((row) => {
+          const id = parseYoutubeId(String(row.url || ""));
+          return id ? { id, title: String(row.title || "YouTube").slice(0, 120), thumb: row.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg` } : null;
+        })
+        .filter((row): row is { id: string; title: string; thumb: string } => Boolean(row))
+        .slice(0, 8);
+      if (items.length) return items;
+    } catch {
+      /* next */
+    }
+  }
+  return [];
+}
+
 export async function searchYoutube(queryText: string) {
   const q = queryText.trim().slice(0, 80);
   if (!q) return [];
   const direct = parseYoutubeId(q);
   if (direct) {
     try {
-      const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${direct}&format=json`);
+      const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${direct}&format=json`, {
+        signal: AbortSignal.timeout(4000),
+      });
       if (response.ok) {
         const data = await response.json() as { title?: string; thumbnail_url?: string };
         return [{ id: direct, title: data.title || "YouTube", thumb: data.thumbnail_url || `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
       }
     } catch {
-      return [{ id: direct, title: "YouTube", thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
+      /* fall through */
     }
     return [{ id: direct, title: "YouTube", thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
   }
 
-  const hosts = ["https://inv.nadeko.net", "https://invidious.privacyredirect.com", "https://yewtu.be"];
-  for (const host of hosts) {
-    try {
-      const response = await fetch(`${host}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(4000),
-      });
-      if (!response.ok) continue;
-      const rows = await response.json() as { videoId?: string; title?: string; videoThumbnails?: { url?: string }[] }[];
-      const items = rows
-        .filter((row) => row.videoId)
-        .slice(0, 8)
-        .map((row) => ({
-          id: String(row.videoId),
-          title: String(row.title || "YouTube").slice(0, 120),
-          thumb: row.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg`,
-        }));
-      if (items.length) return items;
-    } catch {
-      /* try next */
-    }
+  try {
+    const inner = await searchInnertube(q);
+    if (inner.length) return inner;
+  } catch {
+    /* next */
+  }
+  try {
+    const piped = await searchPiped(q);
+    if (piped.length) return piped;
+  } catch {
+    /* next */
   }
   return [];
 }

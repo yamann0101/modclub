@@ -3,6 +3,7 @@ import { currentAccount } from "../lib/http";
 import {
   ackSignals,
   canManage,
+  claimSeat,
   createRoom,
   joinRoom,
   kickMember,
@@ -58,7 +59,11 @@ router.post("/rooms/search", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   const q = String((req.body as { q?: string }).q || "");
-  res.json({ items: await searchYoutube(q) });
+  try {
+    res.json({ items: await searchYoutube(q) });
+  } catch {
+    res.json({ items: [] });
+  }
 });
 
 router.get("/rooms/:id", async (req, res) => {
@@ -100,14 +105,25 @@ router.post("/rooms/:id/ping", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   try {
+    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean };
     const room = await pingRoom(req.params.id, account.username, {
-      micOn: typeof (req.body as { micOn?: boolean }).micOn === "boolean"
-        ? (req.body as { micOn: boolean }).micOn
-        : undefined,
+      micOn: typeof body.micOn === "boolean" ? body.micOn : undefined,
+      speaking: typeof body.speaking === "boolean" ? body.speaking : undefined,
     });
     res.json({ room: publicRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "missing");
+  }
+});
+
+router.post("/rooms/:id/seat", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await claimSeat(req.params.id, account.username, Number((req.body as { seat?: number }).seat));
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "seat");
   }
 });
 
