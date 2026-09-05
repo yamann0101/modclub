@@ -157,8 +157,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [videoMuted, setVideoMuted] = useState(false);
   const [pick, setPick] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
+  const [needStart, setNeedStart] = useState(false);
   const playerRef = useRef<YtPlayer | null>(null);
-  const hostRef = useRef<HTMLDivElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const playerReady = useRef(false);
+  const lastLoadAt = useRef(0);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
   const roomRef = useRef<PublicRoom | null>(null);
@@ -203,7 +206,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         receivedAtRef.current = Date.now();
         setOpen(data.room);
         const player = playerRef.current;
-        if (player) {
+        if (player && playerReady.current) {
           if (!data.room.you.host || (!pushingRef.current && (data.room.mediaRev ?? 0) !== lastRevRef.current)) {
             followCinema(data.room, player);
           }
@@ -231,10 +234,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     if (!open) {
-      playerRef.current?.destroy();
+      playerReady.current = false;
+      try { playerRef.current?.destroy(); } catch { /* ignore */ }
       playerRef.current = null;
       lastVideo.current = '';
       lastRevRef.current = -1;
+      setNeedStart(false);
       return;
     }
     roomRef.current = open;
@@ -245,15 +250,26 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       videoId: open.videoId,
       at: Date.now(),
     };
-    playerRef.current?.destroy();
-    playerRef.current = null;
-    lastVideo.current = '';
+    setNeedStart(Boolean(open.videoId && open.playing && !open.you.host));
     let cancelled = false;
+    const box = boxRef.current;
     void loadYoutube().then(() => {
-      if (cancelled || !hostRef.current || playerRef.current || !window.YT) return;
-      playerRef.current = new window.YT.Player(hostRef.current, {
+      if (cancelled || !box || !window.YT) return;
+      try { playerRef.current?.destroy(); } catch { /* ignore */ }
+      playerRef.current = null;
+      playerReady.current = false;
+      lastVideo.current = '';
+      box.innerHTML = '';
+      const node = document.createElement('div');
+      node.style.width = '100%';
+      node.style.height = '100%';
+      box.appendChild(node);
+      const room = roomRef.current;
+      const startAt = room?.videoId ? Math.floor(cinemaTime(room, receivedAtRef.current)) : 0;
+      playerRef.current = new window.YT.Player(node, {
         width: '100%',
         height: '100%',
+        videoId: room?.videoId || undefined,
         playerVars: {
           rel: 0,
           modestbranding: 1,
@@ -261,36 +277,69 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           fs: 0,
           iv_load_policy: 3,
           origin: window.location.origin,
-          controls: open.you.host ? 1 : 0,
+          controls: 0,
           disablekb: 1,
+          autoplay: room?.playing ? 1 : 0,
+          start: startAt,
+          mute: 1,
         },
         events: {
           onReady: () => {
+            playerReady.current = true;
             const player = playerRef.current;
-            if (player) applyLocalVolume(player);
-            const room = roomRef.current;
-            if (room && player) followCinema(room, player);
+            const live = roomRef.current;
+            if (!player || !live) return;
+            if (live.videoId) {
+              lastVideo.current = live.videoId;
+              lastRevRef.current = live.mediaRev ?? 0;
+              lastLoadAt.current = Date.now();
+            }
+            try {
+              player.mute();
+              if (live.videoId && live.playing) {
+                player.seekTo(cinemaTime(live, receivedAtRef.current), true);
+                player.playVideo();
+              } else if (live.videoId) {
+                player.cueVideoById(live.videoId, cinemaTime(live, receivedAtRef.current));
+              }
+            } catch {
+              setNeedStart(Boolean(live.videoId && live.playing && !live.you.host));
+            }
           },
           onStateChange: (event: { data: number }) => {
-            const room = roomRef.current;
+            const live = roomRef.current;
             const player = playerRef.current;
-            if (!room || !player || room.you.host) return;
-            if (room.playing && (event.data === 2 || event.data === 0 || event.data === 5 || event.data === -1)) {
-              player.playVideo();
+            if (!live || !player) return;
+            if (event.data === 1) {
+              applyLocalVolume(player);
+              setNeedStart(false);
+            }
+            if (live.you.host) return;
+            if (live.playing && (event.data === 2 || event.data === 0)) {
+              try { player.playVideo(); } catch { /* blocked */ }
+            }
+            if (live.playing && (event.data === -1 || event.data === 5)) {
+              setNeedStart(true);
             }
           },
         },
       });
     });
-    return () => { cancelled = true; };
-  }, [open?.id, open?.you.host]);
+    return () => {
+      cancelled = true;
+      playerReady.current = false;
+      try { playerRef.current?.destroy(); } catch { /* ignore */ }
+      playerRef.current = null;
+      if (box) box.innerHTML = '';
+    };
+  }, [open?.id]);
 
   useEffect(() => {
     if (!open) return;
     const timer = window.setInterval(() => {
       const room = roomRef.current;
       const player = playerRef.current;
-      if (!room || !player) return;
+      if (!room || !player || !playerReady.current) return;
       if (room.you.host) {
         if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
         void pushOwnerClock(room, player);
@@ -334,53 +383,94 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function followCinema(room: PublicRoom, player: YtPlayer) {
-    if (!room.videoId) return;
+    if (!room.videoId || !playerReady.current) return;
+    let state = -2;
+    let time = 0;
+    try {
+      state = player.getPlayerState();
+      time = player.getCurrentTime() ?? 0;
+    } catch {
+      return;
+    }
     const target = cinemaTime(room, receivedAtRef.current);
-    const state = player.getPlayerState?.();
-    if (lastVideo.current !== room.videoId) {
-      lastVideo.current = room.videoId;
-      lastRevRef.current = room.mediaRev ?? 0;
-      if (room.playing) player.loadVideoById(room.videoId, target);
-      else player.cueVideoById(room.videoId, target);
-      return;
+    try {
+      if (lastVideo.current !== room.videoId) {
+        lastVideo.current = room.videoId;
+        lastRevRef.current = room.mediaRev ?? 0;
+        lastLoadAt.current = Date.now();
+        if (room.playing) {
+          player.mute();
+          player.loadVideoById(room.videoId, target);
+        } else {
+          player.cueVideoById(room.videoId, target);
+        }
+        if (room.playing && !room.you.host) setNeedStart(true);
+        return;
+      }
+      const rev = room.mediaRev ?? 0;
+      if (rev !== lastRevRef.current) {
+        lastRevRef.current = rev;
+        player.seekTo(target, true);
+        if (room.playing) player.playVideo();
+        else if (state === 1) player.pauseVideo();
+        return;
+      }
+      if (!room.playing) {
+        player.setPlaybackRate?.(1);
+        if (state === 1) player.pauseVideo();
+        if (Math.abs(time - room.position) > 0.35) player.seekTo(room.position, true);
+        return;
+      }
+      if (state === 3) return;
+      if (state === -1 || state === 5) {
+        if (Date.now() - lastLoadAt.current > 1500) setNeedStart(true);
+        player.playVideo();
+        return;
+      }
+      if (state === 0 || state === 2) player.playVideo();
+      if (state !== 1) return;
+      const drift = time - target;
+      if (Math.abs(drift) > 1.2) {
+        player.setPlaybackRate?.(1);
+        player.seekTo(target, true);
+        return;
+      }
+      if (drift < -0.22) player.setPlaybackRate?.(1.08);
+      else if (drift > 0.22) player.setPlaybackRate?.(0.94);
+      else player.setPlaybackRate?.(1);
+    } catch {
+      if (room.playing && !room.you.host) setNeedStart(true);
     }
-    const time = player.getCurrentTime?.() ?? 0;
-    const rev = room.mediaRev ?? 0;
-    if (rev !== lastRevRef.current) {
-      lastRevRef.current = rev;
-      player.seekTo(target, true);
-      if (room.playing) player.playVideo();
-      else if (state === 1) player.pauseVideo();
-      return;
-    }
-    if (!room.playing) {
-      player.setPlaybackRate?.(1);
-      if (state === 1) player.pauseVideo();
-      if (Math.abs(time - room.position) > 0.25) player.seekTo(room.position, true);
-      return;
-    }
-    if (state === -1 || state === 5) {
-      player.loadVideoById(room.videoId, target);
-      return;
-    }
-    if (state === 0 || state === 2) player.playVideo();
-    const drift = time - target;
-    if (state === 3) return;
-    if (Math.abs(drift) > 0.7) {
-      player.setPlaybackRate?.(1);
-      player.seekTo(target, true);
-      player.playVideo();
-      return;
-    }
-    if (drift < -0.18) player.setPlaybackRate?.(1.12);
-    else if (drift > 0.18) player.setPlaybackRate?.(0.92);
-    else player.setPlaybackRate?.(1);
   }
 
   function applyLocalVolume(player: YtPlayer) {
-    player.setVolume(videoVol);
-    if (videoMuted || videoVol === 0) player.mute();
-    else player.unMute();
+    try {
+      player.setVolume(videoVol);
+      if (videoMuted || videoVol === 0) player.mute();
+      else player.unMute();
+    } catch {
+      /* player not ready */
+    }
+  }
+
+  function startGuestVideo() {
+    const player = playerRef.current;
+    const room = roomRef.current;
+    if (!player || !room?.videoId) return;
+    unlockAudio();
+    try {
+      player.mute();
+      player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
+      player.playVideo();
+      lastVideo.current = room.videoId;
+      lastRevRef.current = room.mediaRev ?? 0;
+      lastLoadAt.current = Date.now();
+      window.setTimeout(() => applyLocalVolume(player), 500);
+    } catch {
+      setNeedStart(true);
+      return;
+    }
+    setNeedStart(false);
   }
 
   async function pushOwnerClock(room: PublicRoom, player: YtPlayer) {
@@ -783,8 +873,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
         <div className="room-stage">
           <div className="room-tv">
-            <div ref={hostRef} className="room-player" />
-            {!iHost && <div className="room-tv-lock" />}
+            <div ref={boxRef} className="room-player" />
+            {!iHost && <div className="room-tv-lock" onClick={startGuestVideo} />}
+            {needStart && open.videoId && !iHost && (
+              <button type="button" className="room-tv-start" onClick={startGuestVideo}>
+                <Play size={18} /> Videoyu aç
+              </button>
+            )}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>
           <div className="room-vol">
