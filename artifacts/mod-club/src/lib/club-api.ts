@@ -173,3 +173,32 @@ export async function buyVipPack(pack: '7' | '30') {
 export async function slotSpin(amount: number) {
   return request<ClubSnapshot & { spin: SlotSpin; slot: PublicSlot }>('/api/slot/spin', { method: 'POST', body: JSON.stringify({ amount }) });
 }
+
+export type CasinoKind = 'slot' | 'slot2' | 'animal' | 'roulette';
+
+export type CasinoGame = {
+  id: string;
+  kind: CasinoKind;
+  title: string;
+  image: string;
+  configured: boolean;
+  symbol?: string;
+};
+
+export type CasinoStatus = {
+  ready: boolean;
+  missing: string[];
+  note: string;
+};
+
+export async function fetchCasino() {
+  return request<{ games: CasinoGame[]; status: CasinoStatus }>('/api/casino/games');
+}
+
+export async function saveCasinoGames(games: { id: string; kind: CasinoKind; title: string; image: string; symbol: string }[]) {
+  return request<{ games: CasinoGame[]; status: CasinoStatus }>('/api/casino/games', { method: 'PATCH', body: JSON.stringify({ games }) });
+}
+
+export async function launchCasinoGame(id: string) {
+  return request<{ url: string; title: string }>('/api/casino/launch', { method: 'POST', body: JSON.stringify({ id }) });
+}

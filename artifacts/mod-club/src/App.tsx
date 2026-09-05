@@ -8,8 +8,8 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, slotSpin, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser, type SlotSpin } from '@/lib/club-api';
-import { OlympusSlotPage } from '@/components/olympus-slot';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchCasino, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, saveCasinoGames, slotSpin, startGuessGame, submitGuess, type CasinoGame, type CasinoStatus, type PublicGuessGame, type PublicSlot, type SessionUser, type SlotSpin } from '@/lib/club-api';
+import { CasinoLobby } from '@/components/casino-lobby';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -330,8 +330,8 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
-function GamesPage(props: { coins: number; busy: boolean; slot: PublicSlot | null; onSpin: (amount: number) => Promise<SlotSpin> }) {
-  return <OlympusSlotPage coins={props.coins} busy={props.busy} slot={props.slot} onSpin={props.onSpin} />;
+function GamesPage(props: { coins: number; onRefresh: () => void }) {
+  return <CasinoLobby coins={props.coins} onCoins={props.onRefresh} />;
 }
 
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
@@ -785,6 +785,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [appCopy, setAppCopy] = useState('');
   const [appImage, setAppImage] = useState('');
   const [appLink, setAppLink] = useState('');
+  const [casinoAdmin, setCasinoAdmin] = useState<CasinoGame[]>([]);
+  const [casinoStatus, setCasinoStatus] = useState<CasinoStatus | null>(null);
+  const [casinoSymbols, setCasinoSymbols] = useState<Record<string, string>>({});
   const [colorMode, setColorMode] = useState<ColorMode>(() => (typeof window !== 'undefined' ? loadColorMode() : 'dark'));
   const [notices, setNotices] = useState<ClubNotice[]>([]);
   const [chatReadAt, setChatReadAt] = useState(0);
@@ -971,6 +974,15 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   }, []);
 
   useEffect(() => {
+    if (!isAdmin || adminSection !== 'Casino') return;
+    void fetchCasino().then((data) => {
+      setCasinoAdmin(data.games);
+      setCasinoStatus(data.status);
+      setCasinoSymbols(Object.fromEntries(data.games.map((item) => [item.id, item.symbol || ''])));
+    }).catch(() => undefined);
+  }, [isAdmin, adminSection]);
+
+  useEffect(() => {
     if (guessGame?.status === 'playing') setChatOpen(true);
   }, [guessGame?.status, guessGame?.round]);
 
@@ -985,7 +997,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       }
     };
     void pull();
-    const timer = window.setInterval(() => void pull(), guessGame?.status === 'playing' || activeNav === 'Oyunlar' ? 1000 : 4000);
+    const timer = window.setInterval(() => void pull(), guessGame?.status === 'playing' ? 1000 : 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -1347,6 +1359,24 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     void patchClub({ giveaways: items });
   };
 
+  const persistCasino = async () => {
+    try {
+      const data = await saveCasinoGames(casinoAdmin.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        title: item.title,
+        image: item.image,
+        symbol: casinoSymbols[item.id] || item.symbol || '',
+      })));
+      setCasinoAdmin(data.games);
+      setCasinoStatus(data.status);
+      setCasinoSymbols(Object.fromEntries(data.games.map((item) => [item.id, item.symbol || ''])));
+      setNotice('Casino oyunları kaydedildi');
+    } catch {
+      setNotice('Casino kaydedilemedi');
+    }
+  };
+
   const joinGiveaway = (id: string) => {
     const target = giveaways.find((item) => item.id === id);
     if (!target || giveawayStatus(target, now) !== 'open') {
@@ -1427,7 +1457,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   return (
-    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-slot' : 'pb-28'}`}>
+    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-casino' : 'pb-28'}`}>
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -1602,7 +1632,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' slot-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage coins={walletCoins} busy={storeBusy} slot={slot} onSpin={playSlot} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' slot-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage coins={walletCoins} onRefresh={() => { void fetchClub().then(applySnapshot).catch(() => undefined); }} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button
@@ -1668,13 +1698,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[13.5rem_1fr]">
               <aside className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2.5 lg:border-b-0 lg:border-r">
                 <div className="hide-scrollbar flex gap-1.5 overflow-x-auto lg:flex-col">
-                  {(['Genel Bakış', 'Bildirimler', 'Kullanıcılar', 'Bannerlar', 'Çekilişler', 'Filmler', 'Uygulamalar', 'Sayfalar'] as const).map((section) => (
+                  {(['Genel Bakış', 'Bildirimler', 'Kullanıcılar', 'Bannerlar', 'Çekilişler', 'Casino', 'Filmler', 'Uygulamalar', 'Sayfalar'] as const).map((section) => (
                     <button
                       key={section}
                       onClick={() => setAdminSection(section)}
                       className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold lg:w-full ${adminSection === section ? 'bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]'}`}
                     >
-                      {section === 'Genel Bakış' ? <LayoutDashboard size={15} /> : section === 'Bildirimler' ? <Bell size={15} /> : section === 'Kullanıcılar' ? <Users size={15} /> : section === 'Bannerlar' ? <Megaphone size={15} /> : section === 'Çekilişler' ? <Gift size={15} /> : section === 'Filmler' ? <Film size={15} /> : section === 'Uygulamalar' ? <Download size={15} /> : <PanelRightOpen size={15} />}
+                      {section === 'Genel Bakış' ? <LayoutDashboard size={15} /> : section === 'Bildirimler' ? <Bell size={15} /> : section === 'Kullanıcılar' ? <Users size={15} /> : section === 'Bannerlar' ? <Megaphone size={15} /> : section === 'Çekilişler' ? <Gift size={15} /> : section === 'Casino' ? <Dices size={15} /> : section === 'Filmler' ? <Film size={15} /> : section === 'Uygulamalar' ? <Download size={15} /> : <PanelRightOpen size={15} />}
                       {section}
                     </button>
                   ))}
@@ -1860,6 +1890,34 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <h4 className="mt-1 font-display text-lg font-bold">Gün gün kazananlar</h4>
                       <p className="mb-3 mt-1 text-xs text-[hsl(var(--muted-foreground))]">Süre bitince kazanan burada, çekiliş gününe göre durur.</p>
                       <GiveawayResultList items={giveaways} now={now} compact />
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'Casino' && (
+                  <div>
+                    <div className="mb-4">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">PRAGMATIC</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Casino</h3>
+                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Sadece 4 oyun. Ad, görsel ve Pragmatic symbol veritabanında durur. Launch URL yazma; sunucu resmi PP API’den alır.</p>
+                    </div>
+                    {casinoStatus && !casinoStatus.ready && (
+                      <div className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-50 p-4 text-xs text-amber-950">
+                        <strong>Eksik operator bilgileri</strong>
+                        <p className="mt-1">{casinoStatus.note}</p>
+                        <ul className="mt-2 list-disc pl-4">{casinoStatus.missing.map((item) => <li key={item}>{item}</li>)}</ul>
+                      </div>
+                    )}
+                    <div className="grid gap-3">
+                      {casinoAdmin.map((item) => (
+                        <div key={item.id} className="grid gap-2 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                          <p className="sm:col-span-2 text-[.62rem] font-extrabold uppercase tracking-[.12em] text-[hsl(var(--primary))]">{item.kind === 'roulette' ? 'Rulet' : item.kind === 'animal' ? 'Cat / Lion / Tiger slot' : item.kind === 'slot2' ? 'Slot 2' : 'Slot 1'}</p>
+                          <input value={item.title} onChange={(event) => setCasinoAdmin((list) => list.map((row) => row.id === item.id ? { ...row, title: event.target.value } : row))} placeholder="Oyun adı" className="admin-field" />
+                          <input value={item.image} onChange={(event) => setCasinoAdmin((list) => list.map((row) => row.id === item.id ? { ...row, image: event.target.value } : row))} placeholder="Görsel linki" className="admin-field" />
+                          <input value={casinoSymbols[item.id] || ''} onChange={(event) => setCasinoSymbols((map) => ({ ...map, [item.id]: event.target.value }))} placeholder="Pragmatic symbol (game id)" className="admin-field sm:col-span-2" />
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => void persistCasino()} className="admin-btn">Casino oyunlarını kaydet</button>
                     </div>
                   </div>
                 )}
