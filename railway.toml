@@ -1,6 +1,7 @@
 [build]
 builder = "NIXPACKS"
 watchPatterns = ["**"]
+# redeploy 2026-09-05-2211
 
 [deploy]
 startCommand = "node --enable-source-maps artifacts/api-server/dist/index.mjs"
