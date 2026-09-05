@@ -8,8 +8,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, slotSpin, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser, type SlotSpin } from '@/lib/club-api';
-import { CasinoLobby } from '@/components/casino-lobby';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -300,7 +299,7 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
         <div>
           <p className="page-kicker">MAĞAZA</p>
           <h1>Mağaza</h1>
-          <p>Uygulama coin’inle VIP al. Sohbette ve slotta ismin ayrı durur.</p>
+          <p>Uygulama coin’inle VIP al. Sohbette ismin ayrı durur.</p>
         </div>
         <Store size={48} />
       </div>
@@ -316,7 +315,7 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
         <article className="store-pack">
           <p className="font-mono text-[.55rem] font-extrabold tracking-[.14em] text-amber-200">VIP</p>
           <h2 className="mt-1 font-display text-xl font-bold">7 gün</h2>
-          <p className="mt-1 text-xs text-white/70">Renkli isim, VIP rozeti, slotta öne çıkan kazanan görünümü.</p>
+          <p className="mt-1 text-xs text-white/70">Renkli isim ve VIP rozeti.</p>
           <button type="button" disabled={busy || coins < 500} onClick={() => onBuy('7')} className="guess-btn-primary mt-4 w-full">500 coin</button>
         </article>
         <article className="store-pack store-pack-long">
@@ -330,13 +329,19 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
-function GamesPage(props: {
-  coins: number;
-  busy: boolean;
-  onSpin: (amount: number, theme: 'olympus' | 'gem' | 'jungle') => Promise<SlotSpin>;
-  onRefresh: () => void;
-}) {
-  return <CasinoLobby coins={props.coins} busy={props.busy} onSpin={props.onSpin} onRefresh={props.onRefresh} />;
+function GamesPage() {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-games">
+        <div>
+          <p className="page-kicker">OYUNLAR</p>
+          <h1>Oyunlar</h1>
+          <p>Kulüp slot ve rulet kaldırıldı.</p>
+        </div>
+        <Gamepad2 size={48} />
+      </div>
+    </div>
+  );
 }
 
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
@@ -1291,21 +1296,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     }
   };
 
-  const playSlot = async (amount: number, theme: 'olympus' | 'gem' | 'jungle' = 'olympus') => {
-    setStoreBusy(true);
-    try {
-      const data = await slotSpin(amount, theme);
-      applySnapshot(data);
-      return data.spin;
-    } catch (err) {
-      const code = (err as Error).message;
-      setNotice(code === 'coins' ? 'Yeterli coin yok' : 'Çevrim olmadı');
-      throw err;
-    } finally {
-      setStoreBusy(false);
-    }
-  };
-
   const sendAdminBroadcast = async () => {
     const title = broadcastTitle.trim() || 'Duyuru';
     const body = broadcastBody.trim();
@@ -1433,7 +1423,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   return (
-    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-casino' : 'pb-28'}`}>
+    <div className="mod-app grain min-h-[100dvh] pb-28">
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -1608,7 +1598,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' slot-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage coins={walletCoins} busy={storeBusy} onSpin={playSlot} onRefresh={() => { void fetchClub().then(applySnapshot).catch(() => undefined); }} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button

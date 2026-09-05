@@ -15,15 +15,8 @@ function walletBody(req: Request) {
   return next;
 }
 
-const CLUB_GAMES = [
-  { id: "olympus", kind: "slot" as const, title: "Olimpos 1000x", image: "", configured: true },
-  { id: "gem", kind: "slot2" as const, title: "Kristal 1000x", image: "", configured: true },
-  { id: "jungle", kind: "animal" as const, title: "Safari 1000x", image: "", configured: true },
-  { id: "roulette", kind: "roulette" as const, title: "Kulüp Ruleti", image: "", configured: true },
-];
-
 router.get("/casino/status", async (_req, res) => {
-  res.json({ ready: true, missing: [], note: "" });
+  res.json({ ready: false, missing: [], note: "" });
 });
 
 router.get("/casino/games", async (req, res) => {
@@ -32,7 +25,7 @@ router.get("/casino/games", async (req, res) => {
     res.status(401).json({ error: "auth" });
     return;
   }
-  res.json({ games: CLUB_GAMES, status: { ready: true, missing: [], note: "" } });
+  res.json({ games: [], status: { ready: false, missing: [], note: "" } });
 });
 
 router.patch("/casino/games", async (req, res) => {
