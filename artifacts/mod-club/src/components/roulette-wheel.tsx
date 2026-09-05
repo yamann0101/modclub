@@ -74,6 +74,19 @@ export function playSpin() {
   } catch {/* */}
 }
 
+function paintPockets(root: HTMLElement | null) {
+  const inner = root?.querySelector<HTMLElement>('.roulette-wheel-inner');
+  if (!inner) return;
+  inner.querySelectorAll<HTMLElement>('.roulette-wheel-bet-number[data-bet]').forEach((pit) => {
+    const bet = pit.dataset.bet || '';
+    const value = Number(bet);
+    pit.classList.remove('is-pocket-red', 'is-pocket-black', 'is-pocket-green');
+    if (bet === '0' || bet === '00') pit.classList.add('is-pocket-green');
+    else if (RED_SET.has(value)) pit.classList.add('is-pocket-red');
+    else pit.classList.add('is-pocket-black');
+  });
+}
+
 function markLandedPit(root: HTMLElement | null, number?: number | null) {
   const inner = root?.querySelector<HTMLElement>('.roulette-wheel-inner');
   if (!inner) return;
@@ -126,9 +139,15 @@ export function CasinoRouletteStage({
       wrap.style.setProperty('--wheel-scale', String(Math.max(0.28, scale * 0.96)));
     };
     fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(wrap);
-    return () => observer.disconnect();
+    paintPockets(wrap);
+    const resize = new ResizeObserver(fit);
+    const mutations = new MutationObserver(() => paintPockets(wrap));
+    resize.observe(wrap);
+    mutations.observe(wrap, { childList: true, subtree: true });
+    return () => {
+      resize.disconnect();
+      mutations.disconnect();
+    };
   }, []);
 
   useEffect(() => {

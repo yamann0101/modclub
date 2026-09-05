@@ -432,15 +432,15 @@ function GamesPage({
     if (!node) return;
     const fit = () => {
       const inner = node.querySelector<HTMLElement>('.roulette-table-inner');
-      const table = node.querySelector<HTMLElement>('.roulette-table-container');
       if (!inner) return;
-      const pad = 6;
+      const pad = 4;
       const width = 720;
-      const height = Math.max(table?.scrollHeight || 0, 368);
+      const height = 368;
       inner.style.width = `${width}px`;
       inner.style.height = `${height}px`;
-      const scale = Math.min((node.clientWidth - pad) / width, (node.clientHeight - pad) / height, 1);
-      node.style.setProperty('--table-scale', String(Math.max(0.18, scale)));
+      const scale = Math.max(0.35, Math.min((node.clientWidth - pad) / width, 1));
+      node.style.setProperty('--table-scale', String(scale));
+      node.style.height = `${Math.ceil(height * scale + pad)}px`;
     };
     const timer = window.setTimeout(fit, 30);
     const observer = new ResizeObserver(fit);
