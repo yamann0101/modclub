@@ -248,6 +248,7 @@ export type PublicRoom = {
   playing: boolean;
   position: number;
   updatedAt: number;
+  mediaRev?: number;
   serverNow: number;
   members: RoomMember[];
   you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };

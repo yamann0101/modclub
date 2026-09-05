@@ -38,6 +38,7 @@ export type WatchRoom = {
   playing: boolean;
   position: number;
   updatedAt: number;
+  mediaRev: number;
   members: RoomMember[];
   banned: string[];
   signals: RoomSignal[];
@@ -66,6 +67,7 @@ export type PublicRoom = {
   playing: boolean;
   position: number;
   updatedAt: number;
+  mediaRev: number;
   serverNow: number;
   members: RoomMember[];
   you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };
@@ -187,6 +189,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     playing: room.playing,
     position: room.position,
     updatedAt: room.updatedAt,
+    mediaRev: room.mediaRev || 0,
     serverNow: Date.now(),
     members: room.members.map((member) => ({ ...member, speaking: Boolean(member.speaking), micOn: Boolean(member.micOn) })),
     you: {
@@ -243,6 +246,7 @@ export async function createRoom(input: {
     playing: false,
     position: 0,
     updatedAt: now,
+    mediaRev: 0,
     members: [{
       username: input.username,
       nick: input.nick,
@@ -366,14 +370,16 @@ export async function setMedia(id: string, username: string, role: string | unde
     if (input.videoId && !/^[a-zA-Z0-9_-]{11}$/.test(input.videoId)) throw new Error("video");
     room.videoId = input.videoId;
     room.videoTitle = String(input.videoTitle || "").slice(0, 120);
-    room.position = 0;
-    room.playing = Boolean(input.videoId);
-  }
-  if (typeof input.playing === "boolean") room.playing = input.playing;
-  if (typeof input.position === "number" && Number.isFinite(input.position)) {
-    room.position = Math.max(0, input.position);
+    room.position = typeof input.position === "number" ? Math.max(0, input.position) : 0;
+    room.playing = typeof input.playing === "boolean" ? input.playing : Boolean(input.videoId);
+  } else {
+    if (typeof input.playing === "boolean") room.playing = input.playing;
+    if (typeof input.position === "number" && Number.isFinite(input.position)) {
+      room.position = Math.max(0, input.position);
+    }
   }
   room.updatedAt = Date.now();
+  room.mediaRev = (room.mediaRev || 0) + 1;
   await writeRoom(room);
   return room;
 }

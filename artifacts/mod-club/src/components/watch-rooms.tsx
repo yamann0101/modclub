@@ -117,9 +117,12 @@ function loadYoutube() {
   });
 }
 
-function expectedTime(room: PublicRoom) {
-  const extra = room.playing ? Math.max(0, (Date.now() - room.updatedAt) / 1000) : 0;
-  return Math.max(0, room.position + extra);
+function cinemaTime(room: PublicRoom, receivedAt: number) {
+  const atSend = room.playing
+    ? room.position + Math.max(0, (room.serverNow - room.updatedAt) / 1000)
+    : room.position;
+  if (!room.playing) return Math.max(0, atSend);
+  return Math.max(0, atSend + (Date.now() - receivedAt) / 1000);
 }
 
 export function WatchRoomsPage({ user }: { user: SessionUser }) {
@@ -140,6 +143,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const playerRef = useRef<YtPlayer | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
+  const roomRef = useRef<PublicRoom | null>(null);
+  const receivedAtRef = useRef(Date.now());
+  const lastRevRef = useRef(-1);
+  const lastPushRef = useRef({ playing: false, position: 0, videoId: '', at: Date.now() });
+  const pushingRef = useRef(false);
   const peers = useRef(new Map<string, RTCPeerConnection>());
   const localStream = useRef<MediaStream | null>(null);
   const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
@@ -169,6 +177,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       try {
         const data = await fetchWatchRoom(open.id);
         if (!live) return;
+        roomRef.current = data.room;
+        receivedAtRef.current = Date.now();
         setOpen(data.room);
         if (data.signals.length) {
           await consumeSignals(data.room, data.signals);
@@ -196,21 +206,35 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       playerRef.current?.destroy();
       playerRef.current = null;
       lastVideo.current = '';
+      lastRevRef.current = -1;
       return;
     }
+    roomRef.current = open;
+    receivedAtRef.current = Date.now();
+    lastPushRef.current = {
+      playing: open.playing,
+      position: open.position,
+      videoId: open.videoId,
+      at: Date.now(),
+    };
     let cancelled = false;
     void loadYoutube().then(() => {
       if (cancelled || !hostRef.current || playerRef.current || !window.YT) return;
       playerRef.current = new window.YT.Player(hostRef.current, {
         width: '100%',
         height: '100%',
-        playerVars: { rel: 0, modestbranding: 1, playsinline: 1, origin: window.location.origin, controls: open.you.owner ? 1 : 0 },
+        playerVars: {
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          origin: window.location.origin,
+          controls: open.you.owner ? 1 : 0,
+          disablekb: open.you.owner ? 0 : 1,
+        },
         events: {
-          onReady: () => applyRoom(open),
-          onStateChange: (event: { data: number }) => {
-            if (!open.you.owner || !playerRef.current) return;
-            if (event.data === 1) void setWatchMedia(open.id, { playing: true, position: playerRef.current.getCurrentTime() });
-            if (event.data === 2) void setWatchMedia(open.id, { playing: false, position: playerRef.current.getCurrentTime() });
+          onReady: () => {
+            const room = roomRef.current;
+            if (room) followCinema(room, playerRef.current as YtPlayer);
           },
         },
       });
@@ -219,36 +243,86 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open?.id, open?.you.owner]);
 
   useEffect(() => {
-    if (open) applyRoom(open);
-  }, [open?.videoId, open?.playing, open?.position, open?.updatedAt, open?.you.owner]);
-
-  useEffect(() => {
-    if (!open?.you.owner || !open.playing) return;
+    if (!open) return;
     const timer = window.setInterval(() => {
-      const time = playerRef.current?.getCurrentTime();
-      if (typeof time === 'number') void setWatchMedia(open.id, { playing: true, position: time });
-    }, 5000);
+      const room = roomRef.current;
+      const player = playerRef.current;
+      if (!room || !player) return;
+      if (room.you.owner) void pushOwnerClock(room, player);
+      else followCinema(room, player);
+    }, 700);
     return () => window.clearInterval(timer);
-  }, [open?.id, open?.you.owner, open?.playing]);
+  }, [open?.id]);
 
   useEffect(() => () => teardownVoice(), []);
 
-  function applyRoom(room: PublicRoom) {
-    const player = playerRef.current;
-    if (!player || !room.videoId) return;
-    const target = expectedTime(room);
+  function adopt(room: PublicRoom) {
+    roomRef.current = room;
+    receivedAtRef.current = Date.now();
+    lastPushRef.current = {
+      playing: room.playing,
+      position: room.position,
+      videoId: room.videoId,
+      at: Date.now(),
+    };
+    setOpen(room);
+  }
+
+  function followCinema(room: PublicRoom, player: YtPlayer) {
+    if (!room.videoId) return;
+    const target = cinemaTime(room, receivedAtRef.current);
     if (lastVideo.current !== room.videoId) {
       lastVideo.current = room.videoId;
+      lastRevRef.current = room.mediaRev ?? 0;
       if (room.playing) player.loadVideoById(room.videoId, target);
       else player.cueVideoById(room.videoId, target);
       return;
     }
-    if (room.you.owner) return;
-    const now = player.getCurrentTime?.() ?? 0;
-    if (Math.abs(now - target) > 2) player.seekTo(target, true);
     const state = player.getPlayerState?.();
-    if (room.playing && state !== 1) player.playVideo();
-    if (!room.playing && state === 1) player.pauseVideo();
+    const time = player.getCurrentTime?.() ?? 0;
+    const rev = room.mediaRev ?? 0;
+    if (rev !== lastRevRef.current) {
+      lastRevRef.current = rev;
+      player.seekTo(target, true);
+      if (room.playing) {
+        if (state !== 1 && state !== 3) player.playVideo();
+      } else if (state === 1) {
+        player.pauseVideo();
+      }
+      return;
+    }
+    if (!room.playing) {
+      if (state === 1) player.pauseVideo();
+      if (Math.abs(time - room.position) > 0.75) player.seekTo(room.position, true);
+      return;
+    }
+    if (state === 2 || state === 5) player.playVideo();
+    if (state !== 3 && Math.abs(time - target) > 2.2) player.seekTo(target, true);
+  }
+
+  async function pushOwnerClock(room: PublicRoom, player: YtPlayer) {
+    const state = player.getPlayerState?.();
+    if (state === 3 || state < 0 || pushingRef.current) return;
+    const playing = state === 1;
+    const time = player.getCurrentTime?.() ?? 0;
+    const live = cinemaTime(room, receivedAtRef.current);
+    if (time < 1.2 && live > 4 && Date.now() - receivedAtRef.current < 5000) return;
+    const prev = lastPushRef.current;
+    const expected = prev.playing ? prev.position + (Date.now() - prev.at) / 1000 : prev.position;
+    const jumped = Math.abs(time - expected) > 1.35;
+    if (playing === prev.playing && !jumped && room.videoId === prev.videoId) return;
+    pushingRef.current = true;
+    lastPushRef.current = { playing, position: time, videoId: room.videoId, at: Date.now() };
+    try {
+      const next = await setWatchMedia(room.id, { playing, position: time });
+      roomRef.current = next.room;
+      receivedAtRef.current = Date.now();
+      setOpen(next.room);
+    } catch {
+      /* keep last local clock */
+    } finally {
+      pushingRef.current = false;
+    }
   }
 
   function markTalk(name: string, on: boolean) {
@@ -440,7 +514,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     setBusy(true);
     try {
       const data = await createWatchRoom({ title, cover, password: password || undefined });
-      setOpen(data.room);
+      adopt(data.room);
       setCreateOpen(false);
       setTitle('');
       setCover('');
@@ -459,7 +533,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
     setBusy(true);
     try {
-      setOpen((await joinWatchRoom(room.id)).room);
+      adopt((await joinWatchRoom(room.id)).room);
     } catch (err) {
       const code = (err as Error).message;
       setNotice(code === 'full' ? 'Oda dolu' : code === 'banned' ? 'Bu odadan atıldın' : 'Odaya girilemedi');
@@ -472,7 +546,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!joinId) return;
     setBusy(true);
     try {
-      setOpen((await joinWatchRoom(joinId, joinPassword)).room);
+      adopt((await joinWatchRoom(joinId, joinPassword)).room);
       setJoinId(null);
       setJoinPassword('');
     } catch {
@@ -515,7 +589,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   async function playHit(hit: YoutubeHit) {
     if (!open) return;
-    await setWatchMedia(open.id, { videoId: hit.id, videoTitle: hit.title, playing: true, position: 0 });
+    lastVideo.current = hit.id;
+    adopt((await setWatchMedia(open.id, { videoId: hit.id, videoTitle: hit.title, playing: true, position: 0 })).room);
+    playerRef.current?.loadVideoById(hit.id, 0);
     setHits([]);
     setQuery('');
   }
@@ -524,7 +600,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!open || !playerRef.current) return;
     const next = Math.max(0, playerRef.current.getCurrentTime() + delta);
     playerRef.current.seekTo(next, true);
-    await setWatchMedia(open.id, { playing: open.playing, position: next });
+    adopt((await setWatchMedia(open.id, { playing: open.playing, position: next })).room);
   }
 
   const seats = useMemo(() => {
@@ -556,7 +632,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               <Search size={16} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="YouTube bağla: ara veya link yapıştır" />
               <button type="submit" disabled={busy}>Ara</button>
-              <button type="button" onClick={() => void setWatchMedia(open.id, { playing: !open.playing, position: playerRef.current?.getCurrentTime() || open.position })}>
+              <button type="button" onClick={() => {
+                const time = playerRef.current?.getCurrentTime() || open.position;
+                if (open.playing) playerRef.current?.pauseVideo();
+                else playerRef.current?.playVideo();
+                void setWatchMedia(open.id, { playing: !open.playing, position: time }).then((data) => adopt(data.room));
+              }}>
                 {open.playing ? <Pause size={15} /> : <Play size={15} />}
               </button>
               <button type="button" onClick={() => void seekBy(-10)}><SkipBack size={15} /></button>
