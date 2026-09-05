@@ -14,7 +14,7 @@ import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
-import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
+import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
 import { getDeviceId, isChatMuted, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, setChatMuted as persistChatMute, startNotifyPolling, wasNotifyPrompted } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 
@@ -688,6 +688,45 @@ function SwipeReplyRow({ onReply, children }: { onReply: () => void; children: R
   );
 }
 
+function finishedGiveaways(items: Giveaway[], now: number) {
+  return items
+    .filter((item) => giveawayStatus(item, now) === 'announced' || Boolean(item.winner))
+    .sort((a, b) => new Date(b.announceAt).getTime() - new Date(a.announceAt).getTime());
+}
+
+function GiveawayResultList({ items, now, compact }: { items: Giveaway[]; now: number; compact?: boolean }) {
+  const groups = groupGiveawaysByDay(finishedGiveaways(items, now));
+  if (!groups.length) {
+    return <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Henüz açıklanmış çekiliş yok.</p>;
+  }
+  return (
+    <div className="grid gap-4">
+      {groups.map(([day, list]) => (
+        <section key={day}>
+          <p className="mb-2 font-mono text-[.58rem] font-extrabold uppercase tracking-[.12em] text-[hsl(var(--primary))]">{day}</p>
+          <div className="grid gap-2">
+            {list.map((item) => (
+              <article key={item.id} className={compact ? 'admin-row' : 'overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.25)] p-4'}>
+                {item.prizeImage && !compact && <img src={item.prizeImage} alt="" className="mb-3 h-24 w-full rounded-xl object-cover" />}
+                {compact && (item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-cover" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Trophy size={18} /></div>)}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold">{item.title}</p>
+                  <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">
+                    {item.prizeText || 'Ödül yok'} · {item.participants.length} katılım
+                  </p>
+                  <p className="mt-1 text-xs font-extrabold text-[hsl(var(--foreground))]">
+                    Kazanan: {item.winner || 'Katılım yok'}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function makeWinnerCard(item: Giveaway): ChatMessage {
   return {
     id: `winner-${item.id}`,
@@ -742,6 +781,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [films, setFilms] = useState<ContentCard[]>([]);
   const [apps, setApps] = useState<ContentCard[]>([]);
   const [giveawayOpen, setGiveawayOpen] = useState(false);
+  const [giveawayTab, setGiveawayTab] = useState<'aktif' | 'sonuclar'>('aktif');
   const [now, setNow] = useState(() => Date.now());
   const [giveawayTitle, setGiveawayTitle] = useState('');
   const [giveawayPrize, setGiveawayPrize] = useState('');
@@ -1390,7 +1430,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       title: 'Yeni çekiliş',
       body: `${title} başladı. Süre bitince kazanan otomatik açıklanır.`,
     });
-    setNotice('Çekiliş yayınlandı. Süre dolunca kazanan otomatik açıklanır.');
+    setGiveawayTab('aktif');
+    setGiveawayOpen(true);
+    setNotice('Çekiliş yayınlandı. Üst barda bilet çıktı.');
   };
 
   const addContentCard = (kind: 'film' | 'app') => {
@@ -1457,28 +1499,21 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               <span className={colorMode === 'light' ? 'is-on' : ''}><Sun size={13} strokeWidth={2.3} /></span>
               <span className={colorMode === 'dark' ? 'is-on' : ''}><Moon size={13} strokeWidth={2.3} /></span>
             </button>
-            <button
-              type="button"
-              data-testid="button-join-giveaway"
-              onClick={() => setGiveawayOpen(true)}
-              className={cn(
-                'giveaway-chip relative hidden h-9 items-center gap-1.5 overflow-hidden rounded-full px-2.5 pl-1 text-[11px] font-bold tracking-tight transition-all sm:inline-flex',
-                liveGiveaway ? 'giveaway-chip-live' : 'giveaway-chip-idle hover:border-violet-200 hover:text-violet-700',
-              )}
-              aria-disabled={!liveGiveaway}
-            >
-              <span
-                className={cn(
-                  'grid size-6 place-items-center rounded-full',
-                  liveGiveaway ? 'bg-white/20 text-white' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]',
-                )}
-                aria-hidden="true"
+            {liveGiveaway && (
+              <button
+                type="button"
+                data-testid="button-join-giveaway"
+                onClick={() => { setGiveawayTab('aktif'); setGiveawayOpen(true); }}
+                className="giveaway-chip giveaway-chip-live relative inline-flex h-9 items-center gap-1.5 overflow-hidden rounded-full px-2 pl-1 text-[11px] font-bold tracking-tight"
               >
-                <Gift size={13} strokeWidth={2.1} />
-              </span>
-              <span className="leading-none whitespace-nowrap">Çekilişe Katıl</span>
-              {liveGiveaway && <small className="hidden font-mono text-[10px] font-bold tracking-wide text-white/80 sm:inline">{formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</small>}
-            </button>
+                <span className="grid size-6 place-items-center rounded-full bg-white/20 text-white" aria-hidden="true">
+                  <Ticket size={13} strokeWidth={2.1} />
+                </span>
+                <span className="leading-none whitespace-nowrap sm:hidden">Katıl</span>
+                <span className="hidden leading-none whitespace-nowrap sm:inline">Çekilişe Katıl</span>
+                <small className="hidden font-mono text-[10px] font-bold tracking-wide text-white/80 min-[420px]:inline">{formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</small>
+              </button>
+            )}
             <div className="relative">
               <button data-testid="button-notifications" aria-label="Bildirimleri aç" onClick={() => setNotificationsOpen((open) => !open)} className="grid size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]"><Bell size={19} /></button>
               {unreadNoticeCount > 0 && <span className="absolute right-1 top-1 grid min-w-[1.05rem] place-items-center rounded-full bg-[hsl(var(--primary))] px-1 font-mono text-[.58rem] font-bold text-white">{unreadNoticeCount > 99 ? '99+' : unreadNoticeCount}</span>}
@@ -1914,16 +1949,23 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Çekiliş yayınla</button>
                     </form>
                     <div className="grid gap-2">
-                      {giveaways.map((item) => (
+                      {openGiveaways.length === 0 && <p className="rounded-xl bg-[hsl(var(--muted)/.45)] p-3 text-xs text-[hsl(var(--muted-foreground))]">Açık çekiliş yok. Yayınlayınca üst barda bilet çıkar.</p>}
+                      {openGiveaways.map((item) => (
                         <div key={item.id} className="admin-row">
                           {item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-cover" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Gift size={18} /></div>}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-bold">{item.title}</p>
-                            <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül yok'} · {item.participants.length} katılım{item.winner ? ` · ${item.winner}` : ''}</p>
+                            <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül yok'} · {item.participants.length} katılım · {formatCountdown(new Date(item.announceAt).getTime(), now)}</p>
                           </div>
                           <button aria-label={`${item.title} çekilişini sil`} onClick={() => persistGiveaways(giveaways.filter((current) => current.id !== item.id))} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
                         </div>
                       ))}
+                    </div>
+                    <div className="mt-6">
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">SONUÇLAR</p>
+                      <h4 className="mt-1 font-display text-lg font-bold">Gün gün kazananlar</h4>
+                      <p className="mb-3 mt-1 text-xs text-[hsl(var(--muted-foreground))]">Süre bitince kazanan burada, çekiliş gününe göre durur.</p>
+                      <GiveawayResultList items={giveaways} now={now} compact />
                     </div>
                   </div>
                 )}
@@ -2011,13 +2053,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       {giveawayOpen && <div data-testid="panel-giveaways" className="fixed inset-0 z-50 grid place-items-center bg-[#160c29]/45 p-4 backdrop-blur-sm" onClick={() => setGiveawayOpen(false)}>
         <div className="max-h-[min(40rem,calc(100dvh-2rem))] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/50 bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
           <div className="mb-4 flex items-start justify-between">
-            <div><p className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÇEKİLİŞLER</p><h2 className="mt-1 font-display text-xl font-bold">Çekilişe katıl</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Katılım son ana kadar açık. Süre bitince kazanan otomatik açıklanır.</p></div>
+            <div><p className="font-mono text-[.57rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÇEKİLİŞLER</p><h2 className="mt-1 font-display text-xl font-bold">{giveawayTab === 'sonuclar' ? 'Sonuçlar' : 'Çekilişe katıl'}</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{giveawayTab === 'sonuclar' ? 'Kazananlar çekiliş gününe göre listelenir.' : 'Katılım son ana kadar açık. Süre bitince kazanan otomatik açıklanır.'}</p></div>
             <button type="button" aria-label="Çekilişleri kapat" onClick={() => setGiveawayOpen(false)} className="grid size-9 place-items-center rounded-lg bg-[hsl(var(--muted))]"><X size={17} /></button>
           </div>
-          {giveaways.length === 0 ? <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Admin henüz çekiliş açmadı. Buton o zaman aktif olur.</p> : (
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl bg-[hsl(var(--muted)/.55)] p-1">
+            <button type="button" onClick={() => setGiveawayTab('aktif')} className={`h-9 rounded-lg text-xs font-extrabold ${giveawayTab === 'aktif' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Aktif</button>
+            <button type="button" onClick={() => setGiveawayTab('sonuclar')} className={`h-9 rounded-lg text-xs font-extrabold ${giveawayTab === 'sonuclar' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Sonuçlar</button>
+          </div>
+          {giveawayTab === 'sonuclar' ? (
+            <GiveawayResultList items={giveaways} now={now} />
+          ) : openGiveaways.length === 0 ? (
+            <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Şu anda açık çekiliş yok.</p>
+          ) : (
             <div className="grid gap-3">
-              {giveaways.map((item) => {
-                const status = giveawayStatus(item, now);
+              {openGiveaways.map((item) => {
                 const joined = item.participants.includes(nick);
                 const announceAt = new Date(item.announceAt).getTime();
                 return (
@@ -2028,12 +2077,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         <div><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül açıklaması yok'}</p></div>
                         <span className="rounded-full bg-white px-2 py-1 font-mono text-[.5rem] font-bold text-[hsl(var(--primary))]">{item.participants.length} kişi</span>
                       </div>
-                      <p className="mt-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">
-                        {status === 'open' && <>Kalan süre: {formatCountdown(announceAt, now)}</>}
-                        {status === 'announced' && <>Kazanan: <strong className="text-[hsl(var(--foreground))]">{item.winner || 'Katılım yok'}</strong></>}
-                      </p>
-                      <button type="button" disabled={status !== 'open' || joined} onClick={() => joinGiveaway(item.id)} className="giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide disabled:opacity-40">
-                        <Gift size={15} />{joined ? 'Katıldın' : status === 'open' ? 'Çekilişe Katıl' : 'Açıklandı'}
+                      <p className="mt-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">Kalan süre: {formatCountdown(announceAt, now)}</p>
+                      <button type="button" disabled={joined} onClick={() => joinGiveaway(item.id)} className="giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide disabled:opacity-40">
+                        <Ticket size={15} />{joined ? 'Katıldın' : 'Çekilişe Katıl'}
                       </button>
                     </div>
                   </article>

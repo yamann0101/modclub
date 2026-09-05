@@ -80,6 +80,23 @@ export function giveawayStatus(item: Giveaway, now = Date.now()) {
   return 'open' as const;
 }
 
+export function giveawayDayLabel(item: Giveaway) {
+  const date = new Date(item.announceAt);
+  if (Number.isNaN(date.getTime())) return 'Tarihsiz';
+  return date.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+export function groupGiveawaysByDay(items: Giveaway[]) {
+  const groups = new Map<string, Giveaway[]>();
+  for (const item of items) {
+    const key = giveawayDayLabel(item);
+    const list = groups.get(key) || [];
+    list.push(item);
+    groups.set(key, list);
+  }
+  return Array.from(groups.entries());
+}
+
 export function formatCountdown(target: number, now = Date.now()) {
   const remaining = Math.max(0, target - now);
   const total = Math.floor(remaining / 1000);

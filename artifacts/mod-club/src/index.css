@@ -1179,6 +1179,9 @@ html.dark .admin-panel { color-scheme: dark; }
   color: #fff;
   animation: giveaway-glow 2.4s ease-in-out infinite;
 }
+@media (max-width: 420px) {
+  .giveaway-chip { max-width: 7.4rem; }
+}
 .giveaway-chip-idle {
   border: 1px solid hsl(var(--border));
   background: rgba(255,255,255,.86);
