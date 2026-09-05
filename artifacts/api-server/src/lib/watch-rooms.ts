@@ -17,6 +17,14 @@ export type RoomMember = {
   lastSeen: number;
 };
 
+export type RoomChat = {
+  id: string;
+  username: string;
+  nick: string;
+  text: string;
+  at: number;
+};
+
 export type RoomSignal = {
   id: string;
   from: string;
@@ -40,6 +48,8 @@ export type WatchRoom = {
   updatedAt: number;
   mediaRev: number;
   members: RoomMember[];
+  hosts: string[];
+  chats: RoomChat[];
   banned: string[];
   signals: RoomSignal[];
   createdAt: number;
@@ -70,7 +80,9 @@ export type PublicRoom = {
   mediaRev: number;
   serverNow: number;
   members: RoomMember[];
-  you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };
+  hosts: string[];
+  chats: RoomChat[];
+  you: { username: string; owner: boolean; host: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
 type RoomIndex = {
@@ -128,7 +140,7 @@ function prune(room: WatchRoom, now = Date.now()): WatchRoom {
     ownerNick = members[0].nick;
   }
   const signals = room.signals.filter((item) => now - item.at < 20_000).slice(-MAX_SIGNALS);
-  return { ...room, members, owner, ownerNick, signals };
+  return { ...room, members, owner, ownerNick, hosts: room.hosts || [], chats: room.chats || [], signals };
 }
 
 function toIndex(room: WatchRoom): RoomIndex {
@@ -192,9 +204,12 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     mediaRev: room.mediaRev || 0,
     serverNow: Date.now(),
     members: room.members.map((member) => ({ ...member, speaking: Boolean(member.speaking), micOn: Boolean(member.micOn) })),
+    hosts: room.hosts || [],
+    chats: room.chats || [],
     you: {
       username,
       owner: room.owner === username,
+      host: isHost(room, username),
       muted: Boolean(you?.muted),
       micOn: Boolean(you?.micOn),
       seat: you?.seat ?? -1,
@@ -257,6 +272,8 @@ export async function createRoom(input: {
       speaking: false,
       lastSeen: now,
     }],
+    hosts: [],
+    chats: [],
     banned: [],
     signals: [],
     createdAt: now,
@@ -339,6 +356,7 @@ export async function leaveRoom(id: string, username: string) {
   if (!raw) return null;
   const room = prune(raw);
   room.members = room.members.filter((member) => member.username !== username);
+  room.hosts = (room.hosts || []).filter((name) => name !== username);
   room.signals = room.signals.filter((item) => item.from !== username && item.to !== username);
   if (!room.members.length) {
     await dropRoom(id);
@@ -352,8 +370,55 @@ export async function leaveRoom(id: string, username: string) {
   return room;
 }
 
+export function isHost(room: WatchRoom, username: string) {
+  return room.owner === username || (room.hosts || []).includes(username);
+}
+
 export function canManage(room: WatchRoom, username: string, role?: string) {
-  return room.owner === username || role === "ADMIN" || role === "MODERATOR";
+  return isHost(room, username) || role === "ADMIN" || role === "MODERATOR";
+}
+
+export async function postChat(id: string, username: string, nick: string, text: string) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!room.members.some((member) => member.username === username)) throw new Error("member");
+  const clean = text.trim().slice(0, 240);
+  if (!clean) throw new Error("text");
+  room.chats = [...(room.chats || []), {
+    id: randomBytes(4).toString("hex"),
+    username,
+    nick,
+    text: clean,
+    at: Date.now(),
+  }].slice(-80);
+  await writeRoom(room);
+  return room;
+}
+
+export async function clearChat(id: string, username: string, role?: string) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!canManage(room, username, role)) throw new Error("owner");
+  room.chats = [];
+  await writeRoom(room);
+  return room;
+}
+
+export async function setHost(id: string, username: string, target: string, grant: boolean) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (room.owner !== username) throw new Error("owner");
+  if (target === room.owner) throw new Error("owner");
+  if (!room.members.some((member) => member.username === target)) throw new Error("member");
+  const hosts = new Set(room.hosts || []);
+  if (grant) hosts.add(target);
+  else hosts.delete(target);
+  room.hosts = [...hosts];
+  await writeRoom(room);
+  return room;
 }
 
 export async function setMedia(id: string, username: string, role: string | undefined, input: {
@@ -391,6 +456,7 @@ export async function kickMember(id: string, username: string, role: string | un
   if (!canManage(room, username, role)) throw new Error("owner");
   if (target === room.owner) throw new Error("owner");
   room.members = room.members.filter((member) => member.username !== target);
+  room.hosts = (room.hosts || []).filter((name) => name !== target);
   if (!room.banned.includes(target)) room.banned.push(target);
   room.signals = room.signals.filter((item) => item.from !== target && item.to !== target);
   await writeRoom(room);

@@ -236,6 +236,14 @@ export type RoomMember = {
   lastSeen: number;
 };
 
+export type RoomChat = {
+  id: string;
+  username: string;
+  nick: string;
+  text: string;
+  at: number;
+};
+
 export type PublicRoom = {
   id: string;
   title: string;
@@ -251,7 +259,9 @@ export type PublicRoom = {
   mediaRev?: number;
   serverNow: number;
   members: RoomMember[];
-  you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };
+  hosts?: string[];
+  chats?: RoomChat[];
+  you: { username: string; owner: boolean; host?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
 export type RoomSignal = {
@@ -315,4 +325,16 @@ export async function sendWatchSignal(id: string, body: { to: string; type: Room
 
 export async function ackWatchSignals(id: string, ids: string[]) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ack`, { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+export async function sendWatchChat(id: string, text: string) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/chat`, { method: 'POST', body: JSON.stringify({ text }) });
+}
+
+export async function clearWatchChat(id: string) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/clear`, { method: 'POST', body: '{}' });
+}
+
+export async function setWatchHost(id: string, username: string, grant: boolean) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/host`, { method: 'POST', body: JSON.stringify({ username, grant }) });
 }

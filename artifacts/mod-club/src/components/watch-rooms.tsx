@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DoorOpen, Lock, Mic, MicOff, Pause, Play, Plus, Search, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { DoorOpen, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
   claimWatchSeat,
+  clearWatchChat,
   createWatchRoom,
   fetchRooms,
   fetchWatchRoom,
@@ -14,7 +15,9 @@ import {
   muteWatchMember,
   pingWatchRoom,
   searchWatchYoutube,
+  sendWatchChat,
   sendWatchSignal,
+  setWatchHost,
   setWatchMedia,
   type PublicRoom,
   type RoomCard,
@@ -45,6 +48,10 @@ function localYoutubeId(value: string) {
     /* not a url */
   }
   return '';
+}
+
+function roomHost(room: PublicRoom, username: string) {
+  return room.owner === username || (room.hosts || []).includes(username);
 }
 
 declare global {
@@ -148,8 +155,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [talking, setTalking] = useState<string[]>([]);
   const [videoVol, setVideoVol] = useState(80);
   const [videoMuted, setVideoMuted] = useState(false);
+  const [pick, setPick] = useState<string | null>(null);
+  const [chatText, setChatText] = useState('');
   const playerRef = useRef<YtPlayer | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
   const roomRef = useRef<PublicRoom | null>(null);
   const receivedAtRef = useRef(Date.now());
@@ -161,6 +171,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
   const talkingRef = useRef(new Set<string>());
   const lastSpeakPing = useRef(false);
+  const iceBag = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const makingOffer = useRef(new Set<string>());
+  const audioCtx = useRef<AudioContext | null>(null);
+  const speakerOnRef = useRef(true);
 
   const refreshList = async () => {
     try {
@@ -188,6 +202,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         roomRef.current = data.room;
         receivedAtRef.current = Date.now();
         setOpen(data.room);
+        const player = playerRef.current;
+        if (player) {
+          if (!data.room.you.host || (!pushingRef.current && (data.room.mediaRev ?? 0) !== lastRevRef.current)) {
+            followCinema(data.room, player);
+          }
+        }
         if (data.signals.length) {
           await consumeSignals(data.room, data.signals);
           await ackWatchSignals(open.id, data.signals.map((item) => item.id));
@@ -225,6 +245,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       videoId: open.videoId,
       at: Date.now(),
     };
+    playerRef.current?.destroy();
+    playerRef.current = null;
+    lastVideo.current = '';
     let cancelled = false;
     void loadYoutube().then(() => {
       if (cancelled || !hostRef.current || playerRef.current || !window.YT) return;
@@ -238,7 +261,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           fs: 0,
           iv_load_policy: 3,
           origin: window.location.origin,
-          controls: open.you.owner ? 1 : 0,
+          controls: open.you.host ? 1 : 0,
           disablekb: 1,
         },
         events: {
@@ -251,14 +274,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           onStateChange: (event: { data: number }) => {
             const room = roomRef.current;
             const player = playerRef.current;
-            if (!room || !player || room.you.owner) return;
-            if (room.playing && (event.data === 2 || event.data === 0)) player.playVideo();
+            if (!room || !player || room.you.host) return;
+            if (room.playing && (event.data === 2 || event.data === 0 || event.data === 5 || event.data === -1)) {
+              player.playVideo();
+            }
           },
         },
       });
     });
     return () => { cancelled = true; };
-  }, [open?.id, open?.you.owner]);
+  }, [open?.id, open?.you.host]);
 
   useEffect(() => {
     if (!open) return;
@@ -266,8 +291,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const room = roomRef.current;
       const player = playerRef.current;
       if (!room || !player) return;
-      if (room.you.owner) void pushOwnerClock(room, player);
-      else followCinema(room, player);
+      if (room.you.host) {
+        if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
+        void pushOwnerClock(room, player);
+      } else {
+        followCinema(room, player);
+      }
     }, 350);
     return () => window.clearInterval(timer);
   }, [open?.id]);
@@ -278,6 +307,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const player = playerRef.current;
     if (player) applyLocalVolume(player);
   }, [videoVol, videoMuted]);
+
+  useEffect(() => {
+    const box = chatLogRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [open?.chats?.length]);
+
+  useEffect(() => {
+    speakerOnRef.current = speakerOn;
+    remoteAudio.current.forEach((audio) => {
+      audio.muted = !speakerOn;
+      if (speakerOn) void audio.play().catch(() => undefined);
+    });
+  }, [speakerOn]);
 
   function adopt(room: PublicRoom) {
     roomRef.current = room;
@@ -294,6 +336,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   function followCinema(room: PublicRoom, player: YtPlayer) {
     if (!room.videoId) return;
     const target = cinemaTime(room, receivedAtRef.current);
+    const state = player.getPlayerState?.();
     if (lastVideo.current !== room.videoId) {
       lastVideo.current = room.videoId;
       lastRevRef.current = room.mediaRev ?? 0;
@@ -301,17 +344,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       else player.cueVideoById(room.videoId, target);
       return;
     }
-    const state = player.getPlayerState?.();
     const time = player.getCurrentTime?.() ?? 0;
     const rev = room.mediaRev ?? 0;
     if (rev !== lastRevRef.current) {
       lastRevRef.current = rev;
       player.seekTo(target, true);
-      if (room.playing) {
-        if (state !== 1 && state !== 3) player.playVideo();
-      } else if (state === 1) {
-        player.pauseVideo();
-      }
+      if (room.playing) player.playVideo();
+      else if (state === 1) player.pauseVideo();
       return;
     }
     if (!room.playing) {
@@ -320,12 +359,17 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       if (Math.abs(time - room.position) > 0.25) player.seekTo(room.position, true);
       return;
     }
-    if (state === 2 || state === 5) player.playVideo();
+    if (state === -1 || state === 5) {
+      player.loadVideoById(room.videoId, target);
+      return;
+    }
+    if (state === 0 || state === 2) player.playVideo();
     const drift = time - target;
     if (state === 3) return;
     if (Math.abs(drift) > 0.7) {
       player.setPlaybackRate?.(1);
       player.seekTo(target, true);
+      player.playVideo();
       return;
     }
     if (drift < -0.18) player.setPlaybackRate?.(1.12);
@@ -356,6 +400,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const next = await setWatchMedia(room.id, { playing, position: time });
       roomRef.current = next.room;
       receivedAtRef.current = Date.now();
+      lastRevRef.current = next.room.mediaRev ?? lastRevRef.current;
       setOpen(next.room);
     } catch {
       /* keep last local clock */
@@ -376,9 +421,23 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
+  function unlockAudio() {
+    try {
+      if (!audioCtx.current) audioCtx.current = new AudioContext();
+      void audioCtx.current.resume();
+    } catch {
+      /* no audio context */
+    }
+    remoteAudio.current.forEach((audio) => {
+      audio.muted = !speakerOnRef.current;
+      void audio.play().catch(() => undefined);
+    });
+  }
+
   function watchLevel(name: string, stream: MediaStream) {
     try {
-      const context = new AudioContext();
+      if (!audioCtx.current) audioCtx.current = new AudioContext();
+      const context = audioCtx.current;
       const source = context.createMediaStreamSource(stream);
       const analyser = context.createAnalyser();
       analyser.fftSize = 512;
@@ -400,9 +459,32 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   async function attachLocal(peer: RTCPeerConnection) {
     const track = localStream.current?.getAudioTracks()[0] || null;
-    const sender = peer.getSenders().find((item) => !item.track || item.track.kind === 'audio');
-    if (sender) await sender.replaceTrack(track);
-    else if (track && localStream.current) peer.addTrack(track, localStream.current);
+    const sender = peer.getSenders().find((item) => item.track?.kind === 'audio' || item.track === null);
+    if (sender) {
+      if (sender.track !== track) await sender.replaceTrack(track);
+    } else if (track && localStream.current) {
+      peer.addTrack(track, localStream.current);
+    }
+  }
+
+  async function flushIce(peer: RTCPeerConnection, name: string) {
+    const bag = iceBag.current.get(name) || [];
+    iceBag.current.delete(name);
+    for (const candidate of bag) {
+      try { await peer.addIceCandidate(candidate); } catch { /* stale */ }
+    }
+  }
+
+  async function renegotiate(room: PublicRoom, peerName: string, peer: RTCPeerConnection) {
+    if (peer.signalingState !== 'stable') return;
+    makingOffer.current.add(peerName);
+    try {
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      await sendWatchSignal(room.id, { to: peerName, type: 'offer', payload: offer });
+    } finally {
+      makingOffer.current.delete(peerName);
+    }
   }
 
   async function consumeSignals(room: PublicRoom, signals: { id: string; from: string; type: 'offer' | 'answer' | 'ice'; payload: unknown }[]) {
@@ -410,14 +492,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const peer = await ensurePeer(room, signal.from, false);
       try {
         if (signal.type === 'offer') {
+          const polite = user.username.localeCompare(signal.from) > 0;
+          const collision = makingOffer.current.has(signal.from) || peer.signalingState !== 'stable';
+          if (collision && !polite) continue;
+          if (collision && polite) {
+            try { await peer.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit); } catch { /* safari */ }
+          }
           await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
+          await flushIce(peer, signal.from);
+          await attachLocal(peer);
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
           await sendWatchSignal(room.id, { to: signal.from, type: 'answer', payload: answer });
         } else if (signal.type === 'answer' && peer.signalingState === 'have-local-offer') {
           await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
+          await flushIce(peer, signal.from);
         } else if (signal.type === 'ice' && signal.payload) {
-          await peer.addIceCandidate(signal.payload as RTCIceCandidateInit);
+          if (peer.remoteDescription) await peer.addIceCandidate(signal.payload as RTCIceCandidateInit);
+          else {
+            const bag = iceBag.current.get(signal.from) || [];
+            bag.push(signal.payload as RTCIceCandidateInit);
+            iceBag.current.set(signal.from, bag);
+          }
         }
       } catch {
         /* stale signal */
@@ -444,10 +540,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       if (!audio) {
         audio = new Audio();
         audio.autoplay = true;
+        audio.setAttribute('playsinline', 'true');
         remoteAudio.current.set(peerName, audio);
       }
-      audio.muted = !speakerOn;
-      audio.srcObject = event.streams[0];
+      audio.muted = !speakerOnRef.current;
+      audio.srcObject = event.streams[0] || new MediaStream([event.track]);
       void audio.play().catch(() => undefined);
       if (event.streams[0]) watchLevel(peerName, event.streams[0]);
     };
@@ -456,11 +553,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         try { peer.restartIce(); } catch { /* ignore */ }
       }
     };
-    if (initiate) {
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      await sendWatchSignal(room.id, { to: peerName, type: 'offer', payload: offer });
-    }
+    if (initiate) await renegotiate(room, peerName, peer);
     return peer;
   }
 
@@ -471,17 +564,22 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       if (!names.has(name)) {
         peers.current.get(name)?.close();
         peers.current.delete(name);
+        iceBag.current.delete(name);
         remoteAudio.current.get(name)?.pause();
         remoteAudio.current.delete(name);
       }
     }
     for (const member of others) {
-      if (!peers.current.has(member.username) && user.username.localeCompare(member.username) < 0) {
-        await ensurePeer(room, member.username, true);
+      const peer = peers.current.get(member.username);
+      if (!peer || peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+        if (user.username.localeCompare(member.username) < 0) await ensurePeer(room, member.username, true);
+      } else {
+        await attachLocal(peer);
       }
     }
-    for (const peer of peers.current.values()) await attachLocal(peer);
-    remoteAudio.current.forEach((audio) => { audio.muted = !speakerOn; });
+    remoteAudio.current.forEach((audio) => {
+      audio.muted = !speakerOnRef.current;
+    });
   }
 
   function teardownVoice() {
@@ -491,27 +589,30 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     peers.current.clear();
     remoteAudio.current.forEach((audio) => audio.pause());
     remoteAudio.current.clear();
+    iceBag.current.clear();
+    makingOffer.current.clear();
     talkingRef.current.clear();
     setTalking([]);
+    setPick(null);
   }
 
   async function toggleMic() {
     if (!open) return;
+    unlockAudio();
     if (open.you.muted) {
       setNotice('Yönetici mikrofonunu kapattı');
       return;
     }
     if (!open.you.micOn) {
       try {
-        localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStream.current = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        });
         watchLevel(user.username, localStream.current);
         for (const [name, peer] of peers.current) {
           await attachLocal(peer);
-          if (user.username.localeCompare(name) < 0 && peer.signalingState === 'stable') {
-            const offer = await peer.createOffer();
-            await peer.setLocalDescription(offer);
-            await sendWatchSignal(open.id, { to: name, type: 'offer', payload: offer });
-          }
+          await renegotiate(open, name, peer);
         }
         const next = await pingWatchRoom(open.id, { micOn: true });
         setOpen(next.room);
@@ -531,7 +632,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   function toggleSpeaker() {
     const next = !speakerOn;
     setSpeakerOn(next);
-    remoteAudio.current.forEach((audio) => { audio.muted = !next; });
+    speakerOnRef.current = next;
+    unlockAudio();
+    remoteAudio.current.forEach((audio) => {
+      audio.muted = !next;
+      if (next) void audio.play().catch(() => undefined);
+    });
   }
 
   async function sitOn(seat: number) {
@@ -630,6 +736,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (!open) return;
     lastVideo.current = hit.id;
     adopt((await setWatchMedia(open.id, { videoId: hit.id, videoTitle: hit.title, playing: true, position: 0 })).room);
+    lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
     playerRef.current?.loadVideoById(hit.id, 0);
     setHits([]);
     setQuery('');
@@ -640,6 +747,18 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const next = Math.max(0, playerRef.current.getCurrentTime() + delta);
     playerRef.current.seekTo(next, true);
     adopt((await setWatchMedia(open.id, { playing: open.playing, position: next })).room);
+    lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
+  }
+
+  async function onChat(event: FormEvent) {
+    event.preventDefault();
+    if (!open || !chatText.trim()) return;
+    try {
+      adopt((await sendWatchChat(open.id, chatText)).room);
+      setChatText('');
+    } catch {
+      setNotice('Mesaj gitmedi');
+    }
   }
 
   const seats = useMemo(() => {
@@ -648,23 +767,24 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open?.members]);
 
   if (open) {
+    const iHost = Boolean(open.you.host);
     return (
       <div className="page-view room-page">
         <div className="room-top">
-          <button type="button" className="room-back" onClick={() => void onLeave()}>
-            <X size={16} /> Çık
-          </button>
           <div>
             <p className="page-kicker">CANLI ODA</p>
             <h1>{open.title}</h1>
             <small>{open.locked ? 'Şifreli' : 'Açık'} · yönetici {open.ownerNick}</small>
           </div>
+          <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
+            <X size={18} />
+          </button>
         </div>
 
         <div className="room-stage">
           <div className="room-tv">
             <div ref={hostRef} className="room-player" />
-            {!open.you.owner && <div className="room-tv-lock" />}
+            {!iHost && <div className="room-tv-lock" />}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>
           <div className="room-vol">
@@ -684,7 +804,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             />
             <span>{videoMuted ? 0 : videoVol}</span>
           </div>
-          {open.you.owner && (
+          {iHost && (
             <form className="room-search" onSubmit={(event) => void onSearch(event)}>
               <Search size={16} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="YouTube bağla: ara veya link yapıştır" />
@@ -693,7 +813,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 const time = playerRef.current?.getCurrentTime() || open.position;
                 if (open.playing) playerRef.current?.pauseVideo();
                 else playerRef.current?.playVideo();
-                void setWatchMedia(open.id, { playing: !open.playing, position: time }).then((data) => adopt(data.room));
+                void setWatchMedia(open.id, { playing: !open.playing, position: time }).then((data) => {
+                  lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
+                  adopt(data.room);
+                });
               }}>
                 {open.playing ? <Pause size={15} /> : <Play size={15} />}
               </button>
@@ -701,7 +824,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               <button type="button" onClick={() => void seekBy(10)}><SkipForward size={15} /></button>
             </form>
           )}
-          {!open.you.owner && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
+          {!iHost && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
           {hits.length > 0 && (
             <div className="room-hits">
               {hits.map((hit) => (
@@ -718,31 +841,41 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           <div className="room-stage-floor">
             <div className="room-seats">
               {seats.map((member, seat) => {
-                const host = member?.username === open.owner;
+                const owner = member?.username === open.owner;
+                const admin = Boolean(member && roomHost(open, member.username));
                 const live = Boolean(member && (member.speaking || talking.includes(member.username)));
+                const canPick = iHost && member && member.username !== user.username;
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${host ? 'is-host' : ''} ${live ? 'is-talk' : ''}`}
-                    onClick={() => { if (!member) void sitOn(seat); }}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''}`}
+                    onClick={() => {
+                      if (!member) void sitOn(seat);
+                      else if (canPick) setPick((value) => value === member.username ? null : member.username);
+                    }}
                   >
                     <div className="mic-ring">
-                      {host && <span className="mic-wings" aria-hidden="true" />}
+                      {owner && <span className="mic-wings" aria-hidden="true" />}
                       {live && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
                       <div className="mic-avatar">
                         {member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
                       </div>
-                      <span className="mic-ribbon">{host ? 'Yönetici' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'}</span>
+                      <span className="mic-ribbon">{owner ? 'Yönetici' : admin ? 'Admin' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'}</span>
                     </div>
                     <strong>{member ? member.nick : `Mik ${seat + 1}`}</strong>
-                    {open.you.owner && member && member.username !== user.username && (
-                      <div className="room-seat-admin">
-                        <button type="button" onClick={(event) => { event.stopPropagation(); void muteWatchMember(open.id, member.username, !member.muted); }}>
-                          <VolumeX size={13} /> {member.muted ? 'Aç' : 'Sustur'}
+                    {pick === member?.username && canPick && member && (
+                      <div className="mic-menu" onClick={(event) => event.stopPropagation()}>
+                        <button type="button" onClick={() => { void muteWatchMember(open.id, member.username, !member.muted); setPick(null); }}>
+                          <VolumeX size={13} /> {member.muted ? 'Sesi aç' : 'Sustur'}
                         </button>
-                        <button type="button" onClick={(event) => { event.stopPropagation(); void kickWatchMember(open.id, member.username); }}>
-                          <UserX size={13} /> At
+                        <button type="button" onClick={() => { void kickWatchMember(open.id, member.username); setPick(null); }}>
+                          <UserX size={13} /> Odadan at
                         </button>
+                        {open.you.owner && (
+                          <button type="button" onClick={() => { void setWatchHost(open.id, member.username, !roomHost(open, member.username)); setPick(null); }}>
+                            <Shield size={13} /> {roomHost(open, member.username) ? 'Admin al' : 'Admin ver'}
+                          </button>
+                        )}
                       </div>
                     )}
                   </article>
@@ -760,6 +893,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
             {speakerOn ? 'Oda sesi açık' : 'Oda sesi kapalı'}
           </button>
+        </div>
+        <div className="room-chat">
+          <div className="room-chat-log" ref={chatLogRef}>
+            {(open.chats || []).map((row) => (
+              <p key={row.id}><strong>{row.nick}</strong> {row.text}</p>
+            ))}
+            {!(open.chats || []).length && <p className="room-chat-empty">Yazışma burada görünür.</p>}
+          </div>
+          <form className="room-chat-form" onSubmit={(event) => void onChat(event)}>
+            <input
+              value={chatText}
+              onChange={(event) => setChatText(event.target.value)}
+              maxLength={240}
+              placeholder="Mesaj yaz..."
+            />
+            <button type="submit">Gönder</button>
+            {iHost && (
+              <button type="button" className="room-chat-clear" onClick={() => void clearWatchChat(open.id).then((data) => adopt(data.room))}>
+                Temizle
+              </button>
+            )}
+          </form>
         </div>
         {notice && <p className="room-note">{notice}</p>}
       </div>
@@ -785,13 +940,14 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         {rooms.map((room) => (
           <article key={room.id} className="room-card">
             <div className="room-card-cover">
-              {room.cover ? <img src={room.cover} alt="" /> : <DoorOpen size={28} />}
-              {room.locked && <span><Lock size={12} /> Şifreli</span>}
+              {room.cover ? <img src={room.cover} alt="" /> : <DoorOpen size={18} />}
+              {room.locked && <span><Lock size={11} /></span>}
             </div>
             <div className="room-card-body">
-              <h2>{room.title}</h2>
-              <small>{room.ownerNick} · {room.watching} kişi</small>
-              {room.videoTitle && <p>{room.videoTitle}</p>}
+              <div className="room-card-meta">
+                <h2>{room.title}</h2>
+                <small>{room.ownerNick} · {room.watching} kişi{room.videoTitle ? ` · ${room.videoTitle}` : ''}</small>
+              </div>
               <button type="button" disabled={busy} onClick={() => void onJoin(room)}>Gir</button>
             </div>
           </article>

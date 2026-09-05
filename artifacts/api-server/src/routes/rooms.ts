@@ -4,6 +4,7 @@ import {
   ackSignals,
   canManage,
   claimSeat,
+  clearChat,
   createRoom,
   joinRoom,
   kickMember,
@@ -11,10 +12,12 @@ import {
   listRooms,
   muteMember,
   pingRoom,
+  postChat,
   publicRoom,
   pushSignal,
   readRoom,
   searchYoutube,
+  setHost,
   setMedia,
   takeSignals,
 } from "../lib/watch-rooms";
@@ -156,6 +159,40 @@ router.post("/rooms/:id/mute", async (req, res) => {
   const body = (req.body || {}) as { username?: string; muted?: boolean };
   try {
     const room = await muteMember(req.params.id, account.username, account.role, String(body.username || ""), Boolean(body.muted));
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/chat", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await postChat(req.params.id, account.username, account.nick, String((req.body as { text?: string }).text || ""));
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "text");
+  }
+});
+
+router.post("/rooms/:id/clear", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await clearChat(req.params.id, account.username, account.role);
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/host", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { username?: string; grant?: boolean };
+  try {
+    const room = await setHost(req.params.id, account.username, String(body.username || ""), Boolean(body.grant));
     res.json({ room: publicRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
