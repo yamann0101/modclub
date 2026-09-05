@@ -8,9 +8,8 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, rouletteBet, rouletteHere, startGuessGame, submitGuess, type PublicGuessGame, type PublicRoulette, type SessionUser } from '@/lib/club-api';
-import { CasinoRouletteStage, CHIP_ICON, playCountdown, playWin } from '@/components/roulette-wheel';
-import { RouletteTable } from 'react-casino-roulette';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, slotSpin, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser, type SlotSpin } from '@/lib/club-api';
+import { OlympusSlotPage } from '@/components/olympus-slot';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -309,7 +308,7 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
         <div>
           <p className="page-kicker">MAĞAZA</p>
           <h1>Mağaza</h1>
-          <p>Uygulama coin’inle VIP al. Sohbette ve rulette ismin ayrı durur.</p>
+          <p>Uygulama coin’inle VIP al. Sohbette ve slotta ismin ayrı durur.</p>
         </div>
         <Store size={48} />
       </div>
@@ -325,7 +324,7 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
         <article className="store-pack">
           <p className="font-mono text-[.55rem] font-extrabold tracking-[.14em] text-amber-200">VIP</p>
           <h2 className="mt-1 font-display text-xl font-bold">7 gün</h2>
-          <p className="mt-1 text-xs text-white/70">Renkli isim, VIP rozeti, rulette kazanan kartı.</p>
+          <p className="mt-1 text-xs text-white/70">Renkli isim, VIP rozeti, slotta öne çıkan kazanan görünümü.</p>
           <button type="button" disabled={busy || coins < 500} onClick={() => onBuy('7')} className="guess-btn-primary mt-4 w-full">500 coin</button>
         </article>
         <article className="store-pack store-pack-long">
@@ -339,181 +338,8 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
-const TABLE_BET_KINDS = new Set<string | number>(['STRAIGHT_UP', 'RED', 'BLACK', 'ODD', 'EVEN', '1_TO_18', '19_TO_36', '0', 0]);
-
-function serverBetToTableId(bet: { kind: string; number?: number }) {
-  if (bet.kind === 'straight') return bet.number === 0 ? '0' : String(bet.number);
-  if (bet.kind === 'red') return 'RED';
-  if (bet.kind === 'black') return 'BLACK';
-  if (bet.kind === 'odd') return 'ODD';
-  if (bet.kind === 'even') return 'EVEN';
-  if (bet.kind === 'low') return '1_TO_18';
-  if (bet.kind === 'high') return '19_TO_36';
-  return null;
-}
-
-function buildTableBets(allBets: { kind: string; number?: number }[]) {
-  const out: Record<string, { icon: string }> = {};
-  for (const bet of allBets) {
-    const id = serverBetToTableId(bet);
-    if (id) out[id] = { icon: CHIP_ICON };
-  }
-  return out;
-}
-
-function tableBetToApi(bet: string | number, payload: string[]) {
-  if (bet === '0' || bet === 0) return { kind: 'straight', number: 0 };
-  if (bet === 'STRAIGHT_UP') return { kind: 'straight', number: Number(payload[0]) };
-  if (bet === 'RED') return { kind: 'red' };
-  if (bet === 'BLACK') return { kind: 'black' };
-  if (bet === 'ODD') return { kind: 'odd' };
-  if (bet === 'EVEN') return { kind: 'even' };
-  if (bet === '1_TO_18') return { kind: 'low' };
-  if (bet === '19_TO_36') return { kind: 'high' };
-  return null;
-}
-
-function GamesPage({
-  room,
-  coins,
-  nick,
-  now,
-  busy,
-  chip,
-  onChip,
-  onBet,
-}: {
-  room: PublicRoulette | null;
-  coins: number;
-  nick: string;
-  now: number;
-  busy: boolean;
-  chip: number;
-  onChip: (value: number) => void;
-  onBet: (kind: string, number?: number) => void;
-}) {
-  const status = room?.status || 'betting';
-  const left = status === 'betting'
-    ? Math.max(0, Math.ceil(((room?.bettingEndsAt || 0) - now) / 1000))
-    : status === 'spinning'
-      ? Math.max(0, Math.ceil(((room?.spinEndsAt || 0) - now) / 1000))
-      : Math.max(0, Math.ceil(((room?.settledUntil || 0) - now) / 1000));
-  const mine = (room?.bets || []).filter((item) => item.nick === nick);
-  const allBets = room?.bets || [];
-  const prevStatusRef = useRef(status);
-  const countdownRef = useRef(-1);
-  const tableWrapRef = useRef<HTMLDivElement>(null);
-  const [tableNote, setTableNote] = useState('');
-  const [landedNumber, setLandedNumber] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (status === 'betting' || status === 'spinning') setLandedNumber(null);
-  }, [status, room?.round]);
-
-  useEffect(() => {
-    if (status === 'betting' && left <= 5 && left > 0 && left !== countdownRef.current) {
-      countdownRef.current = left;
-      playCountdown();
-    }
-    if (status !== 'betting') countdownRef.current = -1;
-  }, [status, left]);
-
-  useEffect(() => {
-    if (prevStatusRef.current === 'spinning' && status === 'settled' && (room?.winners || []).length > 0) {
-      playWin();
-    }
-    prevStatusRef.current = status;
-  }, [status, room?.winners]);
-
-  const tableBets = buildTableBets(allBets);
-
-  useEffect(() => {
-    const node = tableWrapRef.current;
-    if (!node) return;
-    const fit = () => {
-      const inner = node.querySelector<HTMLElement>('.roulette-table-inner');
-      if (!inner) return;
-      const pad = 4;
-      const width = 720;
-      const height = 368;
-      inner.style.width = `${width}px`;
-      inner.style.height = `${height}px`;
-      const scale = Math.max(0.35, Math.min((node.clientWidth - pad) / width, 1));
-      node.style.setProperty('--table-scale', String(scale));
-      node.style.height = `${Math.ceil(height * scale + pad)}px`;
-    };
-    const timer = window.setTimeout(fit, 30);
-    const observer = new ResizeObserver(fit);
-    observer.observe(node);
-    return () => { window.clearTimeout(timer); observer.disconnect(); };
-  }, [tableBets]);
-
-  const handleTableBet = ({ bet, payload }: { bet: string | number; payload: string[]; id: string }) => {
-    if (status !== 'betting' || busy || coins < chip) return;
-    if (!TABLE_BET_KINDS.has(bet)) {
-      setTableNote('Sadece tek sayı, kırmızı/siyah, tek/çift ve 1–18 / 19–36 desteklenir.');
-      return;
-    }
-    setTableNote('');
-    const mapped = tableBetToApi(bet, payload);
-    if (!mapped) return;
-    if (mapped.kind === 'straight') onBet('straight', mapped.number);
-    else onBet(mapped.kind);
-  };
-  return (
-    <div className="page-view roulette-page">
-      <div className="roulette-header">
-        <div className="roulette-meta">
-          <span className="roulette-badge"><Users size={13} /> {room?.players || 0}</span>
-          <span className="roulette-badge">Tur {room?.round || 1}</span>
-          <span className="roulette-badge roulette-badge-coin"><Coins size={13} /> {coins}</span>
-        </div>
-        <div className={`roulette-status ${status === 'betting' ? 'is-betting' : status === 'spinning' ? 'is-spinning' : 'is-settled'}`}>
-          {status === 'betting' ? <><Timer size={15} /> Bahis {left}s</> : landedNumber !== null ? (landedNumber === 0 ? '0 yeşil!' : `Sonuç: ${landedNumber}`) : 'Çark dönüyor…'}
-        </div>
-      </div>
-      <CasinoRouletteStage
-        phase={status}
-        result={room?.result}
-        round={room?.round || 1}
-        onLanded={setLandedNumber}
-      />
-      <div className="roulette-chips-bar">
-        {[10, 50, 100, 500].map((value) => (
-          <button key={value} type="button" onClick={() => onChip(value)} className={`roulette-chip-btn ${chip === value ? 'is-on' : ''}`}>
-            <span className="roulette-chip-icon" />{value}
-          </button>
-        ))}
-      </div>
-      {tableNote && <p className="roulette-table-note">{tableNote}</p>}
-      <div className="roulette-table-wrap" ref={tableWrapRef}>
-        <div className="roulette-table-inner">
-          <RouletteTable bets={tableBets} onBet={handleTableBet} />
-        </div>
-      </div>
-      {mine.length > 0 && (
-        <div className="roulette-my-bets">
-          {mine.map((item, i) => (
-            <span key={i} className="roulette-my-chip">{item.kind === 'straight' ? item.number : item.kind} · {item.amount}</span>
-          ))}
-        </div>
-      )}
-      {(room?.winners || []).length > 0 && status !== 'betting' && (
-        <div className="roulette-winners-flow">
-          <p className="roulette-winners-title"><Trophy size={15} /> Kazananlar</p>
-          <div className="roulette-winners-list">
-            {room?.winners.map((winner, i) => (
-              <div key={`${winner.nick}-${i}`} className={`roulette-winner-card ${winner.vip ? 'is-vip' : ''}`} style={{ animationDelay: `${i * 0.12}s` }}>
-                <span className="rw-name">{winner.nick}</span>
-                {winner.vip && <span className="rw-vip">VIP</span>}
-                <span className="rw-payout">+{winner.payout}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function GamesPage(props: { coins: number; busy: boolean; slot: PublicSlot | null; onSpin: (amount: number) => Promise<SlotSpin> }) {
+  return <OlympusSlotPage coins={props.coins} busy={props.busy} slot={props.slot} onSpin={props.onSpin} />;
 }
 
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
@@ -952,11 +778,10 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [guessNumber, setGuessNumber] = useState('');
   const [guessBusy, setGuessBusy] = useState(false);
   const guessStatusRef = useRef<PublicGuessGame['status'] | null>(null);
-  const [roulette, setRoulette] = useState<PublicRoulette | null>(null);
+  const [slot, setSlot] = useState<PublicSlot | null>(null);
   const [walletCoins, setWalletCoins] = useState(session.coins ?? 0);
   const [walletVip, setWalletVip] = useState(session.vipUntil ?? 0);
   const [storeBusy, setStoreBusy] = useState(false);
-  const [rouletteChip, setRouletteChip] = useState(10);
   const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string; vip?: boolean } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
@@ -1073,7 +898,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setGuessEndOpen(true);
     }
     if (nextGame?.status === 'playing') setGuessEndOpen(false);
-    setRoulette(data.roulette || null);
+    setSlot(data.slot || null);
     setWalletCoins(data.me?.coins ?? 0);
     setWalletVip(data.me?.vipUntil ?? 0);
     if (data.me) {
@@ -1461,25 +1286,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     }
   };
 
-  const sendRouletteBet = async (kind: string, number?: number) => {
+  const playSlot = async (amount: number) => {
     setStoreBusy(true);
     try {
-      applySnapshot(await rouletteBet({ kind, number, amount: rouletteChip }));
-      setNotice('Bahis alındı');
+      const data = await slotSpin(amount);
+      applySnapshot(data);
+      return data.spin;
     } catch (err) {
       const code = (err as Error).message;
-      setNotice(code === 'coins' ? 'Yeterli coin yok' : code === 'closed' ? 'Bahis kapandı' : 'Bahis yapılamadı');
+      setNotice(code === 'coins' ? 'Yeterli coin yok' : 'Çevrim olmadı');
+      throw err;
     } finally {
       setStoreBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (activeNav !== 'Oyunlar') return;
-    void rouletteHere().then(applySnapshot).catch(() => undefined);
-    const timer = window.setInterval(() => { void rouletteHere().then(applySnapshot).catch(() => undefined); }, 5000);
-    return () => window.clearInterval(timer);
-  }, [activeNav, nick]);
 
   const sendAdminBroadcast = async () => {
     const title = broadcastTitle.trim() || 'Duyuru';
@@ -1605,7 +1425,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   return (
-    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-roulette' : 'pb-28'}`}>
+    <div className={`mod-app grain min-h-[100dvh] ${activeNav === 'Oyunlar' ? 'is-slot' : 'pb-28'}`}>
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -1853,7 +1673,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' roulette-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage room={roulette} coins={walletCoins} nick={nick} now={now} busy={storeBusy} chip={rouletteChip} onChip={setRouletteChip} onBet={sendRouletteBet} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className={`desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8${activeNav === 'Oyunlar' ? ' slot-shell' : ''}`}>{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage coins={walletCoins} busy={storeBusy} slot={slot} onSpin={playSlot} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button

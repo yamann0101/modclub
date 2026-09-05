@@ -12,18 +12,19 @@ export type SessionUser = {
   vipUntil?: number;
 };
 
-export type PublicRoulette = {
-  status: 'betting' | 'spinning' | 'settled';
-  round: number;
-  bettingEndsAt: number;
-  spinEndsAt: number;
-  settledUntil: number;
-  result?: number;
-  bets: { nick: string; kind: string; number?: number; amount: number }[];
-  winners: { nick: string; payout: number; vip: boolean }[];
-  players: number;
-  presence: string[];
+export type SlotCell = { id: string; t: 's' | 'x' | 'f'; s?: string; m?: number };
+export type SlotWin = { symbol: string; count: number; pay: number };
+export type SlotStep = { grid: SlotCell[][]; wins: SlotWin[]; mults: number[]; stepWin: number; pot: number };
+export type SlotSpin = {
+  steps: SlotStep[];
+  totalWin: number;
+  freesAwarded: number;
+  freesLeft: number;
+  pot: number;
+  bet: number;
+  free: boolean;
 };
+export type PublicSlot = { freesLeft: number; pot: number; lastBet: number };
 
 export type PublicGuessGame = {
   status: 'idle' | 'playing' | 'revealed' | 'ended';
@@ -53,7 +54,8 @@ export type ClubSnapshot = {
   timeouts: ChatTimeout[];
   notices: ClubNotice[];
   guessGame?: PublicGuessGame;
-  roulette?: PublicRoulette;
+  slot?: PublicSlot;
+  spin?: SlotSpin;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -168,10 +170,6 @@ export async function buyVipPack(pack: '7' | '30') {
   return request<ClubSnapshot>('/api/store/vip', { method: 'POST', body: JSON.stringify({ pack }) });
 }
 
-export async function rouletteHere() {
-  return request<ClubSnapshot>('/api/roulette/here', { method: 'POST', body: '{}' });
-}
-
-export async function rouletteBet(body: { kind: string; number?: number; amount: number }) {
-  return request<ClubSnapshot>('/api/roulette/bet', { method: 'POST', body: JSON.stringify(body) });
+export async function slotSpin(amount: number) {
+  return request<ClubSnapshot & { spin: SlotSpin; slot: PublicSlot }>('/api/slot/spin', { method: 'POST', body: JSON.stringify({ amount }) });
 }

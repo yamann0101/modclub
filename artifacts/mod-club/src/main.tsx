@@ -4,7 +4,6 @@ import App from './App';
 import { ErrorBoundary } from '@/components/error-boundary';
 
 import { applyColorMode, loadColorMode } from '@/lib/club-store';
-import 'react-casino-roulette/dist/index.css';
 import './index.css';
 
 applyColorMode(loadColorMode());

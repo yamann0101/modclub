@@ -13,7 +13,8 @@ import {
   submitGuess,
   upsertAccount,
 } from "../lib/club-data";
-import { adminWallet, buyVip, placeRouletteBet, publicRoulette, touchRoulette } from "../lib/economy";
+import { adminWallet, buyVip } from "../lib/economy";
+import { spinOlympus } from "../lib/olympus-slot";
 import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
 
 const router: IRouter = Router();
@@ -265,28 +266,18 @@ router.post("/store/vip", async (req, res) => {
   }
 });
 
-router.post("/roulette/here", async (req, res) => {
-  const account = await currentAccount(req);
-  if (!account) {
-    res.status(401).json({ error: "auth" });
-    return;
-  }
-  const room = await touchRoulette(account.nick);
-  res.json({ ...await snapshot(account.username), roulette: publicRoulette(room) });
-});
-
-router.post("/roulette/bet", async (req, res) => {
+router.post("/slot/spin", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) {
     res.status(401).json({ error: "auth" });
     return;
   }
   try {
-    const room = await placeRouletteBet(account.username, req.body as { kind?: string; number?: number; amount?: number });
-    res.json({ ...await snapshot(account.username), roulette: publicRoulette(room) });
+    const played = await spinOlympus(account.username, Number((req.body as { amount?: number }).amount));
+    res.json({ ...await snapshot(account.username), spin: played.spin, slot: played.slot });
   } catch (err) {
     const code = err instanceof Error ? err.message : "invalid";
-    res.status(code === "closed" || code === "coins" ? 409 : 400).json({ error: code });
+    res.status(code === "coins" ? 409 : 400).json({ error: code });
   }
 });
 

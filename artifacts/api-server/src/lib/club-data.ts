@@ -1,5 +1,5 @@
 import { query } from "./pg";
-import { publicRoulette, readRoulette } from "./economy";
+import { publicSlot, readSlot } from "./olympus-slot";
 
 export type ClubRole = "ADMIN" | "ÜYE" | "MODERATOR";
 
@@ -121,7 +121,6 @@ export async function ensureSchema() {
   }
   await query(`INSERT INTO club_docs (key, value) VALUES ('settings', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('guess_game', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
-  await query(`INSERT INTO club_docs (key, value) VALUES ('roulette', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
 }
 
 async function getDoc<T>(key: string, fallback: T): Promise<T> {
@@ -275,7 +274,7 @@ export async function readGiveaways() {
 }
 
 export async function snapshot(username?: string) {
-  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame, roulette] = await Promise.all([
+  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame, slot] = await Promise.all([
     readSettings(),
     listAccounts(),
     getDoc<Banner[]>("banners", DEFAULT_BANNERS),
@@ -286,7 +285,7 @@ export async function snapshot(username?: string) {
     getDoc<ChatTimeout[]>("timeouts", []),
     getDoc<ClubNotice[]>("notices", []),
     readGuessGame(),
-    readRoulette(),
+    username ? readSlot(username) : Promise.resolve({ freesLeft: 0, pot: 0, lastBet: 0 }),
   ]);
   const me = username ? accounts.find((item) => nickKey(item.username) === nickKey(username)) : undefined;
   const staff = me?.role === "ADMIN" || me?.role === "MODERATOR";
@@ -311,7 +310,7 @@ export async function snapshot(username?: string) {
     timeouts: (Array.isArray(timeouts) ? timeouts : []).filter((item) => item?.nick && item.until > Date.now()),
     notices: Array.isArray(notices) ? notices.slice(0, 40) : [],
     guessGame: publicGuessGame(guessGame, staff),
-    roulette: publicRoulette(roulette),
+    slot: publicSlot(slot),
   };
 }
 
