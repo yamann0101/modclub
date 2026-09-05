@@ -6,28 +6,62 @@ const CHIPS = [10, 20, 50, 100, 200, 500];
 
 const PAYS: Record<string, string> = {
   zeus: '5 / 15 / 50',
+  star: '5 / 15 / 50',
+  idol: '5 / 15 / 50',
   crown: '2 / 6 / 20',
+  sun: '2 / 6 / 20',
   goblet: '1.5 / 4 / 10',
+  paw: '1.5 / 4 / 10',
+  diamond: '1.5 / 4 / 10',
   ring: '1 / 2.5 / 6',
+  leaf: '1 / 2.5 / 6',
+  crystal: '1 / 2.5 / 6',
   hour: '0.8 / 1.5 / 4',
+  panther: '0.8 / 1.5 / 4',
+  coin: '0.8 / 1.5 / 4',
   red: '0.5 / 1 / 2.5',
+  tiger: '0.5 / 1 / 2.5',
+  ruby: '0.5 / 1 / 2.5',
   purple: '0.4 / 0.8 / 2',
+  amethyst: '0.4 / 0.8 / 2',
   green: '0.3 / 0.6 / 1.5',
+  lion: '0.3 / 0.6 / 1.5',
+  emerald: '0.3 / 0.6 / 1.5',
   blue: '0.25 / 0.5 / 1.2',
+  sapphire: '0.25 / 0.5 / 1.2',
   yellow: '0.2 / 0.4 / 1',
+  amber: '0.2 / 0.4 / 1',
+  cat: '0.2 / 0.4 / 1',
 };
 
 const SYMBOL_META: Record<string, { label: string; cls: string }> = {
   zeus: { label: 'ZEUS', cls: 'is-zeus' },
+  star: { label: '✦', cls: 'is-zeus' },
+  idol: { label: 'IDOL', cls: 'is-zeus' },
   crown: { label: '♔', cls: 'is-crown' },
+  sun: { label: '☀', cls: 'is-crown' },
   goblet: { label: '🏺', cls: 'is-goblet' },
+  paw: { label: '🐾', cls: 'is-goblet' },
+  diamond: { label: '◇', cls: 'is-goblet' },
   ring: { label: '◎', cls: 'is-ring' },
+  leaf: { label: '🌿', cls: 'is-green' },
+  crystal: { label: '◆', cls: 'is-ring' },
   hour: { label: '⌛', cls: 'is-hour' },
+  panther: { label: 'PAN', cls: 'is-hour' },
+  coin: { label: '⬤', cls: 'is-hour' },
   red: { label: '◆', cls: 'is-red' },
+  tiger: { label: 'TGR', cls: 'is-red' },
+  ruby: { label: '◆', cls: 'is-red' },
   purple: { label: '◆', cls: 'is-purple' },
+  amethyst: { label: '◆', cls: 'is-purple' },
   green: { label: '◆', cls: 'is-green' },
+  lion: { label: 'LION', cls: 'is-crown' },
+  emerald: { label: '◆', cls: 'is-green' },
   blue: { label: '◆', cls: 'is-blue' },
+  sapphire: { label: '◆', cls: 'is-blue' },
   yellow: { label: '◆', cls: 'is-yellow' },
+  amber: { label: '◆', cls: 'is-yellow' },
+  cat: { label: 'CAT', cls: 'is-yellow' },
 };
 
 let audioCtx: AudioContext | null = null;
@@ -95,12 +129,16 @@ export function OlympusSlotPage({
   coins,
   busy,
   slot,
+  title = 'Olimpos 1000x',
   onSpin,
+  onBack,
 }: {
   coins: number;
   busy: boolean;
   slot: PublicSlot | null;
+  title?: string;
   onSpin: (amount: number) => Promise<SlotSpin>;
+  onBack?: () => void;
 }) {
   const [bet, setBet] = useState(slot?.lastBet && CHIPS.includes(slot.lastBet as typeof CHIPS[number]) ? slot.lastBet : 10);
   const [grid, setGrid] = useState<SlotCell[][]>(emptyGrid);
@@ -177,7 +215,8 @@ export function OlympusSlotPage({
       <div className="oly-top">
         <div>
           <p className="oly-kicker">MOD CLUB SLOT</p>
-          <h1>Olimpos 1000x</h1>
+          <h1>{title}</h1>
+          {onBack && <button type="button" className="oly-pay-btn mt-2" onClick={onBack}>Lobi</button>}
         </div>
         <div className="oly-top-actions">
           <button type="button" className="oly-icon-btn" onClick={() => setMuted((value) => !value)} aria-label="Ses">

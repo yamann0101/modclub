@@ -1,59 +1,46 @@
-import { useEffect, useState } from 'react';
-import { Coins, Dices, Play, X } from 'lucide-react';
-import { fetchCasino, launchCasinoGame, type CasinoGame, type CasinoStatus } from '@/lib/club-api';
+import { useState } from 'react';
+import { Coins, Play } from 'lucide-react';
+import { OlympusSlotPage } from '@/components/olympus-slot';
+import { ClubRoulettePage } from '@/components/club-roulette';
+import type { PublicSlot, SlotSpin } from '@/lib/club-api';
 
-const KIND_LABEL: Record<CasinoGame['kind'], string> = {
-  slot: 'Slot',
-  slot2: 'Slot',
-  animal: 'Slot',
-  roulette: 'Rulet',
-};
+const GAMES = [
+  { id: 'olympus', kind: 'slot', title: 'Olimpos 1000x', copy: 'Slot · çarpan · free' },
+  { id: 'gem', kind: 'slot', title: 'Kristal 1000x', copy: 'Slot · mücevher' },
+  { id: 'jungle', kind: 'slot', title: 'Safari 1000x', copy: 'Slot · aslan / kaplan / kedi' },
+  { id: 'roulette', kind: 'roulette', title: 'Kulüp Ruleti', copy: 'Avrupa 0–36' },
+] as const;
 
-export function CasinoLobby({ coins, onCoins }: { coins: number; onCoins?: () => void }) {
-  const [games, setGames] = useState<CasinoGame[]>([]);
-  const [status, setStatus] = useState<CasinoStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [play, setPlay] = useState<{ url: string; title: string } | null>(null);
+export function CasinoLobby({
+  coins,
+  busy,
+  onSpin,
+  onRefresh,
+}: {
+  coins: number;
+  busy: boolean;
+  onSpin: (amount: number, theme: 'olympus' | 'gem' | 'jungle') => Promise<SlotSpin>;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [slot, setSlot] = useState<PublicSlot | null>(null);
 
-  useEffect(() => {
-    void fetchCasino()
-      .then((data) => {
-        setGames(data.games);
-        setStatus(data.status);
-      })
-      .catch(() => setError('Oyun listesi alınamadı'));
-  }, []);
-
-  const openGame = async (game: CasinoGame) => {
-    if (!game.configured) {
-      setError('Bu oyun henüz yapılandırılmadı. Admin Pragmatic symbol eklemeli.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const launched = await launchCasinoGame(game.id);
-      setPlay(launched);
-    } catch (err) {
-      const fail = err as Error & { status?: number };
-      const message = fail.message;
-      if (message === 'pragmatic_missing') {
-        setError(status?.note || 'Pragmatic Play operator bilgileri eksik. Sahte API yok.');
-      } else if (message === 'pragmatic_launch') {
-        setError('Pragmatic launch URL vermedi. Operator panelindeki yetki ve symbol’ü kontrol et.');
-      } else {
-        setError('Oyun açılamadı');
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const closePlay = () => {
-    setPlay(null);
-    onCoins?.();
-  };
+  if (open === 'roulette') {
+    return <ClubRoulettePage coins={coins} onPlayed={onRefresh} onBack={() => setOpen(null)} />;
+  }
+  if (open === 'olympus' || open === 'gem' || open === 'jungle') {
+    const title = GAMES.find((item) => item.id === open)?.title || 'Slot';
+    return (
+      <OlympusSlotPage
+        coins={coins}
+        busy={busy}
+        slot={slot}
+        title={title}
+        onBack={() => setOpen(null)}
+        onSpin={(amount) => onSpin(amount, open)}
+      />
+    );
+  }
 
   return (
     <div className="page-view casino-page">
@@ -64,43 +51,21 @@ export function CasinoLobby({ coins, onCoins }: { coins: number; onCoins?: () =>
         </div>
         <span className="oly-coins"><Coins size={14} /> {coins}</span>
       </div>
-      <p className="casino-copy">Sadece sanal club coin. Para yatırma / çekme yok. Oyun Pragmatic Play’in resmi launch adresinde açılır.</p>
-      {error && <p className="casino-error">{error}</p>}
-      {status && !status.ready && (
-        <div className="casino-missing">
-          <strong>Pragmatic hesabı bağlı değil</strong>
-          <p>{status.note}</p>
-          <ul>
-            {status.missing.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        </div>
-      )}
+      <p className="casino-copy">Sanal club coin. Chip’i admin panelden sen verirsin. Para yatırma / çekme yok.</p>
       <div className="casino-grid">
-        {games.map((game) => (
-          <article key={game.id} className="casino-card">
-            <div className="casino-cover">
-              {game.image ? <img src={game.image} alt="" /> : <Dices size={36} />}
-            </div>
+        {GAMES.map((game) => (
+          <article key={game.id} className={`casino-card is-${game.id}`}>
+            <div className="casino-cover" />
             <div className="casino-card-body">
-              <small>{KIND_LABEL[game.kind]}</small>
-              <h2>{game.title || 'Yapılandırılmadı'}</h2>
-              <button type="button" disabled={busy} onClick={() => void openGame(game)}>
+              <small>{game.copy}</small>
+              <h2>{game.title}</h2>
+              <button type="button" onClick={() => { setSlot(null); setOpen(game.id); }}>
                 <Play size={14} /> Oyna
               </button>
             </div>
           </article>
         ))}
       </div>
-
-      {play && (
-        <div className="casino-frame">
-          <div className="casino-frame-bar">
-            <strong>{play.title}</strong>
-            <button type="button" onClick={closePlay} aria-label="Kapat"><X size={18} /></button>
-          </div>
-          <iframe title={play.title} src={play.url} allow="autoplay; fullscreen" />
-        </div>
-      )}
     </div>
   );
 }

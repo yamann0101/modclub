@@ -14,7 +14,8 @@ import {
   upsertAccount,
 } from "../lib/club-data";
 import { adminWallet, buyVip } from "../lib/economy";
-import { spinOlympus } from "../lib/olympus-slot";
+import { isSlotTheme, spinOlympus } from "../lib/olympus-slot";
+import { playRoulette } from "../lib/club-roulette";
 import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
 
 const router: IRouter = Router();
@@ -266,6 +267,22 @@ router.post("/store/vip", async (req, res) => {
   }
 });
 
+router.post("/casino/roulette", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    const body = req.body as { amount?: number; kind?: string; value?: string | number };
+    const played = await playRoulette(account.username, Number(body.amount), { kind: body.kind, value: body.value });
+    res.json({ ...await snapshot(account.username), spin: played.spin });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "coins" ? 409 : 400).json({ error: code });
+  }
+});
+
 router.post("/slot/spin", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) {
@@ -273,7 +290,9 @@ router.post("/slot/spin", async (req, res) => {
     return;
   }
   try {
-    const played = await spinOlympus(account.username, Number((req.body as { amount?: number }).amount));
+    const themeRaw = String((req.body as { theme?: string }).theme || "olympus");
+    const theme = isSlotTheme(themeRaw) ? themeRaw : "olympus";
+    const played = await spinOlympus(account.username, Number((req.body as { amount?: number }).amount), theme);
     res.json({ ...await snapshot(account.username), spin: played.spin, slot: played.slot });
   } catch (err) {
     const code = err instanceof Error ? err.message : "invalid";

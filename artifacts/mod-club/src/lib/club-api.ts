@@ -170,8 +170,20 @@ export async function buyVipPack(pack: '7' | '30') {
   return request<ClubSnapshot>('/api/store/vip', { method: 'POST', body: JSON.stringify({ pack }) });
 }
 
-export async function slotSpin(amount: number) {
-  return request<ClubSnapshot & { spin: SlotSpin; slot: PublicSlot }>('/api/slot/spin', { method: 'POST', body: JSON.stringify({ amount }) });
+export async function slotSpin(amount: number, theme = 'olympus') {
+  return request<ClubSnapshot & { spin: SlotSpin; slot: PublicSlot }>('/api/slot/spin', { method: 'POST', body: JSON.stringify({ amount, theme }) });
+}
+
+export type RouletteSpin = {
+  number: number;
+  color: 'red' | 'black' | 'green';
+  bet: number;
+  win: number;
+  pick: { kind: string; value: string | number };
+};
+
+export async function rouletteBet(amount: number, kind: string, value: string | number) {
+  return request<ClubSnapshot & { spin: RouletteSpin }>('/api/casino/roulette', { method: 'POST', body: JSON.stringify({ amount, kind, value }) });
 }
 
 export type CasinoKind = 'slot' | 'slot2' | 'animal' | 'roulette';

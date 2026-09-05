@@ -39,6 +39,8 @@ export type SlotSpin = {
   free: boolean;
 };
 
+export type SlotTheme = "olympus" | "gem" | "jungle";
+
 const PAYS: Record<string, [number, number, number]> = {
   yellow: [0.2, 0.4, 1],
   blue: [0.25, 0.5, 1.2],
@@ -50,6 +52,41 @@ const PAYS: Record<string, [number, number, number]> = {
   goblet: [1.5, 4, 10],
   crown: [2, 6, 20],
   zeus: [5, 15, 50],
+  amber: [0.2, 0.4, 1],
+  sapphire: [0.25, 0.5, 1.2],
+  emerald: [0.3, 0.6, 1.5],
+  amethyst: [0.4, 0.8, 2],
+  ruby: [0.5, 1, 2.5],
+  coin: [0.8, 1.5, 4],
+  crystal: [1, 2.5, 6],
+  diamond: [1.5, 4, 10],
+  star: [5, 15, 50],
+  cat: [0.2, 0.4, 1],
+  lion: [0.3, 0.6, 1.5],
+  tiger: [0.5, 1, 2.5],
+  panther: [0.8, 1.5, 4],
+  leaf: [1, 2.5, 6],
+  paw: [1.5, 4, 10],
+  sun: [2, 6, 20],
+  idol: [5, 15, 50],
+};
+
+const THEME_WEIGHTS: Record<SlotTheme, { item: string; w: number }[]> = {
+  olympus: [
+    { item: "yellow", w: 22 }, { item: "blue", w: 20 }, { item: "green", w: 18 }, { item: "purple", w: 15 },
+    { item: "red", w: 13 }, { item: "hour", w: 8 }, { item: "ring", w: 6 }, { item: "goblet", w: 4.5 },
+    { item: "crown", w: 3 }, { item: "zeus", w: 1.6 },
+  ],
+  gem: [
+    { item: "amber", w: 22 }, { item: "sapphire", w: 20 }, { item: "emerald", w: 18 }, { item: "amethyst", w: 15 },
+    { item: "ruby", w: 13 }, { item: "coin", w: 8 }, { item: "crystal", w: 6 }, { item: "diamond", w: 4.5 },
+    { item: "crown", w: 3 }, { item: "star", w: 1.6 },
+  ],
+  jungle: [
+    { item: "cat", w: 22 }, { item: "leaf", w: 18 }, { item: "lion", w: 15 }, { item: "tiger", w: 13 },
+    { item: "panther", w: 10 }, { item: "paw", w: 8 }, { item: "sun", w: 6 }, { item: "crown", w: 4 },
+    { item: "idol", w: 2 },
+  ],
 };
 
 const MULTS: { m: number; w: number }[] = [
@@ -65,8 +102,12 @@ const MULTS: { m: number; w: number }[] = [
   { m: 1000, w: 0.03 },
 ];
 
-function slotKey(username: string) {
-  return `slot:${username.trim().toLowerCase()}`;
+function slotKey(username: string, theme: SlotTheme = "olympus") {
+  return `slot:${theme}:${username.trim().toLowerCase()}`;
+}
+
+export function isSlotTheme(value: string): value is SlotTheme {
+  return value === "olympus" || value === "gem" || value === "jungle";
 }
 
 async function getDoc<T>(key: string, fallback: T): Promise<T> {
@@ -112,8 +153,8 @@ export function publicSlot(session: SlotSession) {
   };
 }
 
-export async function readSlot(username: string): Promise<SlotSession> {
-  const raw = await getDoc<Partial<SlotSession>>(slotKey(username), {});
+export async function readSlot(username: string, theme: SlotTheme = "olympus"): Promise<SlotSession> {
+  const raw = await getDoc<Partial<SlotSession>>(slotKey(username, theme), {});
   return {
     freesLeft: Math.max(0, Math.floor(Number(raw.freesLeft) || 0)),
     pot: Math.max(0, Number(raw.pot) || 0),
@@ -121,7 +162,7 @@ export async function readSlot(username: string): Promise<SlotSession> {
   };
 }
 
-function makeCell(free: boolean, nextId: () => string): SlotCell {
+function makeCell(free: boolean, nextId: () => string, theme: SlotTheme): SlotCell {
   const scatterW = free ? 2.2 : 2.6;
   const multW = free ? 7 : 3.4;
   const kind = pickWeighted([
@@ -134,18 +175,7 @@ function makeCell(free: boolean, nextId: () => string): SlotCell {
     const m = pickWeighted(MULTS.map((item) => ({ item: item.m, w: free ? item.w * (item.m >= 25 ? 1.35 : 1) : item.w })));
     return { id: nextId(), t: "x", m };
   }
-  const symbol = pickWeighted([
-    { item: "yellow", w: 22 },
-    { item: "blue", w: 20 },
-    { item: "green", w: 18 },
-    { item: "purple", w: 15 },
-    { item: "red", w: 13 },
-    { item: "hour", w: 8 },
-    { item: "ring", w: 6 },
-    { item: "goblet", w: 4.5 },
-    { item: "crown", w: 3 },
-    { item: "zeus", w: 1.6 },
-  ]);
+  const symbol = pickWeighted(THEME_WEIGHTS[theme]);
   return { id: nextId(), t: "s", s: symbol };
 }
 
@@ -153,11 +183,11 @@ function emptyGrid(): SlotCell[][] {
   return Array.from({ length: COLS }, () => Array.from({ length: ROWS }, () => ({ id: "", t: "s" as const, s: "yellow" })));
 }
 
-function fillGrid(grid: SlotCell[][], free: boolean, nextId: () => string) {
+function fillGrid(grid: SlotCell[][], free: boolean, nextId: () => string, theme: SlotTheme) {
   for (let col = 0; col < COLS; col += 1) {
     const kept = grid[col].filter((cell) => cell.id);
     const missing = ROWS - kept.length;
-    const fresh = Array.from({ length: missing }, () => makeCell(free, nextId));
+    const fresh = Array.from({ length: missing }, () => makeCell(free, nextId, theme));
     grid[col] = [...fresh, ...kept];
   }
 }
@@ -203,11 +233,11 @@ function clearWins(grid: SlotCell[][], wins: SlotWin[], dropMults: boolean) {
   }
 }
 
-function playRound(bet: number, free: boolean, startPot: number): { steps: SlotStep[]; totalWin: number; scatters: number; pot: number } {
+function playRound(bet: number, free: boolean, startPot: number, theme: SlotTheme): { steps: SlotStep[]; totalWin: number; scatters: number; pot: number } {
   let seq = 0;
   const nextId = () => `c${++seq}`;
   const grid = emptyGrid();
-  fillGrid(grid, free, nextId);
+  fillGrid(grid, free, nextId, theme);
   const steps: SlotStep[] = [];
   let totalWin = 0;
   let pot = startPot;
@@ -226,7 +256,7 @@ function playRound(bet: number, free: boolean, startPot: number): { steps: SlotS
     });
     if (!result.wins.length) break;
     clearWins(grid, result.wins, true);
-    fillGrid(grid, free, nextId);
+    fillGrid(grid, free, nextId, theme);
   }
   return { steps, totalWin, scatters: bestScatter, pot };
 }
@@ -239,10 +269,10 @@ function freesFromScatters(count: number, inFree: boolean) {
   return 0;
 }
 
-export async function spinOlympus(username: string, amount: number) {
+export async function spinOlympus(username: string, amount: number, theme: SlotTheme = "olympus") {
   const wallet = await readWallet(username);
   if (!wallet) throw new Error("missing");
-  const session = await readSlot(username);
+  const session = await readSlot(username, theme);
   const free = session.freesLeft > 0;
   const bet = free ? session.lastBet : Math.floor(Number(amount));
   if (!SLOT_CHIPS.includes(bet as (typeof SLOT_CHIPS)[number])) throw new Error("chip");
@@ -252,7 +282,7 @@ export async function spinOlympus(username: string, amount: number) {
   if (!free) coins -= bet;
 
   const startPot = free ? session.pot : 0;
-  const played = playRound(bet, free, startPot);
+  const played = playRound(bet, free, startPot, theme);
   const capped = Math.min(played.totalWin, bet * MAX_WIN_X);
   coins += capped;
 
@@ -269,7 +299,7 @@ export async function spinOlympus(username: string, amount: number) {
 
   await setWalletCoins(username, coins);
   const next: SlotSession = { freesLeft, pot, lastBet: bet };
-  await setDoc(slotKey(username), next);
+  await setDoc(slotKey(username, theme), next);
 
   const spin: SlotSpin = {
     steps: played.steps,

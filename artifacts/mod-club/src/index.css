@@ -1899,6 +1899,22 @@ html.dark .guess-btn-ghost {
 .casino-grid { display: grid; gap: .75rem; grid-template-columns: 1fr 1fr; }
 .casino-card { overflow: hidden; border-radius: 1.1rem; background: rgba(8,4,16,.72); border: 1px solid rgba(251,191,36,.2); }
 .casino-cover { height: 6.4rem; display: grid; place-items: center; background: linear-gradient(160deg,#2b0a55,#12041f); color: #f5d76e; }
+.casino-card.is-olympus .casino-cover { background: linear-gradient(160deg,#7c3aed,#1e0b3a); }
+.casino-card.is-gem .casino-cover { background: linear-gradient(160deg,#2563eb,#082f49); }
+.casino-card.is-jungle .casino-cover { background: linear-gradient(160deg,#15803d,#14532d); }
+.casino-card.is-roulette .casino-cover { background: linear-gradient(160deg,#b91c1c,#111827); }
+.roulette-result { min-height: 3.2rem; display: grid; place-items: center; border-radius: 1rem; background: #1a0830; color: #fff6c8; font-weight: 900; }
+.roulette-result.is-red { background: #7f1d1d; }
+.roulette-result.is-black { background: #111827; }
+.roulette-result.is-green { background: #14532d; }
+.roulette-zero { display: flex; justify-content: center; }
+.roulette-zero button { min-width: 4rem; height: 2rem; border-radius: .6rem; background: #166534; color: #fff; font-weight: 800; }
+.roulette-nums { display: grid; grid-template-columns: repeat(6, 1fr); gap: .28rem; }
+.roulette-nums button, .roulette-outside button { height: 2rem; border-radius: .5rem; color: #fff; font-size: .68rem; font-weight: 800; }
+.roulette-nums .is-red, .roulette-outside .is-red { background: #b91c1c; }
+.roulette-nums .is-black, .roulette-outside .is-black { background: #1f2937; }
+.roulette-nums .is-on, .roulette-outside .is-on, .roulette-zero .is-on { box-shadow: 0 0 0 2px #f5d76e; }
+.roulette-outside { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
 .casino-cover img { width: 100%; height: 100%; object-fit: cover; }
 .casino-card-body { padding: .7rem; }
 .casino-card-body small { font-size: .52rem; font-weight: 800; letter-spacing: .1em; color: #fbbf24; }
