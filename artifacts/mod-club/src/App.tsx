@@ -74,7 +74,7 @@ const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '�
 const initialManagedPages = [
   { name: 'Ana Sayfa', description: 'Banner, duyurular ve topluluk özeti', enabled: true },
   { name: 'Etkinlikler', description: 'Turnuvalar ve yaklaşan etkinlikler', enabled: true },
-  { name: 'Menü', description: 'Topluluk araçları ve hızlı erişim', enabled: true },
+  { name: 'Menü', description: 'Topluluk araçları ve ayarlar', enabled: true },
   { name: 'Profil', description: 'Üye profili ve hesap ayarları', enabled: true },
 ];
 
@@ -743,7 +743,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [activeNav, setActiveNav] = useState('Ana Sayfa');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [chatMuted, setChatMutedOn] = useState(() => typeof window !== 'undefined' && isChatMuted());
@@ -828,19 +827,16 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
   const handleNav = (label: string) => {
     if (label === 'Sohbet') {
-      setMenuOpen(false);
       setChatOpen(true);
       return;
     }
     if (label === 'Film izle' || label === 'Film İzle') {
-      setMenuOpen(false);
       setChatOpen(false);
       setActiveNav('Film İzle');
       setNotice('Film izle açık');
       return;
     }
     if (label === 'Mağaza') {
-      setMenuOpen(false);
       setChatOpen(false);
       setActiveNav('Mağaza');
       setNotice('Mağaza açık');
@@ -848,11 +844,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     }
     setChatOpen(false);
     setChatProfile(null);
-    if (label === 'Menü') {
-      setMenuOpen((open) => !open);
-      return;
-    }
-    setMenuOpen(false);
     setActiveNav(label);
     if (label === 'Ana Sayfa') {
       setNotice('Ana sayfaya döndün');
@@ -1440,7 +1431,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <button data-testid="button-menu" aria-label="Menüyü aç" onClick={() => setMenuOpen((open) => !open)} className="grid size-11 shrink-0 place-items-center rounded-xl text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]">
+            <button data-testid="button-menu" aria-label="Menüyü aç" onClick={() => handleNav('Menü')} className="grid size-11 shrink-0 place-items-center rounded-xl text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]">
               <Menu size={21} strokeWidth={2.1} />
             </button>
             <button data-testid="button-logo-home" onClick={() => handleNav('Ana Sayfa')} className="flex min-w-0 items-center" aria-label="MOD CLUB">
@@ -1517,57 +1508,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           </div>
         </div>
       </header>
-        {menuOpen && (
-          <>
-            <button type="button" className="nav-drawer-backdrop" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)} />
-            <aside data-testid="panel-menu" className="nav-drawer">
-              <div className="nav-drawer-head">
-                <img src={myPhoto} alt="" className="size-12 rounded-2xl object-cover ring-2 ring-white/30" />
-                <div className="min-w-0 flex-1">
-                  <strong className="truncate font-display text-base">{nick}</strong>
-                  <small>{user.appId ? `ID ${user.appId}` : 'Uygulama ID’si yok'}</small>
-                </div>
-                <button type="button" aria-label="Menüyü kapat" onClick={() => setMenuOpen(false)} className="grid size-9 place-items-center rounded-xl text-white/80 hover:bg-white/10"><X size={18} /></button>
-              </div>
-              <div className="nav-drawer-list flex-1">
-                {([
-                  { label: 'Ana Sayfa', icon: HomeIcon, testid: 'button-menu-home' },
-                  { label: 'Etkinlikler', icon: CalendarDays, testid: 'button-menu-events' },
-                  { label: 'Oyunlar', icon: Gamepad2, testid: 'button-menu-games' },
-                  { label: 'Sohbet', icon: MessageCircle, testid: 'button-menu-chat' },
-                  { label: 'Film İzle', icon: Film, testid: 'button-menu-films' },
-                  { label: 'Mağaza', icon: Store, testid: 'button-menu-store' },
-                  { label: 'Uygulama İndir', icon: Download, testid: 'button-menu-apps' },
-                  { label: 'Topluluk', icon: UsersRound, testid: 'button-menu-community' },
-                  { label: 'Profil', icon: UserRound, testid: 'button-menu-profile' },
-                  { label: 'Hesap ayarları', icon: Settings, testid: 'button-menu-settings' },
-                ] as const).map(({ label, icon: Icon, testid }) => (
-                  <button key={label} data-testid={testid} type="button" onClick={() => handleNav(label)} className={`nav-drawer-item ${activeNav === label ? 'is-on' : ''}`}>
-                    <span className="nav-drawer-icon"><Icon size={16} /></span>
-                    {label}
-                  </button>
-                ))}
-                <button type="button" data-testid="button-menu-theme" onClick={() => changeColorMode(colorMode === 'dark' ? 'light' : 'dark')} className="nav-drawer-item">
-                  <span className="nav-drawer-icon">{colorMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</span>
-                  {colorMode === 'dark' ? 'Gündüz görünümü' : 'Gece görünümü'}
-                </button>
-                {isAdmin && (
-                  <button data-testid="button-menu-admin" type="button" onClick={() => { setAdminPanelOpen(true); setMenuOpen(false); }} className="nav-drawer-item">
-                    <span className="nav-drawer-icon"><Shield size={16} /></span>
-                    Admin paneli
-                  </button>
-                )}
-              </div>
-              <div className="nav-drawer-foot">
-                <button type="button" onClick={onLogout} className="nav-drawer-item text-[#c44b5a]">
-                  <span className="nav-drawer-icon bg-[#fff5f6] text-[#c44b5a]"><LogOut size={16} /></span>
-                  Çıkış yap
-                </button>
-              </div>
-            </aside>
-          </>
-        )}
-
        {activeNav === 'Ana Sayfa' ? <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-4 sm:px-6 sm:pt-6 lg:px-8">
         <section className="home-hero relative isolate overflow-hidden rounded-[1.35rem]">
           <div className="home-hero-glow" aria-hidden="true" />
@@ -1687,7 +1627,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             { label: 'Oyunlar', icon: Gamepad2 },
             { label: 'Mağaza', icon: Store },
           ] as { label: string; icon: LucideIcon; orb?: boolean }[]).map(({ label, icon: Icon, orb }) => {
-            const active = orb ? menuOpen : label === 'Film izle' ? activeNav === 'Film İzle' : activeNav === label;
+            const active = label === 'Film izle' ? activeNav === 'Film İzle' : label === 'Menü' ? activeNav === 'Menü' : activeNav === label;
             return (
               <button
                 data-testid={`button-nav-${label.toLowerCase().replace(' ', '-')}`}
