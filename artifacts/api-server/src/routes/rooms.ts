@@ -1,0 +1,182 @@
+import { Router, type IRouter } from "express";
+import { currentAccount } from "../lib/http";
+import {
+  ackSignals,
+  canManage,
+  createRoom,
+  joinRoom,
+  kickMember,
+  leaveRoom,
+  listRooms,
+  muteMember,
+  pingRoom,
+  publicRoom,
+  pushSignal,
+  readRoom,
+  searchYoutube,
+  setMedia,
+  takeSignals,
+} from "../lib/watch-rooms";
+
+const router: IRouter = Router();
+
+function fail(res: { status: (code: number) => { json: (body: unknown) => void } }, code: string) {
+  const status = code === "auth" ? 401
+    : code === "password" || code === "banned" || code === "owner" ? 403
+    : code === "missing" || code === "member" ? 404
+    : code === "full" ? 409
+    : 400;
+  res.status(status).json({ error: code });
+}
+
+router.get("/rooms", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  res.json({ rooms: await listRooms() });
+});
+
+router.post("/rooms", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { title?: string; cover?: string; password?: string };
+  try {
+    const room = await createRoom({
+      username: account.username,
+      nick: account.nick,
+      photo: account.photo || undefined,
+      title: String(body.title || ""),
+      cover: String(body.cover || ""),
+      password: body.password ? String(body.password) : undefined,
+    });
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "title");
+  }
+});
+
+router.post("/rooms/search", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const q = String((req.body as { q?: string }).q || "");
+  res.json({ items: await searchYoutube(q) });
+});
+
+router.get("/rooms/:id", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const raw = await readRoom(req.params.id);
+  if (!raw) return fail(res, "missing");
+  if (!raw.members.some((member) => member.username === account.username)) return fail(res, "member");
+  const room = await pingRoom(req.params.id, account.username);
+  const signals = takeSignals(room, account.username);
+  res.json({ room: publicRoom(room, account.username), signals });
+});
+
+router.post("/rooms/:id/join", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await joinRoom({
+      id: req.params.id,
+      username: account.username,
+      nick: account.nick,
+      photo: account.photo || undefined,
+      password: String((req.body as { password?: string }).password || ""),
+    });
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "missing");
+  }
+});
+
+router.post("/rooms/:id/leave", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  await leaveRoom(req.params.id, account.username);
+  res.json({ ok: true });
+});
+
+router.post("/rooms/:id/ping", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await pingRoom(req.params.id, account.username, {
+      micOn: typeof (req.body as { micOn?: boolean }).micOn === "boolean"
+        ? (req.body as { micOn: boolean }).micOn
+        : undefined,
+    });
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "missing");
+  }
+});
+
+router.post("/rooms/:id/media", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { videoId?: string; videoTitle?: string; playing?: boolean; position?: number };
+  try {
+    const room = await setMedia(req.params.id, account.username, account.role, body);
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/kick", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await kickMember(req.params.id, account.username, account.role, String((req.body as { username?: string }).username || ""));
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/mute", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { username?: string; muted?: boolean };
+  try {
+    const room = await muteMember(req.params.id, account.username, account.role, String(body.username || ""), Boolean(body.muted));
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/signal", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { to?: string; type?: "offer" | "answer" | "ice"; payload?: unknown };
+  if (!body.to || !body.type) return fail(res, "signal");
+  try {
+    await pushSignal(req.params.id, account.username, { to: body.to, type: body.type, payload: body.payload });
+    res.json({ ok: true });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "member");
+  }
+});
+
+router.post("/rooms/:id/ack", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const ids = ((req.body as { ids?: string[] }).ids || []).filter((id) => typeof id === "string");
+  try {
+    const room = await ackSignals(req.params.id, account.username, ids);
+    res.json({ room: publicRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "missing");
+  }
+});
+
+router.get("/rooms/:id/can", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const room = await readRoom(req.params.id);
+  if (!room) return fail(res, "missing");
+  res.json({ manage: canManage(room, account.username, account.role) });
+});
+
+export default router;

@@ -1,0 +1,474 @@
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import { query } from "./pg";
+
+const SEATS = 8;
+const MAX_ROOMS = 24;
+const STALE_MS = 25_000;
+const MAX_SIGNALS = 80;
+
+export type RoomMember = {
+  username: string;
+  nick: string;
+  photo?: string;
+  seat: number;
+  muted: boolean;
+  micOn: boolean;
+  lastSeen: number;
+};
+
+export type RoomSignal = {
+  id: string;
+  from: string;
+  to: string;
+  type: "offer" | "answer" | "ice";
+  payload: unknown;
+  at: number;
+};
+
+export type WatchRoom = {
+  id: string;
+  title: string;
+  cover: string;
+  password?: string;
+  owner: string;
+  ownerNick: string;
+  videoId: string;
+  videoTitle: string;
+  playing: boolean;
+  position: number;
+  updatedAt: number;
+  members: RoomMember[];
+  banned: string[];
+  signals: RoomSignal[];
+  createdAt: number;
+};
+
+export type PublicRoomCard = {
+  id: string;
+  title: string;
+  cover: string;
+  ownerNick: string;
+  locked: boolean;
+  watching: number;
+  videoTitle: string;
+};
+
+export type PublicRoom = {
+  id: string;
+  title: string;
+  cover: string;
+  owner: string;
+  ownerNick: string;
+  locked: boolean;
+  videoId: string;
+  videoTitle: string;
+  playing: boolean;
+  position: number;
+  updatedAt: number;
+  serverNow: number;
+  members: RoomMember[];
+  you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };
+};
+
+type RoomIndex = {
+  id: string;
+  title: string;
+  cover: string;
+  owner: string;
+  ownerNick: string;
+  locked: boolean;
+  watching: number;
+  videoTitle: string;
+  createdAt: number;
+};
+
+function roomKey(id: string) {
+  return `watch_room:${id}`;
+}
+
+async function getDoc<T>(key: string, fallback: T): Promise<T> {
+  const result = await query<{ value: T }>("SELECT value FROM club_docs WHERE key = $1", [key]);
+  return result.rows[0]?.value ?? fallback;
+}
+
+async function setDoc(key: string, value: unknown) {
+  await query(
+    `INSERT INTO club_docs (key, value, updated_at) VALUES ($1, $2::jsonb, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, JSON.stringify(value)],
+  );
+}
+
+function hashPassword(password: string) {
+  const salt = randomBytes(8).toString("hex");
+  const digest = createHash("sha256").update(`${salt}:${password}`).digest("hex");
+  return `${salt}$${digest}`;
+}
+
+function checkPassword(stored: string, password: string) {
+  const [salt, digest] = stored.split("$");
+  if (!salt || !digest) return false;
+  const next = createHash("sha256").update(`${salt}:${password}`).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(next, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+function prune(room: WatchRoom, now = Date.now()): WatchRoom {
+  const members = room.members.filter((member) => now - member.lastSeen < STALE_MS);
+  let owner = room.owner;
+  let ownerNick = room.ownerNick;
+  if (!members.some((member) => member.username === owner) && members[0]) {
+    owner = members[0].username;
+    ownerNick = members[0].nick;
+  }
+  const signals = room.signals.filter((item) => now - item.at < 20_000).slice(-MAX_SIGNALS);
+  return { ...room, members, owner, ownerNick, signals };
+}
+
+function toIndex(room: WatchRoom): RoomIndex {
+  return {
+    id: room.id,
+    title: room.title,
+    cover: room.cover,
+    owner: room.owner,
+    ownerNick: room.ownerNick,
+    locked: Boolean(room.password),
+    watching: room.members.length,
+    videoTitle: room.videoTitle,
+    createdAt: room.createdAt,
+  };
+}
+
+async function writeRoom(room: WatchRoom) {
+  await setDoc(roomKey(room.id), room);
+  const index = (await getDoc<RoomIndex[]>("rooms_index", [])).filter((item) => item.id !== room.id);
+  index.unshift(toIndex(room));
+  await setDoc("rooms_index", index.slice(0, MAX_ROOMS));
+}
+
+async function dropRoom(id: string) {
+  await setDoc(roomKey(id), null);
+  const index = (await getDoc<RoomIndex[]>("rooms_index", [])).filter((item) => item.id !== id);
+  await setDoc("rooms_index", index);
+}
+
+export async function readRoom(id: string) {
+  const room = await getDoc<WatchRoom | null>(roomKey(id), null);
+  return room && room.id ? room : null;
+}
+
+export function publicCard(room: RoomIndex): PublicRoomCard {
+  return {
+    id: room.id,
+    title: room.title,
+    cover: room.cover,
+    ownerNick: room.ownerNick,
+    locked: room.locked,
+    watching: room.watching,
+    videoTitle: room.videoTitle,
+  };
+}
+
+export function publicRoom(room: WatchRoom, username: string): PublicRoom {
+  const you = room.members.find((member) => member.username === username);
+  return {
+    id: room.id,
+    title: room.title,
+    cover: room.cover,
+    owner: room.owner,
+    ownerNick: room.ownerNick,
+    locked: Boolean(room.password),
+    videoId: room.videoId,
+    videoTitle: room.videoTitle,
+    playing: room.playing,
+    position: room.position,
+    updatedAt: room.updatedAt,
+    serverNow: Date.now(),
+    members: room.members,
+    you: {
+      username,
+      owner: room.owner === username,
+      muted: Boolean(you?.muted),
+      micOn: Boolean(you?.micOn),
+      seat: you?.seat ?? -1,
+    },
+  };
+}
+
+export async function listRooms() {
+  const now = Date.now();
+  const index = await getDoc<RoomIndex[]>("rooms_index", []);
+  const live: RoomIndex[] = [];
+  for (const item of index) {
+    const raw = await readRoom(item.id);
+    if (!raw) continue;
+    const room = prune(raw, now);
+    if (!room.members.length && now - room.createdAt > 60_000) {
+      await dropRoom(room.id);
+      continue;
+    }
+    if (room.members.length !== raw.members.length || room.owner !== raw.owner) await writeRoom(room);
+    live.push(toIndex(room));
+  }
+  await setDoc("rooms_index", live.slice(0, MAX_ROOMS));
+  return live.map(publicCard);
+}
+
+export async function createRoom(input: {
+  username: string;
+  nick: string;
+  photo?: string;
+  title: string;
+  cover: string;
+  password?: string;
+}) {
+  const title = input.title.trim().slice(0, 48);
+  if (!title) throw new Error("title");
+  const index = await getDoc<RoomIndex[]>("rooms_index", []);
+  if (index.length >= MAX_ROOMS) throw new Error("full");
+  const now = Date.now();
+  const room: WatchRoom = {
+    id: randomBytes(6).toString("hex"),
+    title,
+    cover: String(input.cover || "").slice(0, 180_000),
+    password: input.password?.trim() ? hashPassword(input.password.trim()) : undefined,
+    owner: input.username,
+    ownerNick: input.nick,
+    videoId: "",
+    videoTitle: "",
+    playing: false,
+    position: 0,
+    updatedAt: now,
+    members: [{
+      username: input.username,
+      nick: input.nick,
+      photo: input.photo,
+      seat: 0,
+      muted: false,
+      micOn: false,
+      lastSeen: now,
+    }],
+    banned: [],
+    signals: [],
+    createdAt: now,
+  };
+  await writeRoom(room);
+  return room;
+}
+
+export async function joinRoom(input: {
+  id: string;
+  username: string;
+  nick: string;
+  photo?: string;
+  password?: string;
+}) {
+  const raw = await readRoom(input.id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (room.banned.includes(input.username)) throw new Error("banned");
+  if (room.password && !checkPassword(room.password, input.password || "")) throw new Error("password");
+  const existing = room.members.find((member) => member.username === input.username);
+  if (existing) {
+    existing.nick = input.nick;
+    existing.photo = input.photo;
+    existing.lastSeen = Date.now();
+    await writeRoom(room);
+    return room;
+  }
+  const taken = new Set(room.members.map((member) => member.seat));
+  const seat = Array.from({ length: SEATS }, (_, index) => index).find((index) => !taken.has(index));
+  if (seat === undefined) throw new Error("full");
+  room.members.push({
+    username: input.username,
+    nick: input.nick,
+    photo: input.photo,
+    seat,
+    muted: false,
+    micOn: false,
+    lastSeen: Date.now(),
+  });
+  await writeRoom(room);
+  return room;
+}
+
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean }) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const member = room.members.find((item) => item.username === username);
+  if (!member) throw new Error("member");
+  member.lastSeen = Date.now();
+  if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
+  if (member.muted) member.micOn = false;
+  await writeRoom(room);
+  return room;
+}
+
+export async function leaveRoom(id: string, username: string) {
+  const raw = await readRoom(id);
+  if (!raw) return null;
+  const room = prune(raw);
+  room.members = room.members.filter((member) => member.username !== username);
+  room.signals = room.signals.filter((item) => item.from !== username && item.to !== username);
+  if (!room.members.length) {
+    await dropRoom(id);
+    return null;
+  }
+  if (room.owner === username) {
+    room.owner = room.members[0].username;
+    room.ownerNick = room.members[0].nick;
+  }
+  await writeRoom(room);
+  return room;
+}
+
+export function canManage(room: WatchRoom, username: string, role?: string) {
+  return room.owner === username || role === "ADMIN" || role === "MODERATOR";
+}
+
+export async function setMedia(id: string, username: string, role: string | undefined, input: {
+  videoId?: string;
+  videoTitle?: string;
+  playing?: boolean;
+  position?: number;
+}) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!canManage(room, username, role)) throw new Error("owner");
+  if (input.videoId !== undefined) {
+    if (input.videoId && !/^[a-zA-Z0-9_-]{11}$/.test(input.videoId)) throw new Error("video");
+    room.videoId = input.videoId;
+    room.videoTitle = String(input.videoTitle || "").slice(0, 120);
+    room.position = 0;
+    room.playing = Boolean(input.videoId);
+  }
+  if (typeof input.playing === "boolean") room.playing = input.playing;
+  if (typeof input.position === "number" && Number.isFinite(input.position)) {
+    room.position = Math.max(0, input.position);
+  }
+  room.updatedAt = Date.now();
+  await writeRoom(room);
+  return room;
+}
+
+export async function kickMember(id: string, username: string, role: string | undefined, target: string) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!canManage(room, username, role)) throw new Error("owner");
+  if (target === room.owner) throw new Error("owner");
+  room.members = room.members.filter((member) => member.username !== target);
+  if (!room.banned.includes(target)) room.banned.push(target);
+  room.signals = room.signals.filter((item) => item.from !== target && item.to !== target);
+  await writeRoom(room);
+  return room;
+}
+
+export async function muteMember(id: string, username: string, role: string | undefined, target: string, muted: boolean) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!canManage(room, username, role)) throw new Error("owner");
+  const member = room.members.find((item) => item.username === target);
+  if (!member) throw new Error("member");
+  member.muted = muted;
+  if (muted) member.micOn = false;
+  await writeRoom(room);
+  return room;
+}
+
+export async function pushSignal(id: string, from: string, input: { to: string; type: RoomSignal["type"]; payload: unknown }) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  if (!room.members.some((member) => member.username === from)) throw new Error("member");
+  if (!room.members.some((member) => member.username === input.to)) throw new Error("member");
+  room.signals.push({
+    id: randomBytes(5).toString("hex"),
+    from,
+    to: input.to,
+    type: input.type,
+    payload: input.payload,
+    at: Date.now(),
+  });
+  room.signals = room.signals.slice(-MAX_SIGNALS);
+  await writeRoom(room);
+  return room;
+}
+
+export async function ackSignals(id: string, username: string, ids: string[]) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const drop = new Set(ids);
+  room.signals = room.signals.filter((item) => !(item.to === username && drop.has(item.id)));
+  await writeRoom(room);
+  return room;
+}
+
+export function takeSignals(room: WatchRoom, username: string) {
+  return room.signals.filter((item) => item.to === username);
+}
+
+export function parseYoutubeId(value: string) {
+  const text = value.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(text)) return text;
+  try {
+    const url = new URL(text);
+    if (url.hostname.includes("youtu.be")) return url.pathname.replace("/", "").slice(0, 11);
+    const fromQuery = url.searchParams.get("v");
+    if (fromQuery && /^[a-zA-Z0-9_-]{11}$/.test(fromQuery)) return fromQuery;
+    const embed = url.pathname.match(/\/(?:embed|shorts)\/([a-zA-Z0-9_-]{11})/);
+    if (embed) return embed[1];
+  } catch {
+    /* not a url */
+  }
+  return "";
+}
+
+export async function searchYoutube(queryText: string) {
+  const q = queryText.trim().slice(0, 80);
+  if (!q) return [];
+  const direct = parseYoutubeId(q);
+  if (direct) {
+    try {
+      const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${direct}&format=json`);
+      if (response.ok) {
+        const data = await response.json() as { title?: string; thumbnail_url?: string };
+        return [{ id: direct, title: data.title || "YouTube", thumb: data.thumbnail_url || `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
+      }
+    } catch {
+      return [{ id: direct, title: "YouTube", thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
+    }
+    return [{ id: direct, title: "YouTube", thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }];
+  }
+
+  const hosts = ["https://inv.nadeko.net", "https://invidious.privacyredirect.com", "https://yewtu.be"];
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`${host}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!response.ok) continue;
+      const rows = await response.json() as { videoId?: string; title?: string; videoThumbnails?: { url?: string }[] }[];
+      const items = rows
+        .filter((row) => row.videoId)
+        .slice(0, 8)
+        .map((row) => ({
+          id: String(row.videoId),
+          title: String(row.title || "YouTube").slice(0, 120),
+          thumb: row.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg`,
+        }));
+      if (items.length) return items;
+    } catch {
+      /* try next */
+    }
+  }
+  return [];
+}

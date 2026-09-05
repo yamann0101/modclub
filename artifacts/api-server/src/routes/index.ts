@@ -4,6 +4,7 @@ import notifyRouter from "./notify";
 import setupRouter from "./setup";
 import clubRouter from "./club";
 import casinoRouter from "./casino";
+import roomsRouter from "./rooms";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(notifyRouter);
 router.use(setupRouter);
 router.use(clubRouter);
 router.use(casinoRouter);
+router.use(roomsRouter);
 
 export default router;

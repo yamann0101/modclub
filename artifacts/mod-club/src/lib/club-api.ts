@@ -214,3 +214,99 @@ export async function saveCasinoGames(games: { id: string; kind: CasinoKind; tit
 export async function launchCasinoGame(id: string) {
   return request<{ url: string; title: string }>('/api/casino/launch', { method: 'POST', body: JSON.stringify({ id }) });
 }
+
+export type RoomCard = {
+  id: string;
+  title: string;
+  cover: string;
+  ownerNick: string;
+  locked: boolean;
+  watching: number;
+  videoTitle: string;
+};
+
+export type RoomMember = {
+  username: string;
+  nick: string;
+  photo?: string;
+  seat: number;
+  muted: boolean;
+  micOn: boolean;
+  lastSeen: number;
+};
+
+export type PublicRoom = {
+  id: string;
+  title: string;
+  cover: string;
+  owner: string;
+  ownerNick: string;
+  locked: boolean;
+  videoId: string;
+  videoTitle: string;
+  playing: boolean;
+  position: number;
+  updatedAt: number;
+  serverNow: number;
+  members: RoomMember[];
+  you: { username: string; owner: boolean; muted: boolean; micOn: boolean; seat: number };
+};
+
+export type RoomSignal = {
+  id: string;
+  from: string;
+  to: string;
+  type: 'offer' | 'answer' | 'ice';
+  payload: unknown;
+  at: number;
+};
+
+export type YoutubeHit = { id: string; title: string; thumb: string };
+
+export async function fetchRooms() {
+  return request<{ rooms: RoomCard[] }>('/api/rooms');
+}
+
+export async function createWatchRoom(body: { title: string; cover: string; password?: string }) {
+  return request<{ room: PublicRoom }>('/api/rooms', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function joinWatchRoom(id: string, password = '') {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/join`, { method: 'POST', body: JSON.stringify({ password }) });
+}
+
+export async function leaveWatchRoom(id: string) {
+  return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/leave`, { method: 'POST', body: '{}' });
+}
+
+export async function fetchWatchRoom(id: string) {
+  return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
+}
+
+export async function pingWatchRoom(id: string, micOn?: boolean) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify({ micOn }) });
+}
+
+export async function setWatchMedia(id: string, body: { videoId?: string; videoTitle?: string; playing?: boolean; position?: number }) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/media`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function kickWatchMember(id: string, username: string) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/kick`, { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function muteWatchMember(id: string, username: string, muted: boolean) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/mute`, { method: 'POST', body: JSON.stringify({ username, muted }) });
+}
+
+export async function searchWatchYoutube(q: string) {
+  return request<{ items: YoutubeHit[] }>('/api/rooms/search', { method: 'POST', body: JSON.stringify({ q }) });
+}
+
+export async function sendWatchSignal(id: string, body: { to: string; type: RoomSignal['type']; payload: unknown }) {
+  return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/signal`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function ackWatchSignals(id: string, ids: string[]) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ack`, { method: 'POST', body: JSON.stringify({ ids }) });
+}

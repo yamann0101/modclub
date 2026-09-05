@@ -116,7 +116,7 @@ export async function ensureSchema() {
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`);
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS vip_until bigint`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('banners', $1::jsonb) ON CONFLICT (key) DO NOTHING`, [JSON.stringify(DEFAULT_BANNERS)]);
-  for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events"]) {
+  for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events", "rooms_index"]) {
     await query(`INSERT INTO club_docs (key, value) VALUES ($1, '[]'::jsonb) ON CONFLICT (key) DO NOTHING`, [key]);
   }
   await query(`INSERT INTO club_docs (key, value) VALUES ('settings', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);

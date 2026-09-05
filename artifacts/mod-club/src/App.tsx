@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, Download, Film, Flame, Gamepad2, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -9,6 +9,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
 import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
+import { WatchRoomsPage } from '@/components/watch-rooms';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -329,19 +330,8 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
-function GamesPage() {
-  return (
-    <div className="page-view">
-      <div className="page-hero page-hero-games">
-        <div>
-          <p className="page-kicker">OYUNLAR</p>
-          <h1>Oyunlar</h1>
-          <p>Kulüp slot ve rulet kaldırıldı.</p>
-        </div>
-        <Gamepad2 size={48} />
-      </div>
-    </div>
-  );
+function GamesPage({ session }: { session: SessionUser }) {
+  return <WatchRoomsPage user={session} />;
 }
 
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
@@ -850,6 +840,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       setChatOpen(false);
       setActiveNav('Mağaza');
       setNotice('Mağaza açık');
+      return;
+    }
+    if (label === 'ODA AÇ' || label === 'Oyunlar') {
+      setChatOpen(false);
+      setActiveNav('ODA AÇ');
+      setNotice('Odalar açık');
       return;
     }
     setChatOpen(false);
@@ -1598,7 +1594,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Oyunlar' ? <GamesPage /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'ODA AÇ' || activeNav === 'Oyunlar' ? <GamesPage session={session} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       {!chatOpen && (
         <button
@@ -1620,7 +1616,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             { label: 'Ana Sayfa', icon: HomeIcon },
             { label: 'Film izle', icon: Film },
             { label: 'Menü', icon: Zap, orb: true },
-            { label: 'Oyunlar', icon: Gamepad2 },
+            { label: 'ODA AÇ', icon: DoorOpen },
             { label: 'Mağaza', icon: Store },
           ] as { label: string; icon: LucideIcon; orb?: boolean }[]).map(({ label, icon: Icon, orb }) => {
             const active = label === 'Film izle' ? activeNav === 'Film İzle' : label === 'Menü' ? activeNav === 'Menü' : activeNav === label;
