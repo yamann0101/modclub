@@ -458,19 +458,21 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         </div>
 
         <div className="room-couch">
-          <p className="page-kicker">KOLTUKLAR</p>
-          <div className="room-seats">
-            {seats.map((member, seat) => (
-              <article key={seat} className={`room-seat ${member ? 'is-taken' : ''} ${member?.username === open.owner ? 'is-host' : ''}`}>
-                {member ? (
-                  <>
-                    <img src={avatarFor(member.nick, member.photo)} alt={member.nick} />
-                    <strong>{member.nick}</strong>
-                    <em>{member.username === open.owner ? 'Yönetici' : `Koltuk ${seat + 1}`}</em>
-                    <span className={`room-seat-mic ${member.micOn ? 'is-on' : ''} ${member.muted ? 'is-off' : ''}`}>
-                      {member.muted ? <VolumeX size={12} /> : member.micOn ? <Mic size={12} /> : <MicOff size={12} />}
-                    </span>
-                    {open.you.owner && member.username !== user.username && (
+          <div className="room-stage-floor">
+            <div className="room-seats">
+              {seats.map((member, seat) => {
+                const host = member?.username === open.owner;
+                return (
+                  <article key={seat} className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${host ? 'is-host' : ''} ${member?.micOn ? 'is-talk' : ''}`}>
+                    <div className="mic-ring">
+                      {host && <span className="mic-wings" aria-hidden="true" />}
+                      <div className="mic-avatar">
+                        {member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
+                      </div>
+                      <span className="mic-ribbon">{host ? 'Yönetici' : member?.muted ? 'Susturuldu' : member?.micOn ? 'Canlı' : `Mik ${seat + 1}`}</span>
+                    </div>
+                    <strong>{member ? member.nick : 'Boş'}</strong>
+                    {open.you.owner && member && member.username !== user.username && (
                       <div className="room-seat-admin">
                         <button type="button" onClick={() => void muteWatchMember(open.id, member.username, !member.muted)}>
                           <VolumeX size={13} /> {member.muted ? 'Aç' : 'Sustur'}
@@ -480,12 +482,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                         </button>
                       </div>
                     )}
-                  </>
-                ) : (
-                  <span>Boş koltuk</span>
-                )}
-              </article>
-            ))}
+                  </article>
+                );
+              })}
+            </div>
           </div>
         </div>
         {notice && <p className="room-note">{notice}</p>}
