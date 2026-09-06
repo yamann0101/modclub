@@ -3,7 +3,7 @@ import { query } from "./pg";
 
 const SEATS = 8;
 const MAX_ROOMS = 24;
-const STALE_MS = 25_000;
+const STALE_MS = 180_000;
 const MAX_SIGNALS = 200;
 
 export type RoomMember = {
@@ -137,15 +137,14 @@ function checkPassword(stored: string, password: string) {
 }
 
 function prune(room: WatchRoom, now = Date.now()): WatchRoom {
-  const members = room.members.filter((member) => now - member.lastSeen < STALE_MS);
-  let owner = room.owner;
-  let ownerNick = room.ownerNick;
-  if (!members.some((member) => member.username === owner) && members[0]) {
-    owner = members[0].username;
-    ownerNick = members[0].nick;
-  }
+  const creator = room.creator || room.owner;
+  const members = room.members.filter((member) => (
+    now - member.lastSeen < STALE_MS || member.username === creator
+  ));
+  const owner = creator;
+  const ownerNick = members.find((member) => member.username === owner)?.nick || room.ownerNick;
   const signals = room.signals.filter((item) => now - item.at < 20_000).slice(-MAX_SIGNALS);
-  return { ...room, members, owner, ownerNick, creator: room.creator || room.owner, hosts: room.hosts || [], chats: room.chats || [], signals };
+  return { ...room, members, owner, ownerNick, creator, hosts: room.hosts || [], chats: room.chats || [], signals };
 }
 
 function toIndex(room: WatchRoom): RoomIndex {
@@ -234,10 +233,6 @@ export async function listRooms() {
     const raw = await readRoom(item.id);
     if (!raw) continue;
     const room = prune(raw, now);
-    if (!room.members.length && now - room.createdAt > 60_000) {
-      await dropRoom(room.id);
-      continue;
-    }
     if (room.members.length !== raw.members.length || room.owner !== raw.owner) await writeRoom(room);
     live.push(toIndex(room));
   }
@@ -381,16 +376,8 @@ export async function leaveRoom(id: string, username: string) {
   if (!raw) return null;
   const room = prune(raw);
   room.members = room.members.filter((member) => member.username !== username);
-  room.hosts = (room.hosts || []).filter((name) => name !== username);
   room.signals = room.signals.filter((item) => item.from !== username && item.to !== username);
-  if (!room.members.length) {
-    await dropRoom(id);
-    return null;
-  }
-  if (room.owner === username) {
-    room.owner = room.members[0].username;
-    room.ownerNick = room.members[0].nick;
-  }
+  room.owner = room.creator || room.owner;
   await writeRoom(room);
   return room;
 }

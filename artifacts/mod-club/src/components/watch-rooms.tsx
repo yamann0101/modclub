@@ -340,6 +340,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               setNeedStart(false);
             }
             if (live.you.host) {
+              if (document.hidden && event.data === 2) return;
               if (event.data === 1 || event.data === 2) void pushOwnerClock(live, player);
               return;
             }
@@ -378,7 +379,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       }
       if (room.you.host) {
         if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
-        void pushOwnerClock(room, player);
+        if (!document.hidden) void pushOwnerClock(room, player);
       } else {
         followCinema(room, player);
       }
@@ -387,6 +388,45 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open?.id]);
 
   useEffect(() => () => teardownVoice(), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const keepAlive = () => {
+      void pingWatchRoom(open.id).catch(() => undefined);
+    };
+    const onHidden = () => {
+      keepAlive();
+    };
+    const onVisible = () => {
+      keepAlive();
+      const room = roomRef.current;
+      const player = playerRef.current;
+      if (!room || !player || !playerReady.current) return;
+      followCinema(room, player);
+      if (room.playing && room.videoId) {
+        try {
+          player.seekTo(cinemaTime(room, receivedAtRef.current), true);
+          player.playVideo();
+        } catch {
+          setNeedStart(true);
+        }
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) onHidden();
+      else onVisible();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onHidden);
+    window.addEventListener('freeze', onHidden);
+    window.addEventListener('pageshow', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onHidden);
+      window.removeEventListener('freeze', onHidden);
+      window.removeEventListener('pageshow', onVisible);
+    };
+  }, [open?.id]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -522,9 +562,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function pushOwnerClock(room: PublicRoom, player: YtPlayer) {
+    if (document.hidden) return;
     const state = player.getPlayerState?.();
     if (state === 3 || state < 0 || pushingRef.current) return;
     const playing = state === 1;
+    if (!playing && room.playing && state === 2) return;
     const time = player.getCurrentTime?.() ?? 0;
     const live = cinemaTime(room, receivedAtRef.current);
     const prev = lastPushRef.current;
