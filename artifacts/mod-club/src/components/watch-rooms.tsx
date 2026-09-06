@@ -195,8 +195,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [reactNow, setReactNow] = useState(0);
   const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
   const [joinBanner, setJoinBanner] = useState('');
+  const [joinStamp, setJoinStamp] = useState(0);
   const localReact = useRef<{ id: string; at: number } | null>(null);
-  const seenJoinAt = useRef(0);
+  const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
@@ -321,23 +322,30 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [kbInset, focusField]);
 
   useEffect(() => {
-    if (!open) {
-      seenJoinAt.current = 0;
-      setJoinBanner('');
-      setFocusField(null);
-      return;
-    }
-    seenJoinAt.current = Math.max(seenJoinAt.current, open.lastJoin?.at || Date.now());
+    knownMembers.current = new Set();
+    setJoinBanner('');
+    setFocusField(null);
   }, [open?.id]);
 
   useEffect(() => {
-    const join = open?.lastJoin;
-    if (!join || join.at <= seenJoinAt.current) return;
-    seenJoinAt.current = join.at;
-    setJoinBanner(join.nick);
-    const timer = window.setTimeout(() => setJoinBanner(''), 3200);
+    if (!open) return;
+    const names = new Set(open.members.map((member) => member.username));
+    if (knownMembers.current.size === 0) {
+      knownMembers.current = names;
+      return;
+    }
+    const fresh = open.members.filter((member) => !knownMembers.current.has(member.username));
+    knownMembers.current = names;
+    if (!fresh.length) return;
+    setJoinBanner(fresh[fresh.length - 1].nick);
+    setJoinStamp(Date.now());
+  }, [open?.id, open?.members]);
+
+  useEffect(() => {
+    if (!joinBanner) return;
+    const timer = window.setTimeout(() => setJoinBanner(''), 3800);
     return () => window.clearTimeout(timer);
-  }, [open?.lastJoin?.at, open?.lastJoin?.nick]);
+  }, [joinStamp, joinBanner]);
 
   useEffect(() => {
     if (!open) {
@@ -447,6 +455,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               if (event.data === 1 || event.data === 2) void pushOwnerClock(live, player);
               return;
             }
+            if (!live.playing && event.data === 1) {
+              try { player.pauseVideo(); } catch { /* ignore */ }
+              return;
+            }
             if (live.playing && (event.data === 2 || event.data === 0)) {
               try { player.playVideo(); } catch { /* blocked */ }
             }
@@ -473,7 +485,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
       if (room.you.host) {
-        if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
+        const localPlay = lastPushRef.current.playing;
+        if ((!room.playing && !localPlay) || (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current)) {
+          followCinema(room, player);
+        }
         if (!document.hidden) void pushOwnerClock(room, player);
       } else {
         followCinema(room, player);
@@ -498,13 +513,17 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
       followCinema(room, player);
-      if (room.playing && room.videoId) {
-        try {
+      if (!room.videoId) return;
+      try {
+        if (room.playing) {
           player.seekTo(cinemaTime(room, receivedAtRef.current), true);
           player.playVideo();
-        } catch {
-          setNeedStart(true);
+        } else {
+          player.seekTo(room.position, true);
+          player.pauseVideo();
         }
+      } catch {
+        if (room.playing) setNeedStart(true);
       }
     };
     const onVisibility = () => {
@@ -584,10 +603,14 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         lastRevRef.current = room.mediaRev ?? 0;
         lastLoadAt.current = Date.now();
         player.mute();
-        if (room.playing) player.loadVideoById(room.videoId, target);
-        else player.cueVideoById(room.videoId, target);
-        try { player.playVideo(); } catch { /* autoplay */ }
-        if (room.playing && !room.you.host) setNeedStart(true);
+        if (room.playing) {
+          player.loadVideoById(room.videoId, target);
+          try { player.playVideo(); } catch { /* autoplay */ }
+          if (!room.you.host) setNeedStart(true);
+        } else {
+          player.cueVideoById(room.videoId, target);
+          try { player.pauseVideo(); } catch { /* ignore */ }
+        }
         return;
       }
       const rev = room.mediaRev ?? 0;
@@ -643,8 +666,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     unlockAudio();
     try {
       player.mute();
-      player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
-      player.playVideo();
+      if (room.playing) {
+        player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
+        player.playVideo();
+      } else {
+        player.cueVideoById(room.videoId, room.position);
+        player.pauseVideo();
+      }
       lastVideo.current = room.videoId;
       lastRevRef.current = room.mediaRev ?? 0;
       lastLoadAt.current = Date.now();
@@ -661,7 +689,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const state = player.getPlayerState?.();
     if (state === 3 || state < 0 || pushingRef.current) return;
     const playing = state === 1;
-    if (!playing && room.playing && state === 2) return;
     const time = player.getCurrentTime?.() ?? 0;
     const live = cinemaTime(room, receivedAtRef.current);
     const prev = lastPushRef.current;
@@ -1002,6 +1029,15 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   async function onLeave() {
     if (!open) return;
+    if (open.you.host && playerRef.current && playerReady.current) {
+      try {
+        const time = playerRef.current.getCurrentTime() || open.position;
+        const state = playerRef.current.getPlayerState();
+        await setWatchMedia(open.id, { playing: state === 1, position: time });
+      } catch {
+        /* keep last cinema clock */
+      }
+    }
     teardownVoice();
     await leaveWatchRoom(open.id).catch(() => undefined);
     try { playerRef.current?.destroy(); } catch { /* ignore */ }
@@ -1151,7 +1187,14 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         style={kbInset > 0 ? { paddingBottom: kbInset } : undefined}
       >
         {joinBanner && (
-          <div className="room-join-banner">{joinBanner.toLocaleUpperCase('tr-TR')} ODAYA GİRDİ</div>
+          <div className="room-join-banner" key={joinStamp}>
+            <span className="room-join-shine" aria-hidden="true" />
+            <DoorOpen size={18} />
+            <span>
+              <strong>{joinBanner.toLocaleUpperCase('tr-TR')}</strong>
+              <em>ODAYA GİRDİ</em>
+            </span>
+          </div>
         )}
         {ownsOpen && (
           <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
@@ -1205,9 +1248,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               <button type="submit" disabled={busy}>Ara</button>
               <button type="button" onClick={() => {
                 const time = playerRef.current?.getCurrentTime() || open.position;
-                if (open.playing) playerRef.current?.pauseVideo();
-                else playerRef.current?.playVideo();
-                void setWatchMedia(open.id, { playing: !open.playing, position: time }).then((data) => {
+                const nextPlaying = !open.playing;
+                if (nextPlaying) playerRef.current?.playVideo();
+                else playerRef.current?.pauseVideo();
+                lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
+                void setWatchMedia(open.id, { playing: nextPlaying, position: time }).then((data) => {
                   lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
                   adopt(data.room);
                 });

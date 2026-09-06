@@ -2214,25 +2214,58 @@ html.dark .guess-btn-ghost {
 }
 .room-emoji-item.is-kiss-l span { display: inline-block; transform: scaleX(-1); }
 .room-join-banner {
-  position: fixed;
-  top: max(.55rem, env(safe-area-inset-top));
-  left: 50%;
-  z-index: 55;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: linear-gradient(180deg, #8b5cf6, #6d28d9);
+  position: absolute;
+  top: max(2.55rem, calc(env(safe-area-inset-top) + 2.35rem));
+  left: .65rem;
+  right: .65rem;
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55rem;
+  overflow: hidden;
+  border-radius: 1.15rem;
+  background: linear-gradient(135deg, #f5d76e 0%, #e879f9 42%, #7c3aed 100%);
   color: #fff;
-  padding: .42rem .95rem;
-  font-size: .7rem;
+  padding: .72rem .85rem;
+  box-shadow: 0 16px 40px rgba(124, 58, 237, .48);
+  animation: room-join-slide 3.8s cubic-bezier(.22, 1.15, .32, 1) both;
+  pointer-events: none;
+}
+.room-join-banner span:last-child { text-align: center; }
+.room-join-banner strong {
+  display: block;
+  font-size: .95rem;
   font-weight: 900;
   letter-spacing: .05em;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(91, 33, 182, .42);
-  animation: room-join-pop .35s ease-out both;
+  line-height: 1.1;
+  text-shadow: 0 2px 8px rgba(0,0,0,.28);
 }
-@keyframes room-join-pop {
-  0% { transform: translateX(-50%) translateY(-10px) scale(.86); opacity: 0; }
-  100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+.room-join-banner em {
+  display: block;
+  margin-top: .12rem;
+  font-size: .62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: rgba(255,255,255,.9);
+}
+.room-join-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 28%, rgba(255,255,255,.5) 48%, transparent 68%);
+  animation: room-join-shine 1.15s ease-out .12s both;
+}
+@keyframes room-join-slide {
+  0% { transform: translateY(-130%) scale(.88); opacity: 0; }
+  10% { transform: translateY(0) scale(1.05); opacity: 1; }
+  16% { transform: translateY(0) scale(1); }
+  78% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-130%) scale(.9); opacity: 0; }
+}
+@keyframes room-join-shine {
+  0% { transform: translateX(-90%); }
+  100% { transform: translateX(90%); }
 }
 .room-page.is-keyboard .room-emoji-pack { display: none; }
 .room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .15rem .55rem .15rem; flex-shrink: 0; }
