@@ -18,11 +18,13 @@ import {
   pushSignal,
   readRoom,
   searchYoutube,
+  setHidden,
   setHost,
   setMedia,
   takeSignals,
 } from "../lib/watch-rooms";
 import { listCpPairs } from "../lib/couples";
+import { hideUntilOf } from "../lib/room-hide";
 
 const router: IRouter = Router();
 
@@ -32,7 +34,7 @@ async function packRoom(room: Parameters<typeof publicRoom>[0], username: string
 
 function fail(res: { status: (code: number) => { json: (body: unknown) => void } }, code: string) {
   const status = code === "auth" ? 401
-    : code === "password" || code === "banned" || code === "owner" ? 403
+    : code === "password" || code === "banned" || code === "owner" || code === "perk" ? 403
     : code === "missing" || code === "member" ? 404
     : code === "full" || code === "owned" ? 409
     : 400;
@@ -42,7 +44,10 @@ function fail(res: { status: (code: number) => { json: (body: unknown) => void }
 router.get("/rooms", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
-  res.json({ rooms: await listRooms() });
+  res.json({
+    rooms: await listRooms(account),
+    hideUntil: account.role === "ADMIN" ? Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 : await hideUntilOf(account.username),
+  });
 });
 
 router.post("/rooms", async (req, res) => {
@@ -96,6 +101,7 @@ router.post("/rooms/:id/join", async (req, res) => {
       nick: account.nick,
       photo: account.photo || undefined,
       password: String((req.body as { password?: string }).password || ""),
+      role: account.role,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -212,6 +218,17 @@ router.post("/rooms/:id/host", async (req, res) => {
   const body = (req.body || {}) as { username?: string; grant?: boolean };
   try {
     const room = await setHost(req.params.id, account.username, String(body.username || ""), Boolean(body.grant));
+    res.json({ room: await packRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/hide", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  try {
+    const room = await setHidden(req.params.id, account.username, account.role, Boolean((req.body as { hidden?: boolean }).hidden));
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");

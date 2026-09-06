@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createSession, destroySession, sessionAccount, type ClubAccount } from "./club-data";
+import { hideUntilOf } from "./room-hide";
 
 export const SESSION_COOKIE = "mc_sid";
 
@@ -30,7 +31,7 @@ export async function clearLoginCookie(req: Request, res: Response) {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
-export function publicUser(account: ClubAccount) {
+export function publicUser(account: ClubAccount, hideUntil = 0) {
   return {
     username: account.username,
     nick: account.nick,
@@ -41,5 +42,10 @@ export function publicUser(account: ClubAccount) {
     photo: account.photo || undefined,
     coins: account.coins ?? 0,
     vipUntil: account.vipUntil || undefined,
+    hideUntil: account.role === "ADMIN" ? Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 : hideUntil,
   };
+}
+
+export async function publicSession(account: ClubAccount) {
+  return publicUser(account, await hideUntilOf(account.username));
 }

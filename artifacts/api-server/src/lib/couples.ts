@@ -9,6 +9,7 @@ export type CpState = { bonds: CpBond[]; asks: CpAsk[] };
 
 const DOC = "cp_bonds";
 const ASK_MS = 15_000;
+const MAX_CP = 3;
 
 function key(value: string) {
   return value.trim().toLowerCase();
@@ -40,8 +41,14 @@ async function readState(): Promise<CpState> {
   return { bonds, asks };
 }
 
-function bondOf(bonds: CpBond[], username: string) {
-  return bonds.find((item) => same(item.a, username) || same(item.b, username));
+function bondsOf(bonds: CpBond[], username: string) {
+  return bonds.filter((item) => same(item.a, username) || same(item.b, username));
+}
+
+function alreadyBonded(bonds: CpBond[], left: string, right: string) {
+  return bonds.some((item) =>
+    (same(item.a, left) && same(item.b, right)) || (same(item.a, right) && same(item.b, left)),
+  );
 }
 
 function otherOf(bond: CpBond, username: string) {
@@ -72,9 +79,11 @@ export async function publicCp(username: string) {
       ? { username: account.username, nick: account.nick, photo: account.photo || undefined }
       : { username: name, nick: name };
   };
-  const bond = bondOf(state.bonds, username);
+  const mine = bondsOf(state.bonds, username);
+  const partners = mine.map((item) => lookup(otherOf(item, username)));
   return {
-    partner: bond ? lookup(otherOf(bond, username)) : null,
+    partner: partners[0] || null,
+    partners,
     incoming: state.asks.filter((item) => same(item.to, username)).map((item) => ({ ...item, fromUser: lookup(item.from) })),
     outgoing: state.asks.filter((item) => same(item.from, username)).map((item) => ({ ...item, toUser: lookup(item.to) })),
     pairs: state.bonds.map((item) => [item.a, item.b] as [string, string]),
@@ -86,7 +95,9 @@ export async function requestCp(from: string, target: string) {
   if (!toAccount) throw new Error("missing");
   if (same(from, toAccount.username)) throw new Error("self");
   const state = await readState();
-  if (bondOf(state.bonds, from) || bondOf(state.bonds, toAccount.username)) throw new Error("taken");
+  if (alreadyBonded(state.bonds, from, toAccount.username)) throw new Error("taken");
+  if (bondsOf(state.bonds, from).length >= MAX_CP) throw new Error("full");
+  if (bondsOf(state.bonds, toAccount.username).length >= MAX_CP) throw new Error("taken");
   const pending = state.asks.some((item) =>
     (same(item.from, from) && same(item.to, toAccount.username))
     || (same(item.from, toAccount.username) && same(item.to, from)),
@@ -108,19 +119,22 @@ export async function respondCp(username: string, id: string, accept: boolean) {
   if (!ask) throw new Error("missing");
   state.asks = state.asks.filter((item) => item.id !== id);
   if (accept) {
-    if (bondOf(state.bonds, ask.from) || bondOf(state.bonds, ask.to)) throw new Error("taken");
+    if (alreadyBonded(state.bonds, ask.from, ask.to)) throw new Error("taken");
+    if (bondsOf(state.bonds, ask.from).length >= MAX_CP || bondsOf(state.bonds, ask.to).length >= MAX_CP) throw new Error("full");
     state.bonds.push({ a: ask.from, b: ask.to, since: Date.now() });
-    state.asks = state.asks.filter((item) =>
-      !same(item.from, ask.from) && !same(item.to, ask.from) && !same(item.from, ask.to) && !same(item.to, ask.to),
-    );
   }
   await setDoc(DOC, state);
   return publicCp(username);
 }
 
-export async function breakCp(username: string) {
+export async function breakCp(username: string, target?: string) {
   const state = await readState();
-  state.bonds = state.bonds.filter((item) => !same(item.a, username) && !same(item.b, username));
+  if (target?.trim()) {
+    const other = target.trim();
+    state.bonds = state.bonds.filter((item) => !alreadyBonded([item], username, other));
+  } else {
+    state.bonds = state.bonds.filter((item) => !same(item.a, username) && !same(item.b, username));
+  }
   await setDoc(DOC, state);
   return publicCp(username);
 }

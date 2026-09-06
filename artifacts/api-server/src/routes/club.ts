@@ -16,8 +16,9 @@ import {
 import { adminWallet, buyVip } from "../lib/economy";
 import { isSlotTheme, spinOlympus } from "../lib/olympus-slot";
 import { playRoulette } from "../lib/club-roulette";
-import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
+import { clearLoginCookie, currentAccount, publicSession, setLoginCookie } from "../lib/http";
 import { breakCp, publicCp, requestCp, respondCp } from "../lib/couples";
+import { grantHideRooms } from "../lib/room-hide";
 
 const router: IRouter = Router();
 
@@ -27,7 +28,7 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ error: "auth" });
     return;
   }
-  res.json(publicUser(account));
+  res.json(await publicSession(account));
 });
 
 router.post("/auth/register", async (req, res) => {
@@ -58,7 +59,7 @@ router.post("/auth/register", async (req, res) => {
   const account = { username, password, nick, role: "ÜYE" as const };
   await upsertAccount(account);
   await setLoginCookie(req, res, account);
-  res.status(201).json(publicUser(account));
+  res.status(201).json(await publicSession(account));
 });
 
 router.post("/auth/login", async (req, res) => {
@@ -70,7 +71,7 @@ router.post("/auth/login", async (req, res) => {
     return;
   }
   await setLoginCookie(req, res, account);
-  res.json(publicUser(account));
+  res.json(await publicSession(account));
 });
 
 router.post("/auth/logout", async (req, res) => {
@@ -145,7 +146,7 @@ router.patch("/me", async (req, res) => {
     photo: typeof body.photo === "string" ? body.photo : account.photo,
   };
   await upsertAccount(next);
-  res.json(publicUser(next));
+  res.json(await publicSession(next));
 });
 
 router.patch("/club/users/:username", async (req, res) => {
@@ -163,6 +164,27 @@ router.patch("/club/users/:username", async (req, res) => {
   const role = body.role === "MODERATOR" || body.role === "ÜYE" || body.role === "ADMIN" ? body.role : target.role;
   const title = body.title === "ELDER" || body.title === "ASSTN" ? body.title : body.title === null || body.title === "" ? null : target.title;
   await upsertAccount({ ...target, role, title });
+  res.json(await snapshot(actor.username));
+});
+
+router.post("/club/hide-grant", async (req, res) => {
+  const actor = await currentAccount(req);
+  if (!actor || actor.role !== "ADMIN") {
+    res.status(403).json({ error: "admin" });
+    return;
+  }
+  const body = (req.body || {}) as { username?: string; days?: number };
+  const target = await findAccount(String(body.username || ""));
+  if (!target) {
+    res.status(404).json({ error: "missing" });
+    return;
+  }
+  const days = Number(body.days);
+  if (![0, 1, 7, 30].includes(days)) {
+    res.status(400).json({ error: "days" });
+    return;
+  }
+  await grantHideRooms(target.username, days);
   res.json(await snapshot(actor.username));
 });
 
@@ -320,7 +342,7 @@ router.post("/cp/request", async (req, res) => {
     res.json(await requestCp(account.username, String((req.body as { target?: string }).target || "")));
   } catch (err) {
     const code = err instanceof Error ? err.message : "invalid";
-    res.status(code === "missing" ? 404 : code === "taken" || code === "pending" || code === "self" ? 409 : 400).json({ error: code });
+    res.status(code === "missing" ? 404 : code === "taken" || code === "pending" || code === "self" || code === "full" ? 409 : 400).json({ error: code });
   }
 });
 
@@ -345,7 +367,7 @@ router.post("/cp/break", async (req, res) => {
     res.status(401).json({ error: "auth" });
     return;
   }
-  res.json(await breakCp(account.username));
+  res.json(await breakCp(account.username, String((req.body as { target?: string }).target || "")));
 });
 
 export default router;

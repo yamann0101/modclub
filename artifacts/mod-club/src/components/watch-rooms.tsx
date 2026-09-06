@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Crown, DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Smile, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -19,6 +19,7 @@ import {
   requestCp,
   sendWatchChat,
   sendWatchSignal,
+  setWatchHidden,
   setWatchHost,
   setWatchMedia,
   type PublicRoom,
@@ -106,6 +107,21 @@ function roomDrive(room: PublicRoom) {
   if (typeof room.you.drive === 'boolean') return room.you.drive;
   return (room.driver || room.owner) === room.you.username;
 }
+
+const MIC_AUDIO = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 48000,
+  voiceIsolation: true,
+  googEchoCancellation: true,
+  googNoiseSuppression: true,
+  googAutoGainControl: true,
+  googHighpassFilter: true,
+  googTypingNoiseDetection: true,
+  googAudioMirroring: false,
+} as MediaTrackConstraints;
 
 declare global {
   interface Window {
@@ -214,7 +230,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [needStart, setNeedStart] = useState(false);
   const [cinemaKey, setCinemaKey] = useState(0);
   const [kbInset, setKbInset] = useState(0);
-  const [packOpen, setPackOpen] = useState(false);
+  const [hideUntil, setHideUntil] = useState(user.hideUntil || 0);
   const [reactNow, setReactNow] = useState(0);
   const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
   const [joinBanner, setJoinBanner] = useState('');
@@ -243,10 +259,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const makingOffer = useRef(new Set<string>());
   const audioCtx = useRef<AudioContext | null>(null);
   const speakerOnRef = useRef(true);
+  const wantMicRef = useRef(false);
+  const revivingMic = useRef(false);
+  const levelGen = useRef(0);
+  const chatBusy = useRef(false);
 
   const refreshList = async () => {
     try {
-      setRooms((await fetchRooms()).rooms);
+      const data = await fetchRooms();
+      setRooms(data.rooms);
+      if (typeof data.hideUntil === 'number') setHideUntil(data.hideUntil);
     } catch {
       setNotice('Odalar alınamadı');
     }
@@ -334,11 +356,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     document.body.classList.toggle('room-typing', kbInset > 0 && focusField === 'chat');
-    if (kbInset > 0 && focusField === 'chat') {
-      requestAnimationFrame(() => {
-        chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-        if (chatLogRef.current) chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
-      });
+    if (kbInset > 0 && focusField === 'chat' && chatLogRef.current) {
+      chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
     }
   }, [kbInset, focusField]);
 
@@ -531,7 +550,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     };
     const onVisible = () => {
       keepAlive();
+      unlockAudio();
       const room = roomRef.current;
+      if (room) void syncVoice(room);
+      void reviveMic();
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
       followCinema(room, player);
@@ -556,11 +578,18 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     window.addEventListener('pagehide', onHidden);
     window.addEventListener('freeze', onHidden);
     window.addEventListener('pageshow', onVisible);
+    window.addEventListener('focus', onVisible);
+    const watchdog = window.setInterval(() => {
+      if (document.hidden || !wantMicRef.current || micLive()) return;
+      void reviveMic();
+    }, 2500);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHidden);
       window.removeEventListener('freeze', onHidden);
       window.removeEventListener('pageshow', onVisible);
+      window.removeEventListener('focus', onVisible);
+      window.clearInterval(watchdog);
     };
   }, [open?.id]);
 
@@ -673,7 +702,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   function applyLocalVolume(player: YtPlayer) {
     try {
-      player.setVolume(videoVol);
+      const duck = wantMicRef.current ? 0.45 : 1;
+      player.setVolume(Math.round(videoVol * duck));
       if (videoMuted || videoVol === 0) player.mute();
       else player.unMute();
     } catch {
@@ -761,6 +791,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   function watchLevel(name: string, stream: MediaStream) {
     if (name !== user.username) return;
+    const gen = ++levelGen.current;
     try {
       if (!audioCtx.current) audioCtx.current = new AudioContext();
       const context = audioCtx.current;
@@ -770,6 +801,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       source.connect(analyser);
       const buffer = new Uint8Array(analyser.frequencyBinCount);
       const loop = () => {
+        if (gen !== levelGen.current) return;
         analyser.getByteFrequencyData(buffer);
         let sum = 0;
         for (const value of buffer) sum += value;
@@ -780,6 +812,67 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       loop();
     } catch {
       /* analyser not available */
+    }
+  }
+
+  function micLive() {
+    return Boolean(localStream.current?.getAudioTracks().some((track) => track.readyState === 'live' && track.enabled));
+  }
+
+  async function tuneAudioSender(peer: RTCPeerConnection) {
+    const sender = peer.getSenders().find((item) => item.track?.kind === 'audio' || item.track === null);
+    if (!sender) return;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings?.length) params.encodings = [{}];
+      params.encodings[0].maxBitrate = 128_000;
+      await sender.setParameters(params);
+    } catch {
+      /* sender params locked */
+    }
+  }
+
+  async function acquireMic() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false });
+    localStream.current?.getTracks().forEach((track) => track.stop());
+    localStream.current = stream;
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      try { await track.applyConstraints(MIC_AUDIO); } catch { /* device limits */ }
+      track.onended = () => {
+        if (wantMicRef.current && !document.hidden) void reviveMic();
+      };
+    }
+    watchLevel(user.username, stream);
+  }
+
+  async function applyMicToPeers(room: PublicRoom) {
+    for (const [name, peer] of peers.current) {
+      await attachLocal(peer);
+      await tuneAudioSender(peer);
+      if (peer.signalingState === 'stable') await renegotiate(room, name, peer);
+    }
+  }
+
+  async function reviveMic() {
+    const room = roomRef.current;
+    if (!room || !wantMicRef.current || revivingMic.current || room.you.muted) return;
+    if (micLive()) {
+      unlockAudio();
+      for (const peer of peers.current.values()) await attachLocal(peer);
+      return;
+    }
+    revivingMic.current = true;
+    try {
+      await acquireMic();
+      await syncVoice(room);
+      await applyMicToPeers(room);
+      const next = await pingWatchRoom(room.id, { micOn: true });
+      setOpen(next.room);
+    } catch {
+      setNotice('Mikrofon koptu. Mik aç-kapa yap.');
+    } finally {
+      revivingMic.current = false;
     }
   }
 
@@ -808,6 +901,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     } else if (track && stream) {
       peer.addTrack(track, stream);
     }
+    await tuneAudioSender(peer);
   }
 
   async function flushIce(peer: RTCPeerConnection, name: string) {
@@ -925,6 +1019,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function teardownVoice() {
+    wantMicRef.current = false;
+    levelGen.current += 1;
     localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = null;
     peers.current.forEach((peer) => peer.close());
@@ -951,29 +1047,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
     if (!open.you.micOn) {
       try {
+        wantMicRef.current = true;
         await syncVoice(open);
-        localStream.current = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: false,
-        });
-        watchLevel(user.username, localStream.current);
-        for (const [name, peer] of peers.current) {
-          await attachLocal(peer);
-          await renegotiate(open, name, peer);
-        }
+        await acquireMic();
+        await applyMicToPeers(open);
         const next = await pingWatchRoom(open.id, { micOn: true });
         setOpen(next.room);
+        if (playerRef.current) applyLocalVolume(playerRef.current);
       } catch {
+        wantMicRef.current = false;
         setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
       }
       return;
     }
+    wantMicRef.current = false;
+    levelGen.current += 1;
     localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = null;
     markTalk(user.username, false);
     for (const peer of peers.current.values()) await attachLocal(peer);
     const next = await pingWatchRoom(open.id, { micOn: false, speaking: false });
     setOpen(next.room);
+    if (playerRef.current) applyLocalVolume(playerRef.current);
   }
 
   function toggleSpeaker() {
@@ -1021,7 +1116,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   async function onJoin(room: RoomCard) {
     const owns = room.owner === user.username || room.creator === user.username;
-    if (room.locked && !owns) {
+    if (room.locked && !owns && user.role !== 'ADMIN') {
       setJoinId(room.id);
       return;
     }
@@ -1157,6 +1252,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     await seekTo(now + delta, open.playing);
   }
 
+  async function toggleHidden() {
+    if (!open) return;
+    try {
+      adopt((await setWatchHidden(open.id, !open.hidden)).room);
+      setNotice(open.hidden ? 'Oda tekrar görünür' : 'Oda gizlendi');
+    } catch (err) {
+      setNotice((err as Error).message === 'perk' ? 'Oda gizleme yetkin yok' : 'Oda gizlenemedi');
+    }
+  }
+
   async function toggleCp() {
     if (!open || !ownsOpen) return;
     try {
@@ -1173,7 +1278,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       setNotice('Sevgili isteği gitti');
     } catch (err) {
       const code = (err as Error).message;
-      setNotice(code === 'taken' ? 'Biriniz zaten sevgili' : code === 'pending' ? 'Zaten istek var' : code === 'self' ? 'Kendine istek olmaz' : 'İstek gitmedi');
+      setNotice(code === 'full' ? 'En fazla 3 CP olur' : code === 'taken' ? 'Bu kişiyle zaten CP’sin veya limiti doldu' : code === 'pending' ? 'Zaten istek var' : code === 'self' ? 'Kendine istek olmaz' : 'İstek gitmedi');
     }
   }
 
@@ -1185,7 +1290,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
     const at = Date.now();
     localReact.current = { id, at };
-    setPackOpen(false);
     setReactNow(at);
     try {
       adopt((await pingWatchRoom(open.id, { emoji: id })).room);
@@ -1194,15 +1298,24 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
-  async function onChat(event: FormEvent) {
-    event.preventDefault();
-    if (!open || !chatText.trim()) return;
+  async function submitChat() {
+    if (!open || chatBusy.current) return;
+    const text = chatText.trim();
+    if (!text) return;
+    chatBusy.current = true;
     try {
-      adopt((await sendWatchChat(open.id, chatText)).room);
+      adopt((await sendWatchChat(open.id, text)).room);
       setChatText('');
     } catch {
       setNotice('Mesaj gitmedi');
+    } finally {
+      chatBusy.current = false;
     }
+  }
+
+  function onChat(event: FormEvent) {
+    event.preventDefault();
+    void submitChat();
   }
 
   const seats = useMemo(() => {
@@ -1211,6 +1324,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open?.members]);
 
   const ownsOpen = Boolean(open && (open.you.owner || open.owner === user.username || open.creator === user.username));
+  const canHideRooms = user.role === 'ADMIN' || hideUntil > Date.now();
   const mineId = rooms.find((room) => room.creator === user.username || room.owner === user.username)?.id;
 
   if (open) {
@@ -1234,6 +1348,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         {ownsOpen && (
           <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
             Odayı sil
+          </button>
+        )}
+        {((ownsOpen && canHideRooms) || user.role === 'ADMIN') && (
+          <button type="button" className={`room-hide ${open.hidden ? 'is-on' : ''}`} onClick={() => void toggleHidden()}>
+            {open.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+            {open.hidden ? 'Odayı göster' : 'Odayı gizle'}
           </button>
         )}
         <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
@@ -1435,28 +1555,22 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               CP
             </button>
           )}
-          <button type="button" className={`room-mic room-emoji-btn ${packOpen ? 'is-on' : ''}`} onClick={() => setPackOpen((value) => !value)}>
-            <Smile size={16} />
-            Emoji
-          </button>
         </div>
-        {packOpen && (
-          <div className="room-emoji-pack">
-            {SEAT_EMOJIS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`room-emoji-item is-${item.id}`}
-                onClick={() => void sendSeatEmoji(item.id)}
-                title={item.label}
-              >
-                {item.id === 'kiss-l' && <small>←</small>}
-                <span>{item.mark}</span>
-                {item.id === 'kiss-r' && <small>→</small>}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="room-emoji-pack">
+          {SEAT_EMOJIS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`room-emoji-item is-${item.id}`}
+              onClick={() => void sendSeatEmoji(item.id)}
+              title={item.label}
+            >
+              {item.id === 'kiss-l' && <small>←</small>}
+              <span>{item.mark}</span>
+              {item.id === 'kiss-r' && <small>→</small>}
+            </button>
+          ))}
+        </div>
         <div className="room-chat">
           <div className="room-chat-log" ref={chatLogRef}>
             {(open.chats || []).map((row) => (
@@ -1464,24 +1578,33 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             ))}
             {!(open.chats || []).length && <p className="room-chat-empty">Yazışma burada görünür.</p>}
           </div>
-          <form className="room-chat-form" onSubmit={(event) => void onChat(event)}>
+          <form className="room-chat-form" onSubmit={onChat}>
             <input
               ref={chatInputRef}
               value={chatText}
               onChange={(event) => setChatText(event.target.value)}
-              onFocus={() => {
-                setFocusField('chat');
-                requestAnimationFrame(() => {
-                  chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-                });
+              onFocus={() => setFocusField('chat')}
+              onBlur={() => {
+                window.setTimeout(() => {
+                  if (document.activeElement !== chatInputRef.current) {
+                    setFocusField((value) => value === 'chat' ? null : value);
+                  }
+                }, 180);
               }}
-              onBlur={() => setFocusField((value) => value === 'chat' ? null : value)}
               maxLength={240}
               placeholder="Mesaj yaz..."
               inputMode="text"
               autoComplete="off"
             />
-            <button type="submit">Gönder</button>
+            <button
+              type="submit"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                void submitChat();
+              }}
+            >
+              Gönder
+            </button>
             {iHost && (
               <button type="button" className="room-chat-clear" onClick={() => void clearWatchChat(open.id).then((data) => adopt(data.room))}>
                 Temizle
@@ -1525,11 +1648,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             <div className="room-card-cover">
               {room.cover ? <img src={room.cover} alt="" /> : <DoorOpen size={18} />}
               {room.locked && <span><Lock size={11} /></span>}
+              {room.hidden && <em className="room-card-hidden">GİZLİ</em>}
             </div>
             <div className="room-card-body">
               <div className="room-card-meta">
                 <h2>{room.title}</h2>
-                <small>{room.ownerNick} · {room.watching} kişi{room.videoTitle ? ` · ${room.videoTitle}` : ''}</small>
+                <small>{room.ownerNick} · {room.watching} kişi{room.videoTitle ? ` · ${room.videoTitle}` : ''}{room.hidden ? ' · gizli' : ''}</small>
               </div>
               <div className="room-card-actions">
                 <button type="button" disabled={busy} onClick={() => void onJoin(room)}>Gir</button>

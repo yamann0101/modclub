@@ -35,7 +35,8 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
     void run(() => requestCp(nick), 'Sevgili isteği gitti', {
       missing: 'Bu nick bulunamadı',
       self: 'Kendine istek atamazsın',
-      taken: 'Biriniz zaten sevgili',
+      taken: 'Bu kişiyle zaten CP’sin veya limiti doldu',
+      full: 'En fazla 3 kişiye CP atabilirsin',
       pending: 'Zaten bekleyen bir istek var',
     }).then(() => setTarget(''));
   }
@@ -44,31 +45,35 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
     <section className="cp-card">
       <p className="cp-card-kicker">CP TAKI</p>
       <h3>Sevgili</h3>
-      {state?.partner ? (
-        <div className="cp-card-mate">
-          <div className="cp-card-partner">
-            <img src={avatarFor(state.partner.nick, state.partner.photo)} alt="" />
-            <div>
-              <strong>{state.partner.nick}</strong>
-              <small>Sevgilin</small>
+      {(state?.partners || (state?.partner ? [state.partner] : [])).length ? (
+        <div className="cp-card-mates">
+          {(state.partners || (state.partner ? [state.partner] : [])).map((mate) => (
+            <div key={mate.username} className="cp-card-mate">
+              <div className="cp-card-partner">
+                <img src={avatarFor(mate.nick, mate.photo)} alt="" />
+                <div>
+                  <strong>{mate.nick}</strong>
+                  <small>Sevgilin</small>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="cp-card-drop"
+                disabled={busy}
+                onClick={() => {
+                  if (!window.confirm(`${mate.nick} ile CP’yi çıkarmak istiyor musun?`)) return;
+                  void run(() => breakCp(mate.username), 'CP çıkarıldı', {});
+                }}
+              >
+                <HeartCrack size={15} /> CP’yi çıkar
+              </button>
             </div>
-          </div>
-          <button
-            type="button"
-            className="cp-card-drop"
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm(`${state.partner?.nick} ile CP’yi çıkarmak istiyor musun?`)) return;
-              void run(breakCp, 'CP çıkarıldı', {});
-            }}
-          >
-            <HeartCrack size={15} /> CP’yi çıkar
-          </button>
+          ))}
         </div>
       ) : (
-        <p className="cp-card-empty">Henüz sevgilin yok. Nick yazıp istek at.</p>
+        <p className="cp-card-empty">Henüz sevgilin yok. En fazla 3 kişiye istek at.</p>
       )}
-      {!state?.partner && (
+      {(state?.partners || (state?.partner ? [state.partner] : [])).length < 3 && (
         <form className="cp-card-form" onSubmit={onAsk}>
           <input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Nick yaz" maxLength={32} />
           <button type="submit" disabled={busy || !target.trim()}><Heart size={14} /> İstek at</button>
@@ -139,7 +144,7 @@ export function CpAskOverlay({ onNotice }: { onNotice: (text: string) => void })
       setAsk(null);
     } catch (err) {
       const code = (err as Error).message;
-      onNotice(code === 'taken' ? 'Biri zaten sevgili' : 'İstek işlenemedi');
+      onNotice(code === 'full' ? 'En fazla 3 CP olur' : code === 'taken' ? 'Bu kişiyle zaten CP’sin veya limiti doldu' : 'İstek işlenemedi');
     } finally {
       setBusy(false);
     }

@@ -720,6 +720,7 @@ html.dark .pwa-guide-card li, html.dark .pwa-guide-x { color: #d8ccec; }
   font-size: .72rem;
 }
 .cp-card-ask button:last-child { background: #111827; }
+.cp-card-mates { display: grid; gap: .7rem; }
 .cp-card-mate { display: grid; gap: .65rem; }
 .cp-card-drop {
   display: inline-flex;
@@ -2355,6 +2356,37 @@ html.dark .guess-btn-ghost {
   font-size: .62rem;
   font-weight: 800;
 }
+.room-hide {
+  position: fixed;
+  top: max(2.15rem, calc(env(safe-area-inset-top) + 1.7rem));
+  left: .5rem;
+  z-index: 50;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  border-radius: 999px;
+  background: #1f2937;
+  color: #e5e7eb;
+  padding: .22rem .55rem;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.room-hide.is-on { background: #4c1d95; color: #f5d0fe; }
+.room-card-hidden {
+  position: absolute;
+  left: .2rem;
+  top: .2rem;
+  z-index: 2;
+  border-radius: 999px;
+  background: #4c1d95;
+  color: #f5d0fe;
+  padding: .08rem .32rem;
+  font-size: .48rem;
+  font-weight: 900;
+  font-style: normal;
+  letter-spacing: .06em;
+}
 .room-card-actions { display: flex; gap: .35rem; flex-shrink: 0; }
 .room-card-kill { background: #7f1d1d !important; color: #fecaca !important; }
 .room-exit {
@@ -2461,7 +2493,7 @@ html.dark .guess-btn-ghost {
   0% { transform: translateX(-90%); }
   100% { transform: translateX(90%); }
 }
-.room-page.is-keyboard .room-emoji-pack { display: none; }
+.room-page.is-keyboard .room-emoji-pack { display: flex; }
 .room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .15rem .55rem .15rem; flex-shrink: 0; }
 .room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
 .room-tv { position: relative; overflow: hidden; border-radius: 0; background: #000; aspect-ratio: 16/9; }
@@ -2953,20 +2985,31 @@ html.dark .guess-btn-ghost {
 }
 .room-chat-form button { padding: .45rem .65rem; }
 .room-chat-clear { background: #111827 !important; }
+.room-page.is-keyboard {
+  overflow: hidden;
+}
+.room-page.is-keyboard .room-couch {
+  display: none;
+}
 .room-page.is-keyboard .room-stage,
-.room-page.is-keyboard .room-couch,
 .room-page.is-keyboard .room-dock,
 .room-page.is-keyboard .room-emoji-pack {
-  display: none;
+  display: flex;
+}
+.room-page.is-keyboard .room-stage { flex-direction: column; }
+.room-page.is-keyboard .room-tv {
+  aspect-ratio: auto;
+  height: min(28vh, 42vw);
+  max-height: 28vh;
 }
 .room-page.is-keyboard .room-chat {
   flex: 1;
   min-height: 0;
-  margin: max(.55rem, env(safe-area-inset-top)) .55rem .55rem;
+  margin: .1rem .55rem 0;
 }
 .room-page.is-keyboard .room-chat-log {
-  max-height: none;
-  min-height: 0;
+  max-height: 4.2rem;
+  min-height: 2.2rem;
 }
 body.room-live { overflow: hidden; }
 body.room-live header.sticky,

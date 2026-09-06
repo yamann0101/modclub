@@ -10,6 +10,7 @@ export type SessionUser = {
   photo?: string;
   coins?: number;
   vipUntil?: number;
+  hideUntil?: number;
 };
 
 export type SlotCell = { id: string; t: 's' | 'x' | 'f'; s?: string; m?: number };
@@ -56,6 +57,7 @@ export type ClubSnapshot = {
   guessGame?: PublicGuessGame;
   slot?: PublicSlot;
   spin?: SlotSpin;
+  hideGrants?: Record<string, number>;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -142,6 +144,10 @@ export async function patchMe(body: { nick?: string; appId?: string; photo?: str
   return request<SessionUser>('/api/me', { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+export async function grantRoomHide(username: string, days: number) {
+  return request<ClubSnapshot>('/api/club/hide-grant', { method: 'POST', body: JSON.stringify({ username, days }) });
+}
+
 export async function patchClubUser(username: string, body: { role?: string; title?: string | null }) {
   return request<ClubSnapshot>(`/api/club/users/${encodeURIComponent(username)}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
@@ -225,6 +231,7 @@ export type RoomCard = {
   locked: boolean;
   watching: number;
   videoTitle: string;
+  hidden?: boolean;
 };
 
 export type RoomMember = {
@@ -268,6 +275,7 @@ export type PublicRoom = {
   hosts?: string[];
   chats?: RoomChat[];
   cpOn?: boolean;
+  hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
   pairs?: [string, string][];
   you: { username: string; owner: boolean; host?: boolean; drive?: boolean; muted: boolean; micOn: boolean; seat: number };
@@ -285,7 +293,7 @@ export type RoomSignal = {
 export type YoutubeHit = { id: string; title: string; thumb: string };
 
 export async function fetchRooms() {
-  return request<{ rooms: RoomCard[] }>('/api/rooms');
+  return request<{ rooms: RoomCard[]; hideUntil?: number }>('/api/rooms');
 }
 
 export async function createWatchRoom(body: { title: string; cover: string; password?: string }) {
@@ -352,10 +360,15 @@ export async function setWatchHost(id: string, username: string, grant: boolean)
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/host`, { method: 'POST', body: JSON.stringify({ username, grant }) });
 }
 
+export async function setWatchHidden(id: string, hidden: boolean) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/hide`, { method: 'POST', body: JSON.stringify({ hidden }) });
+}
+
 export type CpPerson = { username: string; nick: string; photo?: string };
 export type CpAsk = { id: string; from: string; to: string; at: number; fromUser?: CpPerson; toUser?: CpPerson };
 export type CpState = {
   partner: CpPerson | null;
+  partners?: CpPerson[];
   incoming: CpAsk[];
   outgoing: CpAsk[];
   pairs: [string, string][];
@@ -373,6 +386,6 @@ export async function respondCp(id: string, accept: boolean) {
   return request<CpState>('/api/cp/respond', { method: 'POST', body: JSON.stringify({ id, accept }) });
 }
 
-export async function breakCp() {
-  return request<CpState>('/api/cp/break', { method: 'POST', body: '{}' });
+export async function breakCp(target?: string) {
+  return request<CpState>('/api/cp/break', { method: 'POST', body: JSON.stringify({ target: target || '' }) });
 }

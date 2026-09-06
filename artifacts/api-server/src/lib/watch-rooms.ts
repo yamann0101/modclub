@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { query } from "./pg";
+import { canHideRooms } from "./room-hide";
 
 const SEATS = 8;
 const MAX_ROOMS = 24;
@@ -60,6 +61,7 @@ export type WatchRoom = {
   signals: RoomSignal[];
   createdAt: number;
   cpOn?: boolean;
+  hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
 };
 
@@ -73,6 +75,7 @@ export type PublicRoomCard = {
   locked: boolean;
   watching: number;
   videoTitle: string;
+  hidden?: boolean;
 };
 
 export type PublicRoom = {
@@ -95,6 +98,7 @@ export type PublicRoom = {
   hosts: string[];
   chats: RoomChat[];
   cpOn?: boolean;
+  hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
   you: { username: string; owner: boolean; host: boolean; drive: boolean; muted: boolean; micOn: boolean; seat: number };
 };
@@ -110,6 +114,7 @@ type RoomIndex = {
   watching: number;
   videoTitle: string;
   createdAt: number;
+  hidden?: boolean;
 };
 
 function roomKey(id: string) {
@@ -169,6 +174,7 @@ function toIndex(room: WatchRoom): RoomIndex {
     watching: room.members.length,
     videoTitle: room.videoTitle,
     createdAt: room.createdAt,
+    hidden: Boolean(room.hidden),
   };
 }
 
@@ -201,6 +207,7 @@ export function publicCard(room: RoomIndex): PublicRoomCard {
     locked: room.locked,
     watching: room.watching,
     videoTitle: room.videoTitle,
+    hidden: Boolean(room.hidden),
   };
 }
 
@@ -236,6 +243,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     hosts: room.hosts || [],
     chats: room.chats || [],
     cpOn: Boolean(room.cpOn),
+    hidden: Boolean(room.hidden),
     lastJoin: room.lastJoin && now - room.lastJoin.at < 8_000 ? room.lastJoin : undefined,
     you: {
       username,
@@ -249,19 +257,23 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
   };
 }
 
-export async function listRooms() {
+export async function listRooms(viewer: { username: string; role?: string }) {
   const now = Date.now();
   const index = await getDoc<RoomIndex[]>("rooms_index", []);
   const live: RoomIndex[] = [];
+  const cards: PublicRoomCard[] = [];
   for (const item of index) {
     const raw = await readRoom(item.id);
     if (!raw) continue;
     const room = prune(raw, now);
     if (room.members.length !== raw.members.length || room.owner !== raw.owner) await writeRoom(room);
     live.push(toIndex(room));
+    const mine = viewer.username === room.owner || viewer.username === (room.creator || room.owner);
+    if (room.hidden && viewer.role !== "ADMIN" && !mine) continue;
+    cards.push(publicCard(toIndex(room)));
   }
   await setDoc("rooms_index", live.slice(0, MAX_ROOMS));
-  return live.map(publicCard);
+  return cards;
 }
 
 export async function createRoom(input: {
@@ -314,6 +326,7 @@ export async function createRoom(input: {
     signals: [],
     createdAt: now,
     cpOn: false,
+    hidden: false,
   };
   await writeRoom(room);
   return room;
@@ -325,13 +338,15 @@ export async function joinRoom(input: {
   nick: string;
   photo?: string;
   password?: string;
+  role?: string;
 }) {
   const raw = await readRoom(input.id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
   if (room.banned.includes(input.username)) throw new Error("banned");
   const owns = input.username === room.owner || input.username === (room.creator || room.owner);
-  if (room.password && !owns && !checkPassword(room.password, input.password || "")) throw new Error("password");
+  const adminBypass = input.role === "ADMIN";
+  if (room.password && !owns && !adminBypass && !checkPassword(room.password, input.password || "")) throw new Error("password");
   const existing = room.members.find((member) => member.username === input.username);
   if (existing) {
     existing.nick = input.nick;
@@ -521,6 +536,18 @@ export async function kickMember(id: string, username: string, role: string | un
   if ((room.driver || room.owner) === target) room.driver = room.owner;
   if (!room.banned.includes(target)) room.banned.push(target);
   room.signals = room.signals.filter((item) => item.from !== target && item.to !== target);
+  await writeRoom(room);
+  return room;
+}
+
+export async function setHidden(id: string, username: string, role: string | undefined, hidden: boolean) {
+  const raw = await readRoom(id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const owns = username === room.owner || username === (room.creator || room.owner);
+  if (role !== "ADMIN" && !owns) throw new Error("owner");
+  if (!(await canHideRooms(username, role))) throw new Error("perk");
+  room.hidden = Boolean(hidden);
   await writeRoom(room);
   return room;
 }
