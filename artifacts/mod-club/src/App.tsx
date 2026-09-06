@@ -759,7 +759,14 @@ function makeWinnerCard(item: Giveaway): ChatMessage {
 
 function Home({ session, onLogout, onSession }: { session: UserSession; onLogout: () => void; onSession: (session: UserSession) => void }) {
   const [slide, setSlide] = useState(0);
-  const [activeNav, setActiveNav] = useState('Ana Sayfa');
+  const [activeNav, setActiveNav] = useState(() => {
+    try {
+      if (sessionStorage.getItem('mc_watch_room')) return 'ODA AÇ';
+      return sessionStorage.getItem('mc_club_nav') || 'Ana Sayfa';
+    } catch {
+      return 'Ana Sayfa';
+    }
+  });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
@@ -996,6 +1003,10 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('mc_club_nav', activeNav); } catch { /* private mode */ }
+  }, [activeNav]);
 
   useEffect(() => {
     if (guessGame?.status === 'playing') setChatOpen(true);

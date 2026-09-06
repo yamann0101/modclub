@@ -132,6 +132,21 @@ function mapFilmVolume(slider: number) {
   return Math.max(1, mapped);
 }
 
+const ROOM_STAY = 'mc_watch_room';
+
+function readStayRoom() {
+  try { return sessionStorage.getItem(ROOM_STAY) || ''; } catch { return ''; }
+}
+
+function writeStayRoom(id: string | null) {
+  try {
+    if (id) sessionStorage.setItem(ROOM_STAY, id);
+    else sessionStorage.removeItem(ROOM_STAY);
+  } catch {
+    /* private mode */
+  }
+}
+
 declare global {
   interface Window {
     YT?: {
@@ -281,7 +296,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const refreshList = async () => {
     try {
       const data = await fetchRooms();
-      setRooms(data.rooms);
+      setRooms(Array.isArray(data.rooms) ? data.rooms : []);
       if (typeof data.hideUntil === 'number') setHideUntil(data.hideUntil);
     } catch {
       setNotice('Odalar alınamadı');
@@ -295,6 +310,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }, 4000);
     return () => window.clearInterval(timer);
   }, [open]);
+
+  useEffect(() => {
+    const id = readStayRoom();
+    if (!id) return;
+    let live = true;
+    void (async () => {
+      try {
+        const next = (await joinWatchRoom(id)).room;
+        if (!live) return;
+        adopt(next, true);
+      } catch (err) {
+        const code = (err as Error).message;
+        if (code === 'password') {
+          if (live) setJoinId(id);
+          return;
+        }
+        writeStayRoom(null);
+        if (live && code === 'banned') setNotice('Bu odadan atıldın');
+      }
+    })();
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -327,6 +364,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
           teardownVoice();
+          writeStayRoom(null);
           setOpen(null);
           setNotice((err as Error).message === 'banned' ? 'Odadan atıldın' : 'Oda kapandı');
         }
@@ -404,7 +442,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   useEffect(() => {
     if (!open) {
       localReact.current = null;
-      setPackOpen(false);
       return;
     }
     const timer = window.setInterval(() => {
@@ -631,6 +668,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [speakerOn]);
 
   function adopt(room: PublicRoom, remount = false) {
+    writeStayRoom(room.id);
     roomRef.current = room;
     receivedAtRef.current = Date.now();
     lastPushRef.current = {
@@ -1228,6 +1266,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         /* keep last cinema clock */
       }
     }
+    writeStayRoom(null);
     teardownVoice();
     await leaveWatchRoom(open.id).catch(() => undefined);
     try { playerRef.current?.destroy(); } catch { /* ignore */ }
@@ -1244,6 +1283,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   async function onCloseRoom(id: string) {
     setBusy(true);
     try {
+      writeStayRoom(null);
       if (open?.id === id) {
         teardownVoice();
         try { playerRef.current?.destroy(); } catch { /* ignore */ }
