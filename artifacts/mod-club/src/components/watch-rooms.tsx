@@ -171,6 +171,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const lastLoadAt = useRef(0);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const lastVideo = useRef('');
+  const bootVideo = useRef('');
   const roomRef = useRef<PublicRoom | null>(null);
   const receivedAtRef = useRef(Date.now());
   const lastRevRef = useRef(-1);
@@ -212,10 +213,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         roomRef.current = data.room;
         receivedAtRef.current = Date.now();
         setOpen(data.room);
-        const player = playerRef.current;
-        if (player && playerReady.current) {
-          if (!data.room.you.host || (!pushingRef.current && (data.room.mediaRev ?? 0) !== lastRevRef.current)) {
-            followCinema(data.room, player);
+        if (!data.room.you.host && data.room.videoId && data.room.videoId !== bootVideo.current) {
+          bootVideo.current = data.room.videoId;
+          lastVideo.current = '';
+          lastRevRef.current = -1;
+          playerReady.current = false;
+          setNeedStart(true);
+          setCinemaKey((value) => value + 1);
+        } else {
+          const player = playerRef.current;
+          if (player && playerReady.current) {
+            if (!data.room.you.host || (!pushingRef.current && (data.room.mediaRev ?? 0) !== lastRevRef.current)) {
+              followCinema(data.room, player);
+            }
           }
         }
         if (data.signals.length) {
@@ -246,6 +256,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       playerRef.current = null;
       lastVideo.current = '';
       lastRevRef.current = -1;
+      bootVideo.current = '';
       setNeedStart(false);
       return;
     }
@@ -278,6 +289,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       node.style.height = '100%';
       box.appendChild(node);
       const room = roomRef.current;
+      bootVideo.current = room?.videoId || '';
       const startAt = room?.videoId ? Math.floor(cinemaTime(room, receivedAtRef.current)) : 0;
       playerRef.current = new window.YT.Player(node, {
         width: '100%',
@@ -426,16 +438,21 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const target = cinemaTime(room, receivedAtRef.current);
     try {
       if (lastVideo.current !== room.videoId) {
+        if (!room.you.host && room.videoId !== bootVideo.current) {
+          bootVideo.current = room.videoId;
+          setNeedStart(true);
+          setCinemaKey((value) => value + 1);
+          return;
+        }
         lastVideo.current = room.videoId;
+        bootVideo.current = room.videoId;
         lastRevRef.current = room.mediaRev ?? 0;
         lastLoadAt.current = Date.now();
-        if (room.playing) {
-          player.mute();
-          player.loadVideoById(room.videoId, target);
-        } else {
-          player.cueVideoById(room.videoId, target);
-        }
-        if (room.playing) setNeedStart(true);
+        player.mute();
+        if (room.playing) player.loadVideoById(room.videoId, target);
+        else player.cueVideoById(room.videoId, target);
+        try { player.playVideo(); } catch { /* autoplay */ }
+        if (room.playing && !room.you.host) setNeedStart(true);
         return;
       }
       const rev = room.mediaRev ?? 0;
@@ -906,6 +923,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   async function playHit(hit: YoutubeHit) {
     if (!open) return;
     lastVideo.current = hit.id;
+    bootVideo.current = hit.id;
     adopt((await setWatchMedia(open.id, { videoId: hit.id, videoTitle: hit.title, playing: true, position: 0 })).room);
     lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
     if (playerRef.current && playerReady.current) playerRef.current.loadVideoById(hit.id, 0);
