@@ -2137,12 +2137,23 @@ html.dark .guess-btn-ghost {
 .room-modal-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .room-modal-actions button:first-child, .room-back, .room-search button:nth-child(n+4) { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
 
-.room-page { gap: .55rem; padding-top: .15rem; }
-.room-top { position: relative; display: flex; align-items: flex-start; gap: .7rem; padding: 0 2.4rem .1rem 0; }
-.room-top h1 { font-family: var(--app-font-display); font-size: 1.18rem; }
-.room-top small { color: hsl(var(--muted-foreground)); }
+.room-page {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  padding: 0 0 .55rem;
+  overflow: auto;
+  background: #0b0614;
+}
 .room-kill {
-  margin-top: .35rem;
+  position: fixed;
+  top: max(.45rem, env(safe-area-inset-top));
+  left: .5rem;
+  z-index: 50;
+  margin: 0;
   border-radius: 999px;
   background: #7f1d1d;
   color: #fecaca;
@@ -2153,9 +2164,10 @@ html.dark .guess-btn-ghost {
 .room-card-actions { display: flex; gap: .35rem; flex-shrink: 0; }
 .room-card-kill { background: #7f1d1d !important; color: #fecaca !important; }
 .room-exit {
-  position: absolute;
-  top: -.35rem;
-  right: -.15rem;
+  position: fixed;
+  top: max(.45rem, env(safe-area-inset-top));
+  right: .5rem;
+  z-index: 50;
   display: grid;
   place-items: center;
   width: 2rem;
@@ -2168,34 +2180,12 @@ html.dark .guess-btn-ghost {
 .room-mic { display: inline-flex; align-items: center; gap: .35rem; }
 .room-mic.is-on { background: #166534; }
 .room-mic.is-off, .room-seat-mic.is-off { background: #7f1d1d; color: #fecaca; }
-.room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .35rem 0 .2rem; }
-.room-stage { border-radius: 1.2rem; background: #0b0614; padding: .7rem; }
-.room-tv { position: relative; overflow: hidden; border-radius: 1rem; background: #000; aspect-ratio: 16/9; }
+.room-mic.room-cp.is-on { background: linear-gradient(180deg, #f472b6, #be185d); }
+.room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .15rem .55rem .15rem; flex-shrink: 0; }
+.room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
+.room-tv { position: relative; overflow: hidden; border-radius: 0; background: #000; aspect-ratio: 16/9; }
 .room-player, .room-player iframe { width: 100%; height: 100%; }
 .room-tv-lock { position: absolute; inset: 0; z-index: 3; }
-.room-scrub {
-  position: absolute;
-  left: .45rem;
-  right: .45rem;
-  bottom: .45rem;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-  border-radius: .8rem;
-  background: rgba(8, 6, 16, .72);
-  padding: .35rem .45rem;
-}
-.room-scrub button {
-  display: grid;
-  place-items: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: .5rem;
-  background: #1e1233;
-  color: #fff;
-}
-.room-scrub input { flex: 1; accent-color: #a78bfa; }
 .room-tv-start {
   position: absolute;
   left: 50%;
@@ -2216,7 +2206,7 @@ html.dark .guess-btn-ghost {
   display: flex;
   align-items: center;
   gap: .55rem;
-  margin-top: .55rem;
+  margin: .4rem .55rem 0;
   color: #ddd6fe;
 }
 .room-vol button {
@@ -2231,17 +2221,18 @@ html.dark .guess-btn-ghost {
 .room-vol input { flex: 1; accent-color: #a78bfa; }
 .room-vol span { min-width: 1.6rem; font-size: .68rem; font-weight: 800; }
 .room-empty-tv { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; color: #efe0a8; text-align: center; font-size: .8rem; }
-.room-search { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .65rem; color: #c4b5fd; }
+.room-search { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem .55rem 0; color: #c4b5fd; }
 .room-search input { flex: 1 1 10rem; border-radius: .7rem; border: 0; background: #1e1233; color: #fff; padding: .5rem .7rem; }
-.room-hits { display: grid; gap: .45rem; margin-top: .55rem; }
+.room-follow { margin: .35rem .55rem 0; color: #c4b5fd; font-size: .72rem; }
+.room-hits { display: grid; gap: .45rem; margin: .45rem .55rem 0; }
 .room-hits button { display: flex; gap: .55rem; align-items: center; width: 100%; text-align: left; background: #1a0f2e; color: #fff; border-radius: .8rem; padding: .4rem; }
 .room-hits img { width: 5.4rem; height: 3rem; object-fit: cover; border-radius: .5rem; }
-.room-couch { margin-top: .3rem; }
+.room-couch { margin: .1rem .55rem 0; flex-shrink: 0; }
 .room-stage-floor {
   position: relative;
   overflow: hidden;
   border-radius: 1.2rem;
-  padding: 1.1rem .4rem 1.2rem;
+  padding: .55rem .3rem .65rem;
   background:
     radial-gradient(circle at 50% 118%, rgba(168,85,247,.28), transparent 42%),
     linear-gradient(180deg, #2a0b55 0%, #16062c 55%, #0b0418 100%);
@@ -2266,6 +2257,30 @@ html.dark .guess-btn-ghost {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .35rem .2rem;
+}
+.room-hearts {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.room-heart {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: #fb7185;
+  animation: room-heart-fly 1.75s ease-out infinite;
+}
+.room-heart::before { content: "♥"; }
+.room-heart:nth-child(3n) { color: #f472b6; font-size: .92rem; --dx: 10px; }
+.room-heart:nth-child(3n+1) { color: #fb7185; --dx: -8px; }
+.room-heart:nth-child(3n+2) { color: #fda4af; font-size: 1.18rem; --dx: 4px; }
+@keyframes room-heart-fly {
+  0% { transform: translate(-50%, 10px) scale(.35); opacity: 0; }
+  16% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx, 0px)), -44px) scale(1.28); opacity: 0; }
 }
 .mic-slot {
   display: flex;
@@ -2392,8 +2407,9 @@ html.dark .guess-btn-ghost {
 .room-chat {
   display: flex;
   flex-direction: column;
-  min-height: 9.5rem;
-  margin: 0 0 4.6rem;
+  flex: 1;
+  min-height: 8.5rem;
+  margin: .1rem .55rem 0;
   border-radius: 1rem;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
@@ -2417,15 +2433,37 @@ html.dark .guess-btn-ghost {
   border: 1px solid hsl(var(--border));
   background: hsl(var(--background));
   padding: .5rem .7rem;
+  font-size: 16px;
 }
 .room-chat-form button { padding: .45rem .65rem; }
 .room-chat-clear { background: #111827 !important; }
+.room-page.is-keyboard .room-stage,
+.room-page.is-keyboard .room-couch,
+.room-page.is-keyboard .room-dock {
+  display: none;
+}
+.room-page.is-keyboard .room-chat {
+  flex: 1;
+  min-height: 0;
+  margin: max(.55rem, env(safe-area-inset-top)) .55rem .55rem;
+}
+.room-page.is-keyboard .room-chat-log {
+  max-height: none;
+  min-height: 0;
+}
+body.room-live { overflow: hidden; }
+body.room-live header.sticky,
+body.room-live .club-nav,
+body.room-live .chat-fab {
+  display: none !important;
+}
+body.room-live .mod-app { padding-bottom: 0; }
+.room-page .room-note { margin: 0 .55rem; color: #fecaca; }
 @media (max-width: 640px) {
   .room-seats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mic-ring { width: 3.7rem; height: 4.2rem; }
   .mic-avatar { width: 3rem; height: 3rem; }
   .mic-wings { width: 4rem; }
-  .room-top { flex-wrap: wrap; }
   .room-mic { margin-left: 0; }
 }
 .casino-card-body small { font-size: .52rem; font-weight: 800; letter-spacing: .1em; color: #fbbf24; }

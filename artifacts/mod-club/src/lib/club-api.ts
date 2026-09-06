@@ -264,6 +264,7 @@ export type PublicRoom = {
   members: RoomMember[];
   hosts?: string[];
   chats?: RoomChat[];
+  cpOn?: boolean;
   you: { username: string; owner: boolean; host?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -302,7 +303,7 @@ export async function fetchWatchRoom(id: string) {
   return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
 }
 
-export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean } = {}) {
+export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean } = {}) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify(body) });
 }
 

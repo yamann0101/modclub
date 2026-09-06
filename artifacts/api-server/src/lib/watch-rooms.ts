@@ -54,6 +54,7 @@ export type WatchRoom = {
   banned: string[];
   signals: RoomSignal[];
   createdAt: number;
+  cpOn?: boolean;
 };
 
 export type PublicRoomCard = {
@@ -86,6 +87,7 @@ export type PublicRoom = {
   members: RoomMember[];
   hosts: string[];
   chats: RoomChat[];
+  cpOn?: boolean;
   you: { username: string; owner: boolean; host: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -214,6 +216,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     members: room.members.map((member) => ({ ...member, speaking: Boolean(member.speaking), micOn: Boolean(member.micOn) })),
     hosts: room.hosts || [],
     chats: room.chats || [],
+    cpOn: Boolean(room.cpOn),
     you: {
       username,
       owner: room.owner === username,
@@ -288,6 +291,7 @@ export async function createRoom(input: {
     banned: [],
     signals: [],
     createdAt: now,
+    cpOn: false,
   };
   await writeRoom(room);
   return room;
@@ -330,13 +334,14 @@ export async function joinRoom(input: {
   return room;
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean }) {
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
   const member = room.members.find((item) => item.username === username);
   if (!member) throw new Error("member");
   member.lastSeen = Date.now();
+  if (typeof patch?.cpOn === "boolean") room.cpOn = patch.cpOn;
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
   if (member.muted) {

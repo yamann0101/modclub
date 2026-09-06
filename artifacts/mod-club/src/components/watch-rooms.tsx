@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DoorOpen, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -27,6 +27,18 @@ import {
 } from '@/lib/club-api';
 
 const SEATS = 8;
+const HEART_GAPS = [
+  { x: 25, y: 24 },
+  { x: 50, y: 24 },
+  { x: 75, y: 24 },
+  { x: 25, y: 76 },
+  { x: 50, y: 76 },
+  { x: 75, y: 76 },
+  { x: 12.5, y: 50 },
+  { x: 37.5, y: 50 },
+  { x: 62.5, y: 50 },
+  { x: 87.5, y: 50 },
+];
 const ICE: RTCConfiguration = {
   iceCandidatePoolSize: 4,
   iceServers: [
@@ -163,13 +175,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [chatText, setChatText] = useState('');
   const [needStart, setNeedStart] = useState(false);
   const [cinemaKey, setCinemaKey] = useState(0);
-  const [scrub, setScrub] = useState({ time: 0, duration: 0 });
-  const seekTimer = useRef(0);
+  const [kbInset, setKbInset] = useState(0);
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
   const lastLoadAt = useRef(0);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   const lastVideo = useRef('');
   const bootVideo = useRef('');
   const roomRef = useRef<PublicRoom | null>(null);
@@ -248,6 +260,44 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       window.clearInterval(timer);
     };
   }, [open?.id]);
+
+  useEffect(() => {
+    document.body.classList.toggle('room-live', Boolean(open));
+    return () => document.body.classList.remove('room-live');
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setKbInset(0);
+      document.body.classList.remove('room-typing');
+      return;
+    }
+    const syncKeyboard = () => {
+      const viewport = window.visualViewport;
+      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      setKbInset(inset > 80 ? inset : 0);
+    };
+    window.visualViewport?.addEventListener('resize', syncKeyboard);
+    window.visualViewport?.addEventListener('scroll', syncKeyboard);
+    window.addEventListener('resize', syncKeyboard);
+    syncKeyboard();
+    return () => {
+      window.visualViewport?.removeEventListener('resize', syncKeyboard);
+      window.visualViewport?.removeEventListener('scroll', syncKeyboard);
+      window.removeEventListener('resize', syncKeyboard);
+      document.body.classList.remove('room-typing');
+    };
+  }, [open]);
+
+  useEffect(() => {
+    document.body.classList.toggle('room-typing', kbInset > 0);
+    if (kbInset > 0) {
+      requestAnimationFrame(() => {
+        chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        if (chatLogRef.current) chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
+      });
+    }
+  }, [kbInset]);
 
   useEffect(() => {
     if (!open) {
@@ -369,14 +419,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const room = roomRef.current;
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
-      try {
-        setScrub({
-          time: player.getCurrentTime() || 0,
-          duration: player.getDuration() || 0,
-        });
-      } catch {
-        /* not ready */
-      }
       if (room.you.host) {
         if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
         if (!document.hidden) void pushOwnerClock(room, player);
@@ -1001,11 +1043,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     await seekTo(now + delta, open.playing);
   }
 
-  function queueSeek(next: number) {
-    setScrub((value) => ({ ...value, time: next }));
-    try { playerRef.current?.seekTo(next, true); } catch { /* ignore */ }
-    window.clearTimeout(seekTimer.current);
-    seekTimer.current = window.setTimeout(() => { void seekTo(next, open?.playing ?? true); }, 160);
+  async function toggleCp() {
+    if (!open) return;
+    try {
+      adopt((await pingWatchRoom(open.id, { cpOn: !open.cpOn })).room);
+    } catch {
+      setNotice('CP açılmadı');
+    }
   }
 
   async function onChat(event: FormEvent) {
@@ -1030,22 +1074,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   if (open) {
     const iHost = Boolean(open.you.host);
     return (
-      <div className="page-view room-page" onPointerDown={unlockAudio}>
-        <div className="room-top">
-          <div>
-            <p className="page-kicker">CANLI ODA</p>
-            <h1>{open.title}</h1>
-            <small>{open.locked ? 'Şifreli' : 'Açık'} · yönetici {open.ownerNick}</small>
-            {ownsOpen && (
-              <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
-                Odayı sil
-              </button>
-            )}
-          </div>
-          <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
-            <X size={18} />
+      <div
+        className={`page-view room-page ${kbInset > 0 ? 'is-keyboard' : ''}`}
+        onPointerDown={unlockAudio}
+        style={kbInset > 0 ? { paddingBottom: kbInset } : undefined}
+      >
+        {ownsOpen && (
+          <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
+            Odayı sil
           </button>
-        </div>
+        )}
+        <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
+          <X size={18} />
+        </button>
 
         <div className="room-stage">
           <div className="room-tv">
@@ -1055,20 +1096,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               <button type="button" className="room-tv-start" onClick={startGuestVideo}>
                 <Play size={18} /> Videoyu aç
               </button>
-            )}
-            {iHost && open.videoId && (
-              <div className="room-scrub">
-                <button type="button" onClick={() => void seekBy(-10)} aria-label="10 saniye geri"><SkipBack size={14} /></button>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(1, scrub.duration)}
-                  step={0.25}
-                  value={Math.min(scrub.time, Math.max(1, scrub.duration))}
-                  onChange={(event) => queueSeek(Number(event.target.value))}
-                />
-                <button type="button" onClick={() => void seekBy(10)} aria-label="10 saniye ileri"><SkipForward size={14} /></button>
-              </div>
             )}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>
@@ -1167,6 +1194,23 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 );
               })}
             </div>
+            {open.cpOn && (
+              <div className="room-hearts" aria-hidden>
+                {HEART_GAPS.flatMap((gap, gi) =>
+                  [0, 1, 2].map((n) => (
+                    <i
+                      key={`${gi}-${n}`}
+                      className="room-heart"
+                      style={{
+                        left: `${gap.x}%`,
+                        top: `${gap.y}%`,
+                        animationDelay: `${gi * 0.11 + n * 0.48}s`,
+                      }}
+                    />
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className="room-dock">
@@ -1178,6 +1222,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
             {speakerOn ? 'Oda sesi açık' : 'Oda sesi kapalı'}
           </button>
+          <button type="button" className={`room-mic room-cp ${open.cpOn ? 'is-on' : ''}`} onClick={() => void toggleCp()}>
+            <Heart size={16} fill={open.cpOn ? 'currentColor' : 'none'} />
+            CP
+          </button>
         </div>
         <div className="room-chat">
           <div className="room-chat-log" ref={chatLogRef}>
@@ -1188,10 +1236,18 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           </div>
           <form className="room-chat-form" onSubmit={(event) => void onChat(event)}>
             <input
+              ref={chatInputRef}
               value={chatText}
               onChange={(event) => setChatText(event.target.value)}
+              onFocus={() => {
+                requestAnimationFrame(() => {
+                  chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+                });
+              }}
               maxLength={240}
               placeholder="Mesaj yaz..."
+              inputMode="text"
+              autoComplete="off"
             />
             <button type="submit">Gönder</button>
             {iHost && (
