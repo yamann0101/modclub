@@ -193,7 +193,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [kbInset, setKbInset] = useState(0);
   const [packOpen, setPackOpen] = useState(false);
   const [reactNow, setReactNow] = useState(0);
+  const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
+  const [joinBanner, setJoinBanner] = useState('');
   const localReact = useRef<{ id: string; at: number } | null>(null);
+  const seenJoinAt = useRef(0);
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
@@ -308,14 +311,33 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open]);
 
   useEffect(() => {
-    document.body.classList.toggle('room-typing', kbInset > 0);
-    if (kbInset > 0) {
+    document.body.classList.toggle('room-typing', kbInset > 0 && focusField === 'chat');
+    if (kbInset > 0 && focusField === 'chat') {
       requestAnimationFrame(() => {
         chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
         if (chatLogRef.current) chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
       });
     }
-  }, [kbInset]);
+  }, [kbInset, focusField]);
+
+  useEffect(() => {
+    if (!open) {
+      seenJoinAt.current = 0;
+      setJoinBanner('');
+      setFocusField(null);
+      return;
+    }
+    seenJoinAt.current = Math.max(seenJoinAt.current, open.lastJoin?.at || Date.now());
+  }, [open?.id]);
+
+  useEffect(() => {
+    const join = open?.lastJoin;
+    if (!join || join.at <= seenJoinAt.current) return;
+    seenJoinAt.current = join.at;
+    setJoinBanner(join.nick);
+    const timer = window.setTimeout(() => setJoinBanner(''), 3200);
+    return () => window.clearTimeout(timer);
+  }, [open?.lastJoin?.at, open?.lastJoin?.nick]);
 
   useEffect(() => {
     if (!open) {
@@ -948,7 +970,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function onJoin(room: RoomCard) {
-    if (room.locked) {
+    const owns = room.owner === user.username || room.creator === user.username;
+    if (room.locked && !owns) {
       setJoinId(room.id);
       return;
     }
@@ -1123,10 +1146,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const iHost = Boolean(open.you.host);
     return (
       <div
-        className={`page-view room-page ${kbInset > 0 ? 'is-keyboard' : ''}`}
+        className={`page-view room-page ${kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
         onPointerDown={unlockAudio}
         style={kbInset > 0 ? { paddingBottom: kbInset } : undefined}
       >
+        {joinBanner && (
+          <div className="room-join-banner">{joinBanner.toLocaleUpperCase('tr-TR')} ODAYA GİRDİ</div>
+        )}
         {ownsOpen && (
           <button type="button" className="room-kill" onClick={() => void onCloseRoom(open.id)}>
             Odayı sil
@@ -1167,7 +1193,15 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           {iHost && (
             <form className="room-search" onSubmit={(event) => void onSearch(event)}>
               <Search size={16} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="YouTube bağla: ara veya link yapıştır" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onFocus={() => setFocusField('search')}
+                onBlur={() => setFocusField((value) => value === 'search' ? null : value)}
+                placeholder="YouTube bağla: ara veya link yapıştır"
+                inputMode="search"
+                autoComplete="off"
+              />
               <button type="submit" disabled={busy}>Ara</button>
               <button type="button" onClick={() => {
                 const time = playerRef.current?.getCurrentTime() || open.position;
@@ -1325,10 +1359,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               value={chatText}
               onChange={(event) => setChatText(event.target.value)}
               onFocus={() => {
+                setFocusField('chat');
                 requestAnimationFrame(() => {
                   chatInputRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
                 });
               }}
+              onBlur={() => setFocusField((value) => value === 'chat' ? null : value)}
               maxLength={240}
               placeholder="Mesaj yaz..."
               inputMode="text"

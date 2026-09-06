@@ -267,6 +267,7 @@ export type PublicRoom = {
   hosts?: string[];
   chats?: RoomChat[];
   cpOn?: boolean;
+  lastJoin?: { nick: string; username: string; at: number };
   you: { username: string; owner: boolean; host?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 

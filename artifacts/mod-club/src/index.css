@@ -2212,6 +2212,28 @@ html.dark .guess-btn-ghost {
   font-size: .68rem;
   font-weight: 900;
 }
+.room-emoji-item.is-kiss-l span { display: inline-block; transform: scaleX(-1); }
+.room-join-banner {
+  position: fixed;
+  top: max(.55rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 55;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #8b5cf6, #6d28d9);
+  color: #fff;
+  padding: .42rem .95rem;
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .05em;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(91, 33, 182, .42);
+  animation: room-join-pop .35s ease-out both;
+}
+@keyframes room-join-pop {
+  0% { transform: translateX(-50%) translateY(-10px) scale(.86); opacity: 0; }
+  100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+}
 .room-page.is-keyboard .room-emoji-pack { display: none; }
 .room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .15rem .55rem .15rem; flex-shrink: 0; }
 .room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
@@ -2254,7 +2276,7 @@ html.dark .guess-btn-ghost {
 .room-vol span { min-width: 1.6rem; font-size: .68rem; font-weight: 800; }
 .room-empty-tv { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; color: #efe0a8; text-align: center; font-size: .8rem; }
 .room-search { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem .55rem 0; color: #c4b5fd; }
-.room-search input { flex: 1 1 10rem; border-radius: .7rem; border: 0; background: #1e1233; color: #fff; padding: .5rem .7rem; }
+.room-search input { flex: 1 1 10rem; border-radius: .7rem; border: 0; background: #1e1233; color: #fff; padding: .5rem .7rem; font-size: 16px; }
 .room-follow { margin: .35rem .55rem 0; color: #c4b5fd; font-size: .72rem; }
 .room-hits { display: grid; gap: .45rem; margin: .45rem .55rem 0; }
 .room-hits button { display: flex; gap: .55rem; align-items: center; width: 100%; text-align: left; background: #1a0f2e; color: #fff; border-radius: .8rem; padding: .4rem; }
@@ -2356,6 +2378,7 @@ html.dark .guess-btn-ghost {
   filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
   animation: mic-react-kiss 3s ease-in-out both;
 }
+.mic-slot.react-kiss-l .mic-react-face { animation-name: mic-react-kiss-l; }
 .mic-slot.react-laugh .mic-react-face { animation-name: mic-react-laugh; }
 .mic-slot.react-cry .mic-react-face { animation-name: mic-react-cry; }
 .mic-slot.react-angry .mic-react-face { animation-name: mic-react-angry; }
@@ -2408,6 +2431,13 @@ html.dark .guess-btn-ghost {
   34% { transform: scale(1.12); }
   54% { transform: scale(1.38); }
   78% { transform: scale(1.08); }
+}
+@keyframes mic-react-kiss-l {
+  0%, 100% { transform: scaleX(-1) scale(1); }
+  14% { transform: scaleX(-1) scale(1.42); }
+  34% { transform: scaleX(-1) scale(1.12); }
+  54% { transform: scaleX(-1) scale(1.38); }
+  78% { transform: scaleX(-1) scale(1.08); }
 }
 @keyframes mic-react-laugh {
   0%, 100% { transform: scale(1) rotate(0); }

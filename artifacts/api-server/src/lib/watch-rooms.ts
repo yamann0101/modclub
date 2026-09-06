@@ -59,6 +59,7 @@ export type WatchRoom = {
   signals: RoomSignal[];
   createdAt: number;
   cpOn?: boolean;
+  lastJoin?: { nick: string; username: string; at: number };
 };
 
 export type PublicRoomCard = {
@@ -92,6 +93,7 @@ export type PublicRoom = {
   hosts: string[];
   chats: RoomChat[];
   cpOn?: boolean;
+  lastJoin?: { nick: string; username: string; at: number };
   you: { username: string; owner: boolean; host: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -231,6 +233,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     hosts: room.hosts || [],
     chats: room.chats || [],
     cpOn: Boolean(room.cpOn),
+    lastJoin: room.lastJoin && now - room.lastJoin.at < 8_000 ? room.lastJoin : undefined,
     you: {
       username,
       owner: room.owner === username,
@@ -322,7 +325,8 @@ export async function joinRoom(input: {
   if (!raw) throw new Error("missing");
   const room = prune(raw);
   if (room.banned.includes(input.username)) throw new Error("banned");
-  if (room.password && !checkPassword(room.password, input.password || "")) throw new Error("password");
+  const owns = input.username === room.owner || input.username === (room.creator || room.owner);
+  if (room.password && !owns && !checkPassword(room.password, input.password || "")) throw new Error("password");
   const existing = room.members.find((member) => member.username === input.username);
   if (existing) {
     existing.nick = input.nick;
@@ -334,6 +338,7 @@ export async function joinRoom(input: {
   const taken = new Set(room.members.map((member) => member.seat));
   const seat = Array.from({ length: SEATS }, (_, index) => index).find((index) => !taken.has(index));
   if (seat === undefined) throw new Error("full");
+  const now = Date.now();
   room.members.push({
     username: input.username,
     nick: input.nick,
@@ -342,8 +347,9 @@ export async function joinRoom(input: {
     muted: false,
     micOn: false,
     speaking: false,
-    lastSeen: Date.now(),
+    lastSeen: now,
   });
+  room.lastJoin = { nick: input.nick, username: input.username, at: now };
   await writeRoom(room);
   return room;
 }
