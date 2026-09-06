@@ -268,6 +268,7 @@ export type PublicRoom = {
   chats?: RoomChat[];
   cpOn?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
+  pairs?: [string, string][];
   you: { username: string; owner: boolean; host?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -348,4 +349,29 @@ export async function clearWatchChat(id: string) {
 
 export async function setWatchHost(id: string, username: string, grant: boolean) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/host`, { method: 'POST', body: JSON.stringify({ username, grant }) });
+}
+
+export type CpPerson = { username: string; nick: string; photo?: string };
+export type CpAsk = { id: string; from: string; to: string; at: number; fromUser?: CpPerson; toUser?: CpPerson };
+export type CpState = {
+  partner: CpPerson | null;
+  incoming: CpAsk[];
+  outgoing: CpAsk[];
+  pairs: [string, string][];
+};
+
+export async function fetchCp() {
+  return request<CpState>('/api/cp');
+}
+
+export async function requestCp(target: string) {
+  return request<CpState>('/api/cp/request', { method: 'POST', body: JSON.stringify({ target }) });
+}
+
+export async function respondCp(id: string, accept: boolean) {
+  return request<CpState>('/api/cp/respond', { method: 'POST', body: JSON.stringify({ id, accept }) });
+}
+
+export async function breakCp() {
+  return request<CpState>('/api/cp/break', { method: 'POST', body: '{}' });
 }

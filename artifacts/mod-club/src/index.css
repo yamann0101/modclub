@@ -666,6 +666,60 @@ html.dark .pwa-guide-card li, html.dark .pwa-guide-x { color: #d8ccec; }
 }
 .profile-stat strong { display: block; font-family: var(--app-font-display); font-size: 1.35rem; letter-spacing: -.05em; }
 .profile-stat span { font-size: .65rem; font-weight: 700; color: hsl(var(--muted-foreground)); }
+.cp-card {
+  margin-top: 1rem;
+  border-radius: 1.15rem;
+  border: 1px solid hsl(var(--border));
+  background: linear-gradient(180deg, hsl(var(--secondary) / .7), hsl(var(--card)));
+  padding: 1rem;
+}
+.cp-card-kicker { margin: 0; font-size: .58rem; font-weight: 800; letter-spacing: .14em; color: hsl(var(--primary)); }
+.cp-card h3 { margin: .2rem 0 .7rem; font-family: var(--app-font-display); font-size: 1.15rem; }
+.cp-card-empty { margin: 0 0 .7rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.cp-card-partner {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  margin-bottom: .7rem;
+}
+.cp-card-partner img { width: 3.2rem; height: 3.2rem; border-radius: 999px; object-fit: cover; box-shadow: 0 0 0 3px #f9a8d4; }
+.cp-card-partner strong { display: block; font-size: .92rem; }
+.cp-card-partner small { color: #be185d; font-size: .62rem; font-weight: 800; letter-spacing: .08em; }
+.cp-card-partner button, .cp-card-form button, .cp-card-ask button {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: auto;
+  border-radius: 999px;
+  background: #be185d;
+  color: #fff;
+  padding: .35rem .65rem;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.cp-card-form { display: flex; gap: .4rem; }
+.cp-card-form input {
+  flex: 1;
+  min-width: 0;
+  border-radius: .8rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: .5rem .7rem;
+  font-size: 16px;
+}
+.cp-card-wait { margin: .55rem 0 0; font-size: .68rem; color: hsl(var(--muted-foreground)); }
+.cp-card-inbox { display: grid; gap: .4rem; margin-top: .65rem; }
+.cp-card-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem;
+  border-radius: .8rem;
+  background: hsl(var(--muted) / .45);
+  padding: .45rem .55rem;
+  font-size: .72rem;
+}
+.cp-card-ask button:last-child { background: #111827; }
 
 .chat-profile-overlay {
   position: absolute;
@@ -2344,6 +2398,53 @@ html.dark .guess-btn-ghost {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .35rem .2rem;
+}
+.room-couple {
+  position: absolute;
+  z-index: 5;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.room-couple-bar {
+  position: absolute;
+  left: 50%;
+  top: .2rem;
+  width: 5.4rem;
+  height: .34rem;
+  margin-left: -2.7rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #f5d76e 12%, #fb7185 50%, #f5d76e 88%, transparent);
+  box-shadow: 0 0 16px rgba(251, 113, 133, .7);
+}
+.room-couple-crown {
+  position: absolute;
+  left: 50%;
+  top: -1.55rem;
+  color: #f5d76e;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 4px 8px rgba(245, 215, 110, .55));
+  animation: room-couple-bob 1.35s ease-in-out infinite;
+}
+.room-couple-heart {
+  position: absolute;
+  left: 50%;
+  top: -.15rem;
+  font-size: 1.9rem;
+  line-height: 1;
+  color: #fb7185;
+  transform: translate(-50%, -35%);
+  animation: room-couple-beat .95s ease-in-out infinite;
+  filter: drop-shadow(0 6px 12px rgba(244, 63, 94, .5));
+}
+@keyframes room-couple-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-4px); }
+}
+@keyframes room-couple-beat {
+  0%, 100% { transform: translate(-50%, -35%) scale(1); }
+  40% { transform: translate(-50%, -35%) scale(1.22); }
 }
 .room-hearts {
   position: absolute;

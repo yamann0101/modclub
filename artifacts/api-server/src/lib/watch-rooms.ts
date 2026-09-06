@@ -372,7 +372,9 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
       item.emojiAt = undefined;
     }
   }
-  if (typeof patch?.cpOn === "boolean") room.cpOn = patch.cpOn;
+  if (typeof patch?.cpOn === "boolean" && (username === room.owner || username === (room.creator || room.owner))) {
+    room.cpOn = patch.cpOn;
+  }
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
   if (member.muted) {

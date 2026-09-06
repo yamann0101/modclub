@@ -22,8 +22,13 @@ import {
   setMedia,
   takeSignals,
 } from "../lib/watch-rooms";
+import { listCpPairs } from "../lib/couples";
 
 const router: IRouter = Router();
+
+async function packRoom(room: Parameters<typeof publicRoom>[0], username: string) {
+  return { ...publicRoom(room, username), pairs: await listCpPairs() };
+}
 
 function fail(res: { status: (code: number) => { json: (body: unknown) => void } }, code: string) {
   const status = code === "auth" ? 401
@@ -53,7 +58,7 @@ router.post("/rooms", async (req, res) => {
       cover: String(body.cover || ""),
       password: body.password ? String(body.password) : undefined,
     });
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "title");
   }
@@ -78,7 +83,7 @@ router.get("/rooms/:id", async (req, res) => {
   if (!raw.members.some((member) => member.username === account.username)) return fail(res, "member");
   const room = await pingRoom(req.params.id, account.username);
   const signals = takeSignals(room, account.username);
-  res.json({ room: publicRoom(room, account.username), signals });
+  res.json({ room: await packRoom(room, account.username), signals });
 });
 
 router.post("/rooms/:id/join", async (req, res) => {
@@ -92,7 +97,7 @@ router.post("/rooms/:id/join", async (req, res) => {
       photo: account.photo || undefined,
       password: String((req.body as { password?: string }).password || ""),
     });
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "missing");
   }
@@ -127,7 +132,7 @@ router.post("/rooms/:id/ping", async (req, res) => {
       cpOn: typeof body.cpOn === "boolean" ? body.cpOn : undefined,
       emoji: typeof body.emoji === "string" ? body.emoji : undefined,
     });
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "missing");
   }
@@ -138,7 +143,7 @@ router.post("/rooms/:id/seat", async (req, res) => {
   if (!account) return fail(res, "auth");
   try {
     const room = await claimSeat(req.params.id, account.username, Number((req.body as { seat?: number }).seat));
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "seat");
   }
@@ -150,7 +155,7 @@ router.post("/rooms/:id/media", async (req, res) => {
   const body = (req.body || {}) as { videoId?: string; videoTitle?: string; playing?: boolean; position?: number };
   try {
     const room = await setMedia(req.params.id, account.username, account.role, body);
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
   }
@@ -161,7 +166,7 @@ router.post("/rooms/:id/kick", async (req, res) => {
   if (!account) return fail(res, "auth");
   try {
     const room = await kickMember(req.params.id, account.username, account.role, String((req.body as { username?: string }).username || ""));
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
   }
@@ -173,7 +178,7 @@ router.post("/rooms/:id/mute", async (req, res) => {
   const body = (req.body || {}) as { username?: string; muted?: boolean };
   try {
     const room = await muteMember(req.params.id, account.username, account.role, String(body.username || ""), Boolean(body.muted));
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
   }
@@ -184,7 +189,7 @@ router.post("/rooms/:id/chat", async (req, res) => {
   if (!account) return fail(res, "auth");
   try {
     const room = await postChat(req.params.id, account.username, account.nick, String((req.body as { text?: string }).text || ""));
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "text");
   }
@@ -195,7 +200,7 @@ router.post("/rooms/:id/clear", async (req, res) => {
   if (!account) return fail(res, "auth");
   try {
     const room = await clearChat(req.params.id, account.username, account.role);
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
   }
@@ -207,7 +212,7 @@ router.post("/rooms/:id/host", async (req, res) => {
   const body = (req.body || {}) as { username?: string; grant?: boolean };
   try {
     const room = await setHost(req.params.id, account.username, String(body.username || ""), Boolean(body.grant));
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");
   }
@@ -232,7 +237,7 @@ router.post("/rooms/:id/ack", async (req, res) => {
   const ids = ((req.body as { ids?: string[] }).ids || []).filter((id) => typeof id === "string");
   try {
     const room = await ackSignals(req.params.id, account.username, ids);
-    res.json({ room: publicRoom(room, account.username) });
+    res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "missing");
   }

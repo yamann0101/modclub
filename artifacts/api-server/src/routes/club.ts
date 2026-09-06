@@ -17,6 +17,7 @@ import { adminWallet, buyVip } from "../lib/economy";
 import { isSlotTheme, spinOlympus } from "../lib/olympus-slot";
 import { playRoulette } from "../lib/club-roulette";
 import { clearLoginCookie, currentAccount, publicUser, setLoginCookie } from "../lib/http";
+import { breakCp, publicCp, requestCp, respondCp } from "../lib/couples";
 
 const router: IRouter = Router();
 
@@ -298,6 +299,53 @@ router.post("/slot/spin", async (req, res) => {
     const code = err instanceof Error ? err.message : "invalid";
     res.status(code === "coins" ? 409 : 400).json({ error: code });
   }
+});
+
+router.get("/cp", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  res.json(await publicCp(account.username));
+});
+
+router.post("/cp/request", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    res.json(await requestCp(account.username, String((req.body as { target?: string }).target || "")));
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "missing" ? 404 : code === "taken" || code === "pending" || code === "self" ? 409 : 400).json({ error: code });
+  }
+});
+
+router.post("/cp/respond", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  try {
+    const body = (req.body || {}) as { id?: string; accept?: boolean };
+    res.json(await respondCp(account.username, String(body.id || ""), Boolean(body.accept)));
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "invalid";
+    res.status(code === "missing" ? 404 : 409).json({ error: code });
+  }
+});
+
+router.post("/cp/break", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) {
+    res.status(401).json({ error: "auth" });
+    return;
+  }
+  res.json(await breakCp(account.username));
 });
 
 export default router;

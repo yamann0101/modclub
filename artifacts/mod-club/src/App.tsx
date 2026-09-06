@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Heart, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
 import { WatchRoomsPage } from '@/components/watch-rooms';
+import { CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -602,6 +603,7 @@ function ProfilePage({ session, onLogout, onSession, onNotice }: { session: User
             <p className="mt-2 text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Sohbete yazmak için zorunlu. Nick görünür; ID resme veya nicke dokununca açılır.</p>
             <button type="submit" data-testid="button-save-app-id" className="mt-3 flex h-10 items-center justify-center rounded-xl bg-[hsl(var(--foreground))] px-4 text-xs font-bold text-white hover:bg-[hsl(var(--primary))]">ID’yi kaydet</button>
           </form>
+          <CpProfileCard onNotice={onNotice} />
           <div className="mt-7 grid gap-3 sm:grid-cols-3">
             <div className="profile-stat"><strong>28</strong><span>Etkinlik</span></div>
             <div className="profile-stat"><strong>1.248</strong><span>MOD puanı</span></div>
@@ -829,7 +831,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [walletCoins, setWalletCoins] = useState(session.coins ?? 0);
   const [walletVip, setWalletVip] = useState(session.vipUntil ?? 0);
   const [storeBusy, setStoreBusy] = useState(false);
-  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; role?: string; title?: string; appId?: string; vip?: boolean } | null>(null);
+  const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; username?: string; role?: string; title?: string; appId?: string; vip?: boolean } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
   const openGiveaways = giveaways.filter((item) => giveawayStatus(item, now) === 'open');
@@ -1158,6 +1160,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     const profileNick = account?.nick || message.author;
     setChatProfile({
       nick: profileNick,
+      username: account?.username,
       photo: avatarFor(profileNick, message.mine ? myPhoto : account?.photo || message.photo),
       role: account?.role || message.role,
       title: account?.title || message.title,
@@ -2007,6 +2010,20 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               <p className="mt-0.5 font-mono text-sm font-bold text-[hsl(var(--primary))]">{chatProfile.appId || 'ID yok'}</p>
               <p className="mt-3 text-[.58rem] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Yetki</p>
               <p className="mt-0.5 text-sm font-extrabold">{yetkiLabel(chatProfile.role, chatProfile.title, chatProfile.vip)}</p>
+              {chatProfile.username && chatProfile.username !== user.username && (
+                <button
+                  type="button"
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[hsl(var(--primary))] py-2 text-xs font-extrabold text-white"
+                  onClick={() => {
+                    void requestCp(chatProfile.username || chatProfile.nick).then(() => setNotice('Sevgili isteği gitti')).catch((err) => {
+                      const code = (err as Error).message;
+                      setNotice(code === 'taken' ? 'Biriniz zaten sevgili' : code === 'pending' ? 'Zaten istek var' : code === 'self' ? 'Kendine istek olmaz' : 'İstek gitmedi');
+                    });
+                  }}
+                >
+                  <Heart size={14} /> Sevgili isteği at
+                </button>
+              )}
             </div>
           </div>
         )}

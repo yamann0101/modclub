@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Smile, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { Crown, DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Smile, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -16,6 +16,7 @@ import {
   muteWatchMember,
   pingWatchRoom,
   searchWatchYoutube,
+  requestCp,
   sendWatchChat,
   sendWatchSignal,
   setWatchHost,
@@ -48,6 +49,23 @@ const SEAT_EMOJIS = [
   { id: 'angry', mark: '😡', label: 'Kızgın' },
 ] as const;
 const EMOJI_MS = 3000;
+const COUPLE_GAPS = [
+  { a: 0, b: 1, x: 25, y: 24 },
+  { a: 1, b: 2, x: 50, y: 24 },
+  { a: 2, b: 3, x: 75, y: 24 },
+  { a: 4, b: 5, x: 25, y: 76 },
+  { a: 5, b: 6, x: 50, y: 76 },
+  { a: 6, b: 7, x: 75, y: 76 },
+];
+
+function sameUser(left?: string, right?: string) {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function arePair(pairs: [string, string][] | undefined, left?: string, right?: string) {
+  if (!left || !right || !pairs?.length) return false;
+  return pairs.some(([a, b]) => (sameUser(a, left) && sameUser(b, right)) || (sameUser(a, right) && sameUser(b, left)));
+}
 
 function liveSeatEmoji(member: RoomMember | null, serverNow: number, receivedAt: number, now: number) {
   if (!member?.emoji || !member.emojiAt) return '';
@@ -1134,11 +1152,22 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function toggleCp() {
-    if (!open) return;
+    if (!open || !ownsOpen) return;
     try {
       adopt((await pingWatchRoom(open.id, { cpOn: !open.cpOn })).room);
     } catch {
       setNotice('CP açılmadı');
+    }
+  }
+
+  async function askCp(username: string) {
+    setPick(null);
+    try {
+      await requestCp(username);
+      setNotice('Sevgili isteği gitti');
+    } catch (err) {
+      const code = (err as Error).message;
+      setNotice(code === 'taken' ? 'Biriniz zaten sevgili' : code === 'pending' ? 'Zaten istek var' : code === 'self' ? 'Kendine istek olmaz' : 'İstek gitmedi');
     }
   }
 
@@ -1283,7 +1312,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 const owner = member?.username === open.owner;
                 const admin = Boolean(member && roomHost(open, member.username));
                 const live = Boolean(member && (member.speaking || talking.includes(member.username)));
-                const canPick = iHost && member && member.username !== user.username;
+                const canPick = Boolean(member && member.username !== user.username);
+                const canManage = Boolean(iHost && canPick);
                 const mineReact = member?.username === user.username && localReact.current && reactNow - localReact.current.at < EMOJI_MS
                   ? localReact.current.id
                   : '';
@@ -1292,10 +1322,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''}`}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
                     onClick={() => {
                       if (!member) void sitOn(seat);
-                      else if (canPick) setPick((value) => value === member.username ? null : member.username);
+                      else if (canPick && (canManage || !arePair(open.pairs, user.username, member.username))) {
+                        setPick((value) => value === member.username ? null : member.username);
+                      }
                     }}
                   >
                     <div className="mic-ring">
@@ -1320,16 +1352,25 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                     <strong>{member ? member.nick : `Mik ${seat + 1}`}</strong>
                     {pick === member?.username && canPick && member && (
                       <div className="mic-menu" onClick={(event) => event.stopPropagation()}>
-                        <button type="button" onClick={() => { void muteWatchMember(open.id, member.username, !member.muted); setPick(null); }}>
-                          <VolumeX size={13} /> {member.muted ? 'Sesi aç' : 'Sustur'}
-                        </button>
-                        <button type="button" onClick={() => { void kickWatchMember(open.id, member.username); setPick(null); }}>
-                          <UserX size={13} /> Odadan at
-                        </button>
-                        {open.you.owner && (
-                          <button type="button" onClick={() => { void setWatchHost(open.id, member.username, !roomHost(open, member.username)); setPick(null); }}>
-                            <Shield size={13} /> {roomHost(open, member.username) ? 'Admin al' : 'Admin ver'}
+                        {!arePair(open.pairs, user.username, member.username) && (
+                          <button type="button" onClick={() => void askCp(member.username)}>
+                            <Heart size={13} /> Sevgili isteği
                           </button>
+                        )}
+                        {canManage && (
+                          <>
+                            <button type="button" onClick={() => { void muteWatchMember(open.id, member.username, !member.muted); setPick(null); }}>
+                              <VolumeX size={13} /> {member.muted ? 'Sesi aç' : 'Sustur'}
+                            </button>
+                            <button type="button" onClick={() => { void kickWatchMember(open.id, member.username); setPick(null); }}>
+                              <UserX size={13} /> Odadan at
+                            </button>
+                            {open.you.owner && (
+                              <button type="button" onClick={() => { void setWatchHost(open.id, member.username, !roomHost(open, member.username)); setPick(null); }}>
+                                <Shield size={13} /> {roomHost(open, member.username) ? 'Admin al' : 'Admin ver'}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -1337,6 +1378,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 );
               })}
             </div>
+            {COUPLE_GAPS.filter((gap) => arePair(open.pairs, seats[gap.a]?.username, seats[gap.b]?.username)).map((gap) => (
+              <div key={`${gap.a}-${gap.b}`} className="room-couple" style={{ left: `${gap.x}%`, top: `${gap.y}%` }} aria-hidden>
+                <span className="room-couple-crown"><Crown size={18} /></span>
+                <i className="room-couple-bar" />
+                <span className="room-couple-heart">❤</span>
+              </div>
+            ))}
             {open.cpOn && (
               <div className="room-hearts" aria-hidden>
                 {HEART_GAPS.flatMap((gap, gi) =>
@@ -1365,10 +1413,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
             {speakerOn ? 'Oda sesi açık' : 'Oda sesi kapalı'}
           </button>
-          <button type="button" className={`room-mic room-cp ${open.cpOn ? 'is-on' : ''}`} onClick={() => void toggleCp()}>
-            <Heart size={16} fill={open.cpOn ? 'currentColor' : 'none'} />
-            CP
-          </button>
+          {ownsOpen && (
+            <button type="button" className={`room-mic room-cp ${open.cpOn ? 'is-on' : ''}`} onClick={() => void toggleCp()}>
+              <Heart size={16} fill={open.cpOn ? 'currentColor' : 'none'} />
+              CP
+            </button>
+          )}
           <button type="button" className={`room-mic room-emoji-btn ${packOpen ? 'is-on' : ''}`} onClick={() => setPackOpen((value) => !value)}>
             <Smile size={16} />
             Emoji
