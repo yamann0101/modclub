@@ -152,7 +152,7 @@ router.post("/rooms/:id/seat", async (req, res) => {
 router.post("/rooms/:id/media", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
-  const body = (req.body || {}) as { videoId?: string; videoTitle?: string; playing?: boolean; position?: number };
+  const body = (req.body || {}) as { videoId?: string; videoTitle?: string; playing?: boolean; position?: number; claim?: boolean };
   try {
     const room = await setMedia(req.params.id, account.username, account.role, body);
     res.json({ room: await packRoom(room, account.username) });

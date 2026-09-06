@@ -262,6 +262,7 @@ export type PublicRoom = {
   position: number;
   updatedAt: number;
   mediaRev?: number;
+  driver?: string;
   serverNow: number;
   members: RoomMember[];
   hosts?: string[];
@@ -269,7 +270,7 @@ export type PublicRoom = {
   cpOn?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
   pairs?: [string, string][];
-  you: { username: string; owner: boolean; host?: boolean; muted: boolean; micOn: boolean; seat: number };
+  you: { username: string; owner: boolean; host?: boolean; drive?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
 export type RoomSignal = {
@@ -315,7 +316,7 @@ export async function claimWatchSeat(id: string, seat: number) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/seat`, { method: 'POST', body: JSON.stringify({ seat }) });
 }
 
-export async function setWatchMedia(id: string, body: { videoId?: string; videoTitle?: string; playing?: boolean; position?: number }) {
+export async function setWatchMedia(id: string, body: { videoId?: string; videoTitle?: string; playing?: boolean; position?: number; claim?: boolean }) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/media`, { method: 'POST', body: JSON.stringify(body) });
 }
 

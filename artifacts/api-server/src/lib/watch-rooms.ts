@@ -52,6 +52,7 @@ export type WatchRoom = {
   position: number;
   updatedAt: number;
   mediaRev: number;
+  driver?: string;
   members: RoomMember[];
   hosts: string[];
   chats: RoomChat[];
@@ -88,13 +89,14 @@ export type PublicRoom = {
   position: number;
   updatedAt: number;
   mediaRev: number;
+  driver?: string;
   serverNow: number;
   members: RoomMember[];
   hosts: string[];
   chats: RoomChat[];
   cpOn?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  you: { username: string; owner: boolean; host: boolean; muted: boolean; micOn: boolean; seat: number };
+  you: { username: string; owner: boolean; host: boolean; drive: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
 type RoomIndex = {
@@ -219,6 +221,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     position: room.position,
     updatedAt: room.updatedAt,
     mediaRev: room.mediaRev || 0,
+    driver: room.driver || room.owner,
     serverNow: now,
     members: room.members.map((member) => {
       const fresh = Boolean(member.emoji && member.emojiAt && now - member.emojiAt < EMOJI_MS + 400);
@@ -238,6 +241,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
       username,
       owner: room.owner === username,
       host: isHost(room, username),
+      drive: (room.driver || room.owner) === username,
       muted: Boolean(you?.muted),
       micOn: Boolean(you?.micOn),
       seat: you?.seat ?? -1,
@@ -293,6 +297,7 @@ export async function createRoom(input: {
     position: 0,
     updatedAt: now,
     mediaRev: 0,
+    driver: input.username,
     members: [{
       username: input.username,
       nick: input.nick,
@@ -467,6 +472,7 @@ export async function setHost(id: string, username: string, target: string, gran
   if (grant) hosts.add(target);
   else hosts.delete(target);
   room.hosts = [...hosts];
+  if (!grant && (room.driver || room.owner) === target) room.driver = room.owner;
   await writeRoom(room);
   return room;
 }
@@ -476,11 +482,15 @@ export async function setMedia(id: string, username: string, role: string | unde
   videoTitle?: string;
   playing?: boolean;
   position?: number;
+  claim?: boolean;
 }) {
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
   if (!canManage(room, username, role)) throw new Error("owner");
+  const currentDriver = room.driver || room.owner;
+  const takingWheel = Boolean(input.claim) || input.videoId !== undefined;
+  if (!takingWheel && currentDriver !== username) return room;
   if (input.videoId !== undefined) {
     if (input.videoId && !/^[a-zA-Z0-9_-]{11}$/.test(input.videoId)) throw new Error("video");
     room.videoId = input.videoId;
@@ -493,6 +503,7 @@ export async function setMedia(id: string, username: string, role: string | unde
       room.position = Math.max(0, input.position);
     }
   }
+  room.driver = username;
   room.updatedAt = Date.now();
   room.mediaRev = (room.mediaRev || 0) + 1;
   await writeRoom(room);
@@ -507,6 +518,7 @@ export async function kickMember(id: string, username: string, role: string | un
   if (target === room.owner) throw new Error("owner");
   room.members = room.members.filter((member) => member.username !== target);
   room.hosts = (room.hosts || []).filter((name) => name !== target);
+  if ((room.driver || room.owner) === target) room.driver = room.owner;
   if (!room.banned.includes(target)) room.banned.push(target);
   room.signals = room.signals.filter((item) => item.from !== target && item.to !== target);
   await writeRoom(room);
