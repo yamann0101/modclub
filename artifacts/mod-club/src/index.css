@@ -101,12 +101,24 @@
 
 @layer base {
   * { @apply border-border; }
-  html { background: hsl(var(--background)); }
+  html {
+    background: hsl(var(--background));
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    touch-action: manipulation;
+    -ms-touch-action: manipulation;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply font-sans antialiased bg-background text-foreground;
     min-width: 320px;
+    max-width: 100%;
     overflow-x: hidden;
+    touch-action: manipulation;
   }
+  #root { width: 100%; max-width: 100%; overflow-x: hidden; }
   button, a, input { -webkit-tap-highlight-color: transparent; }
   button { font: inherit; }
 }
@@ -148,6 +160,18 @@ html.dark .install-page .bg-white { background-color: #fff; }
     radial-gradient(circle at 88% 8%, rgba(214, 187, 255, .34), transparent 24rem),
     hsl(var(--background));
 }
+.login-page {
+  position: relative;
+  display: flex;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  padding:
+    max(.7rem, env(safe-area-inset-top))
+    max(.85rem, env(safe-area-inset-right))
+    max(.7rem, env(safe-area-inset-bottom))
+    max(.85rem, env(safe-area-inset-left));
+}
 
 .login-glow {
   position: absolute;
@@ -177,13 +201,85 @@ html.dark .install-page .bg-white { background-color: #fff; }
 }
 
 .login-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 26rem;
+  height: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 1.2rem;
   background: #fff;
   color: #1b1230;
+  box-shadow: 0 18px 50px rgba(43, 13, 79, .14);
+}
+.login-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  flex-shrink: 0;
+  padding: .7rem .85rem 0;
+}
+.login-logo { width: 3.1rem; height: 3.1rem; }
+.login-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+  padding: .55rem .85rem .85rem;
+}
+.login-body h2 {
+  font-family: var(--app-font-display);
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  line-height: 1.15;
+}
+.login-lead {
+  margin: .25rem 0 .7rem;
+  font-size: .78rem;
+  color: #6d6280;
+}
+.login-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .2rem;
+  margin-bottom: .7rem;
+  padding: .2rem;
+  border-radius: .85rem;
+  background: #f3eefb;
+}
+.login-tabs button {
+  height: 2.35rem;
+  border-radius: .7rem;
+  font-size: .75rem;
+  font-weight: 800;
+  color: #6d6280;
+}
+.login-tabs button.is-on { background: #fff; color: #7c3aed; box-shadow: 0 4px 12px rgba(109, 40, 217, .1); }
+.login-form { display: grid; gap: .55rem; }
+.login-error { margin: 0; font-size: .72rem; font-weight: 700; color: #c54d5b; }
+.login-clear {
+  margin-top: .45rem;
+  font-size: .68rem;
+  font-weight: 800;
+  color: #7c3aed;
+}
+@media (max-height: 700px) {
+  .login-lead { display: none; }
+  .login-body h2 { font-size: 1.28rem; }
+  .login-admin-note { display: none; }
+  .login-field, .login-submit { height: 2.5rem; }
 }
 .login-label {
   display: grid;
-  gap: .45rem;
-  font-size: .72rem;
+  gap: .28rem;
+  font-size: .68rem;
   font-weight: 800;
   color: #2a1a44;
 }
@@ -202,7 +298,7 @@ html.dark .install-page .bg-white { background-color: #fff; }
   pointer-events: none;
 }
 .login-field {
-  height: 3.15rem;
+  height: 2.75rem;
   width: 100%;
   border-radius: .9rem;
   border: 1px solid #e6dcf4;
@@ -221,9 +317,9 @@ html.dark .install-page .bg-white { background-color: #fff; }
   box-shadow: 0 0 0 4px rgba(139, 53, 228, .12);
 }
 .login-submit {
-  margin-top: .35rem;
+  margin-top: .15rem;
   display: flex;
-  height: 3.15rem;
+  height: 2.75rem;
   align-items: center;
   justify-content: center;
   gap: .5rem;
@@ -235,13 +331,13 @@ html.dark .install-page .bg-white { background-color: #fff; }
   box-shadow: 0 12px 24px rgba(122, 36, 214, .22);
 }
 .login-admin-note {
-  margin-top: 1.6rem;
-  border-radius: .9rem;
+  margin-top: .7rem;
+  border-radius: .75rem;
   border: 1px solid #eee6f8;
   background: #f8f5fc;
-  padding: .75rem .85rem;
-  font-size: .68rem;
-  line-height: 1.5;
+  padding: .45rem .6rem;
+  font-size: .62rem;
+  line-height: 1.4;
   color: #6d6280;
 }
 .login-admin-note strong { color: #1b1230; }
@@ -386,21 +482,70 @@ html.dark .pwa-install-btn {
   color: #efe4ff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .28);
 }
-.pwa-install-hint {
-  position: absolute;
-  right: 0;
-  top: calc(100% + .4rem);
-  z-index: 50;
-  width: min(16.5rem, calc(100vw - 1.5rem));
-  margin-top: 0;
-  border-radius: .8rem;
-  background: #f6edff;
-  color: #5b21b6;
-  font-size: .68rem;
-  line-height: 1.45;
-  padding: .55rem .7rem;
-  box-shadow: 0 10px 28px rgba(76, 29, 149, .18);
+.pwa-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(12, 6, 24, .55);
 }
+.pwa-guide-card {
+  position: relative;
+  width: min(20.5rem, 100%);
+  border-radius: 1.1rem;
+  background: #fff;
+  color: #1b1230;
+  padding: 1rem 1rem .9rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .28);
+}
+.pwa-guide-x {
+  position: absolute;
+  top: .45rem;
+  right: .45rem;
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  color: #6d6280;
+}
+.pwa-guide-kicker {
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  color: #7c3aed;
+}
+.pwa-guide-card h3 {
+  margin: .2rem 0 .65rem;
+  font-family: var(--app-font-display);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.pwa-guide-card ol {
+  display: grid;
+  gap: .45rem;
+  padding: 0;
+  margin: 0 0 .8rem;
+  list-style: none;
+}
+.pwa-guide-card li {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .78rem;
+  line-height: 1.35;
+}
+.pwa-guide-ok {
+  width: 100%;
+  height: 2.4rem;
+  border-radius: .75rem;
+  background: #7c3aed;
+  color: #fff;
+  font-weight: 800;
+}
+html.dark .pwa-guide-card { background: #1b1230; color: #f5f0ff; }
+html.dark .pwa-guide-card li, html.dark .pwa-guide-x { color: #d8ccec; }
 
 .page-view { animation: reveal .55s cubic-bezier(.22,.8,.26,1) both; }
 .page-hero {

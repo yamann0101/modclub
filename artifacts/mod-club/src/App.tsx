@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -169,7 +169,7 @@ function resetClubSession() {
 }
 
 function PwaInstallChip() {
-  const { visible, install, iosHint, hideHint } = usePwaInstall();
+  const { visible, install, guide, hideGuide } = usePwaInstall();
   if (!visible) return null;
   return (
     <div className="relative flex flex-col items-end">
@@ -177,11 +177,34 @@ function PwaInstallChip() {
         <Download size={12} strokeWidth={2.4} />
         Yükle
       </button>
-      {iosHint && (
-        <p className="pwa-install-hint">
-          Telefona eklemek için tarayıcı menüsünden <strong>Ana Ekrana Ekle</strong> de. iPhone’da Paylaş → Ana Ekrana Ekle.
-          <button type="button" onClick={hideHint} className="ml-1 font-bold underline">Tamam</button>
-        </p>
+      {guide && (
+        <div className="pwa-guide" role="dialog" aria-label="Uygulamayı yükle">
+          <div className="pwa-guide-card">
+            <button type="button" className="pwa-guide-x" onClick={hideGuide} aria-label="Kapat"><X size={16} /></button>
+            {guide === 'ios' ? (
+              <>
+                <p className="pwa-guide-kicker">İPHONE</p>
+                <h3>Ana ekrana ekle</h3>
+                <ol>
+                  <li><Share2 size={14} /> Alttaki <strong>Paylaş</strong> simgesine bas</li>
+                  <li><Plus size={14} /> <strong>Ana Ekrana Ekle</strong> satırını seç</li>
+                  <li><Check size={14} /> Sağ üstten <strong>Ekle</strong></li>
+                </ol>
+              </>
+            ) : (
+              <>
+                <p className="pwa-guide-kicker">ANDROID</p>
+                <h3>Uygulamayı yükle</h3>
+                <ol>
+                  <li>Chrome’da sağ üst <strong>⋮</strong> menüye bas</li>
+                  <li><strong>Uygulamayı yükle</strong> veya <strong>Ana ekrana ekle</strong></li>
+                  <li><strong>Yükle</strong> deyince MOD CLUB telefona iner</li>
+                </ol>
+              </>
+            )}
+            <button type="button" className="pwa-guide-ok" onClick={hideGuide}>Tamam</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -247,39 +270,33 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
   };
 
   return (
-    <div className="login-page grain flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6">
+    <div className="login-page grain">
       <div className="login-glow login-glow-one" />
       <div className="login-glow login-glow-two" />
-      <div className="login-panel relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/70 bg-white/95 shadow-[0_30px_100px_rgba(43,13,79,.2)] lg:grid-cols-[1.05fr_.95fr]">
-        <div className="login-brand relative hidden min-h-[42rem] overflow-hidden p-8 text-white lg:flex lg:flex-col lg:items-center lg:justify-center lg:p-12">
-          <div className="login-orbit login-orbit-one" /><div className="login-orbit login-orbit-two" />
-          <ClubLogo className="club-logo-hero relative z-10" />
+      <div className="login-panel">
+        <div className="login-top">
+          <ClubLogo size={56} className="club-logo-mark login-logo" />
+          <div className="login-install"><PwaInstallChip /></div>
         </div>
-        <div className="flex min-h-0 flex-col justify-center p-6 sm:p-10 lg:min-h-[38rem] lg:p-14">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <ClubLogo size={72} className="club-logo-mark size-[4.5rem] lg:hidden" />
-            <div className="login-install ml-auto"><PwaInstallChip /></div>
+        <div className="login-body">
+          <p className="page-kicker">{mode === 'login' ? 'ÜYE GİRİŞİ' : 'YENİ HESAP'}</p>
+          <h2>{mode === 'login' ? 'Hoş geldin.' : 'Kayıt ol.'}</h2>
+          <p className="login-lead">{mode === 'login' ? 'Kullanıcı adın ve şifrenle gir.' : 'Giriş adı ayrı, sohbette görünen nick ayrı.'}</p>
+          <div className="login-tabs">
+            <button type="button" onClick={() => { setMode('login'); setError(''); }} className={mode === 'login' ? 'is-on' : ''}>Giriş yap</button>
+            <button type="button" onClick={() => { setMode('register'); setError(''); }} className={mode === 'register' ? 'is-on' : ''}>Kayıt ol</button>
           </div>
-          <div className="mb-8"><p className="font-mono text-[.62rem] font-bold tracking-[.18em] text-[hsl(var(--primary))]">{mode === 'login' ? 'ÜYE GİRİŞİ' : 'YENİ HESAP'}</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">{mode === 'login' ? 'Hoş geldin.' : 'Kayıt ol.'}</h2><p className="mt-3 max-w-sm text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{mode === 'login' ? 'Kullanıcı adın ve şifrenle gir. Sohbette uygulamadaki nickin görünür.' : 'Kullanıcı adı giriş içindir. Uygulamadaki gerçek nickini ayrı yaz.'}</p></div>
-          <div className="mb-5 grid grid-cols-2 rounded-xl bg-[hsl(var(--muted)/.55)] p-1 text-xs font-bold">
-            <button type="button" onClick={() => { setMode('login'); setError(''); }} className={`h-10 rounded-lg ${mode === 'login' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Giriş yap</button>
-            <button type="button" onClick={() => { setMode('register'); setError(''); }} className={`h-10 rounded-lg ${mode === 'register' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Kayıt ol</button>
-          </div>
-          <form onSubmit={submitAuth} className="grid gap-4">
+          <form onSubmit={submitAuth} className="login-form">
             <label className="login-label">Kullanıcı adı<div className="relative"><UserRound className="login-field-icon" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Giriş için kullanıcı adın" className="login-field" /></div></label>
             {mode === 'register' && (
-              <label className="login-label">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="login-field-icon" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="login-field" /></div><span className="login-help">Uyarı: Buraya uygulamadaki gerçek nickini yaz. Üye listesi, sohbet ve çekilişte yalnızca bu nick görünür.</span></label>
+              <label className="login-label">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="login-field-icon" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="login-field" /></div></label>
             )}
             <label className="login-label">Şifre<div className="relative"><KeyRound className="login-field-icon" size={17} /><input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="login-field" /></div></label>
-            {error && (
-              <div className="grid gap-2 rounded-lg bg-[#fff0f1] px-3 py-2">
-                <p role="alert" className="text-xs font-semibold text-[#c54d5b]">{error}</p>
-              </div>
-            )}
+            {error && <p role="alert" className="login-error">{error}</p>}
             <button type="submit" className="login-submit">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
           </form>
-          <div className="login-admin-note"><strong>Admin girişi:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulum sihirbazını tamamla.</>}</div>
-          <button type="button" onClick={requestInstallReset} className="mt-3 text-xs font-bold text-[hsl(var(--primary))] hover:underline">Giriş bilgilerini temizle</button>
+          <p className="login-admin-note"><strong>Admin:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulumu tamamla.</>}</p>
+          <button type="button" onClick={requestInstallReset} className="login-clear">Giriş bilgilerini temizle</button>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 <html lang="tr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>MOD CLUB</title>
     <meta name="application-name" content="MOD CLUB" />
     <meta name="apple-mobile-web-app-title" content="MOD CLUB" />
@@ -63,6 +63,16 @@
         } catch (error) {
           document.documentElement.classList.add('dark');
         }
+        window.__mcPwa = { event: null };
+        window.addEventListener('beforeinstallprompt', function (event) {
+          event.preventDefault();
+          window.__mcPwa.event = event;
+        });
+        window.addEventListener('appinstalled', function () {
+          window.__mcPwa.event = null;
+        });
+        document.addEventListener('gesturestart', function (event) { event.preventDefault(); }, { passive: false });
+        document.addEventListener('gesturechange', function (event) { event.preventDefault(); }, { passive: false });
       })();
     </script>
   </head>
