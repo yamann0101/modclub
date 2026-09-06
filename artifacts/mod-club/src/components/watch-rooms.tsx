@@ -273,6 +273,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [needStart, setNeedStart] = useState(false);
   const [cinemaKey, setCinemaKey] = useState(0);
   const [kbInset, setKbInset] = useState(0);
+  const [kbFrame, setKbFrame] = useState<{ top: number; height: number } | null>(null);
   const [hideUntil, setHideUntil] = useState(user.hideUntil || 0);
   const [reactNow, setReactNow] = useState(0);
   const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
@@ -406,13 +407,22 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   useEffect(() => {
     if (!open) {
       setKbInset(0);
+      setKbFrame(null);
       document.body.classList.remove('room-typing');
       return;
     }
     const syncKeyboard = () => {
       const viewport = window.visualViewport;
-      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
-      setKbInset(inset > 80 ? inset : 0);
+      if (!viewport) {
+        setKbInset(0);
+        setKbFrame(null);
+        return;
+      }
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const openKb = inset > 80;
+      setKbInset(openKb ? inset : 0);
+      setKbFrame(openKb ? { top: viewport.offsetTop, height: viewport.height } : null);
+      if (openKb) window.scrollTo(0, 0);
     };
     window.visualViewport?.addEventListener('resize', syncKeyboard);
     window.visualViewport?.addEventListener('scroll', syncKeyboard);
@@ -1456,7 +1466,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       <div
         className={`page-view room-page ${kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
         onPointerDown={unlockAudio}
-        style={kbInset > 0 ? { paddingBottom: kbInset } : undefined}
+        style={kbInset > 0 && focusField === 'chat' && kbFrame
+          ? { top: kbFrame.top, height: kbFrame.height, bottom: 'auto', paddingBottom: 0 }
+          : undefined}
       >
         {joinBanner && (
           <div className="room-join-banner" key={joinStamp}>
@@ -1706,7 +1718,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               ref={chatInputRef}
               value={chatText}
               onChange={(event) => setChatText(event.target.value)}
-              onFocus={() => setFocusField('chat')}
+              onFocus={() => {
+                setFocusField('chat');
+                window.scrollTo(0, 0);
+              }}
               onBlur={() => {
                 window.setTimeout(() => {
                   if (document.activeElement !== chatInputRef.current) {

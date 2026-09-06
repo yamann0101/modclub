@@ -2340,7 +2340,8 @@ html.dark .guess-btn-ghost {
   flex-direction: column;
   gap: .35rem;
   padding: 0 0 .55rem;
-  overflow: auto;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: #0b0614;
 }
 .room-kill {
@@ -2987,29 +2988,34 @@ html.dark .guess-btn-ghost {
 .room-chat-clear { background: #111827 !important; }
 .room-page.is-keyboard {
   overflow: hidden;
+  padding-bottom: 0;
 }
-.room-page.is-keyboard .room-couch {
+.room-page.is-keyboard .room-couch,
+.room-page.is-keyboard .room-emoji-pack,
+.room-page.is-keyboard .room-search,
+.room-page.is-keyboard .room-vol {
   display: none;
 }
 .room-page.is-keyboard .room-stage,
-.room-page.is-keyboard .room-dock,
-.room-page.is-keyboard .room-emoji-pack {
+.room-page.is-keyboard .room-dock {
   display: flex;
+  flex-shrink: 0;
 }
 .room-page.is-keyboard .room-stage { flex-direction: column; }
 .room-page.is-keyboard .room-tv {
-  aspect-ratio: auto;
-  height: min(28vh, 42vw);
-  max-height: 28vh;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: auto;
+  max-height: 36vh;
 }
 .room-page.is-keyboard .room-chat {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-  margin: .1rem .55rem 0;
+  margin: .15rem .55rem 0;
 }
 .room-page.is-keyboard .room-chat-log {
-  max-height: 4.2rem;
-  min-height: 2.2rem;
+  max-height: none;
+  min-height: 0;
 }
 body.room-live { overflow: hidden; }
 body.room-live header.sticky,
