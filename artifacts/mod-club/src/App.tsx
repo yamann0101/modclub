@@ -10,7 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
 import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
 import { WatchRoomsPage } from '@/components/watch-rooms';
-import { CpProfileCard } from '@/components/cp-profile';
+import { CpAskOverlay, CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -1440,6 +1440,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
   return (
     <div className="mod-app grain min-h-[100dvh] pb-28">
+      <CpAskOverlay onNotice={setNotice} />
       <header className="sticky top-0 z-30 border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.9)] backdrop-blur-xl">
         <div className="desktop-shell mx-auto flex h-[4.25rem] w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">

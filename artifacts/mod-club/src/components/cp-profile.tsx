@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Heart, HeartCrack } from 'lucide-react';
+import { Heart, HeartCrack, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
-import { breakCp, fetchCp, requestCp, respondCp, type CpState } from '@/lib/club-api';
+import { breakCp, fetchCp, requestCp, respondCp, type CpAsk, type CpState } from '@/lib/club-api';
 
 export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }) {
   const [state, setState] = useState<CpState | null>(null);
@@ -76,5 +76,76 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
         </div>
       )}
     </section>
+  );
+}
+
+export function CpAskOverlay({ onNotice }: { onNotice: (text: string) => void }) {
+  const [ask, setAsk] = useState<CpAsk | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      try {
+        const data = await fetchCp();
+        if (!live) return;
+        setAsk(data.incoming[0] || null);
+      } catch {
+        /* stay quiet */
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => { void tick(); }, 800);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  async function answer(accept: boolean) {
+    if (!ask || busy) return;
+    setBusy(true);
+    try {
+      await respondCp(ask.id, accept);
+      onNotice(accept ? `${ask.fromUser?.nick || ask.from} artık sevgilin` : 'İstek reddedildi');
+      setAsk(null);
+    } catch (err) {
+      const code = (err as Error).message;
+      onNotice(code === 'taken' ? 'Biri zaten sevgili' : 'İstek işlenemedi');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!ask) return null;
+  const nick = ask.fromUser?.nick || ask.from;
+  const photo = avatarFor(nick, ask.fromUser?.photo);
+
+  return (
+    <div className="cp-ask-overlay">
+      <div className="cp-ask-card">
+        <button type="button" className="cp-ask-close" aria-label="Kapat" onClick={() => void answer(false)}>
+          <X size={16} />
+        </button>
+        <p className="cp-ask-kicker">CP İSTEĞİ</p>
+        <div className="cp-ask-ring" aria-hidden>
+          <i />
+          <i />
+          <i />
+          <span className="cp-ask-gem" />
+          <img src={photo} alt="" />
+        </div>
+        <h2>{nick}</h2>
+        <p>Sana yüzük uzattı. Sevgili olmak ister misin?</p>
+        <div className="cp-ask-actions">
+          <button type="button" className="is-yes" disabled={busy} onClick={() => void answer(true)}>
+            <Heart size={16} fill="currentColor" /> Kabul et
+          </button>
+          <button type="button" className="is-no" disabled={busy} onClick={() => void answer(false)}>
+            Reddet
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
