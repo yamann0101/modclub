@@ -86,6 +86,15 @@ const ICE: RTCConfiguration = {
   ],
 };
 
+function forceSpeaker() {
+  try {
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (session) session.type = 'playback';
+  } catch {
+    /* safari only */
+  }
+}
+
 function preferOpus(sdp = '') {
   return sdp.replace(
     /a=fmtp:(\d+) (.*)/g,
@@ -390,6 +399,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     document.body.classList.toggle('room-live', Boolean(open));
+    if (open) forceSpeaker();
     return () => document.body.classList.remove('room-live');
   }, [open]);
 
@@ -587,7 +597,6 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const room = roomRef.current;
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
-      applyLocalVolume(player);
       if (roomDrive(room)) {
         const localPlay = lastPushRef.current.playing;
         if (!room.playing && !localPlay) {
@@ -766,21 +775,22 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function applyLocalVolume(player: YtPlayer) {
+    forceSpeaker();
     const slider = videoVolRef.current;
-    const muted = videoMutedRef.current || slider <= 0;
+    const wantMute = videoMutedRef.current || slider <= 0;
     const talking = talkingRef.current.size > 0 || wantMicRef.current;
     const duck = talking ? 0.35 : 0.7;
-    const target = muted ? 0 : Math.max(1, Math.round(mapFilmVolume(slider) * duck));
+    const target = wantMute ? 0 : Math.max(1, Math.round(mapFilmVolume(slider) * duck));
     try {
-      if (muted) {
-        player.mute();
-        player.setVolume(0);
+      const now = player.getVolume?.();
+      const mutedNow = player.isMuted?.();
+      if (wantMute) {
+        if (mutedNow !== true) player.mute();
+        if (now !== 0) player.setVolume(0);
         return;
       }
-      player.unMute();
-      player.setVolume(target);
-      const now = player.getVolume?.();
-      if (typeof now === 'number' && now > target) player.setVolume(target);
+      if (mutedNow) player.unMute();
+      if (typeof now !== 'number' || Math.abs(now - target) >= 1) player.setVolume(target);
     } catch {
       /* player not ready */
     }
@@ -853,9 +863,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function unlockAudio() {
+    forceSpeaker();
     try {
-      if (!audioCtx.current) audioCtx.current = new AudioContext();
-      void audioCtx.current.resume();
+      if (audioCtx.current) void audioCtx.current.resume();
     } catch {
       /* no audio context */
     }
@@ -975,6 +985,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (audio.srcObject !== stream) audio.srcObject = stream;
     audio.muted = !speakerOnRef.current;
     audio.volume = 1;
+    forceSpeaker();
+    const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
+    if (setSink) void setSink.call(audio, 'default').catch(() => undefined);
     void audio.play().catch(() => undefined);
   }
 
