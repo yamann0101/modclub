@@ -79,9 +79,12 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
   );
 }
 
+const ASK_MS = 15_000;
+
 export function CpAskOverlay({ onNotice }: { onNotice: (text: string) => void }) {
   const [ask, setAsk] = useState<CpAsk | null>(null);
   const [busy, setBusy] = useState(false);
+  const [left, setLeft] = useState(15);
 
   useEffect(() => {
     let live = true;
@@ -89,18 +92,30 @@ export function CpAskOverlay({ onNotice }: { onNotice: (text: string) => void })
       try {
         const data = await fetchCp();
         if (!live) return;
-        setAsk(data.incoming[0] || null);
+        const next = data.incoming.find((item) => Date.now() - item.at < ASK_MS) || null;
+        setAsk(next);
+        if (next) setLeft(Math.max(0, Math.ceil((ASK_MS - (Date.now() - next.at)) / 1000)));
       } catch {
         /* stay quiet */
       }
     };
     void tick();
-    const timer = window.setInterval(() => { void tick(); }, 800);
+    const timer = window.setInterval(() => { void tick(); }, 700);
     return () => {
       live = false;
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!ask) return;
+    const timer = window.setInterval(() => {
+      const remain = Math.max(0, Math.ceil((ASK_MS - (Date.now() - ask.at)) / 1000));
+      setLeft(remain);
+      if (remain <= 0) setAsk(null);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [ask?.id, ask?.at]);
 
   async function answer(accept: boolean) {
     if (!ask || busy) return;
@@ -137,6 +152,7 @@ export function CpAskOverlay({ onNotice }: { onNotice: (text: string) => void })
         </div>
         <h2>{nick}</h2>
         <p>Sana yüzük uzattı. Sevgili olmak ister misin?</p>
+        <small className="cp-ask-timer">{left} sn</small>
         <div className="cp-ask-actions">
           <button type="button" className="is-yes" disabled={busy} onClick={() => void answer(true)}>
             <Heart size={16} fill="currentColor" /> Kabul et

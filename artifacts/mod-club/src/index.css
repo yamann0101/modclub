@@ -817,7 +817,15 @@ html.dark .pwa-guide-card li, html.dark .pwa-guide-x { color: #d8ccec; }
   font-family: var(--app-font-display);
   font-size: 1.45rem;
 }
-.cp-ask-card p { margin: 0 0 1rem; font-size: .8rem; color: #fbcfe8; }
+.cp-ask-card p { margin: 0 0 .35rem; font-size: .8rem; color: #fbcfe8; }
+.cp-ask-timer {
+  display: block;
+  margin: 0 0 1rem;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: #f5d76e;
+}
 .cp-ask-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
 .cp-ask-actions button {
   display: inline-flex;

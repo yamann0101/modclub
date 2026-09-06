@@ -8,6 +8,7 @@ export type CpPerson = { username: string; nick: string; photo?: string };
 export type CpState = { bonds: CpBond[]; asks: CpAsk[] };
 
 const DOC = "cp_bonds";
+const ASK_MS = 15_000;
 
 function key(value: string) {
   return value.trim().toLowerCase();
@@ -32,10 +33,11 @@ async function setDoc(name: string, value: unknown) {
 
 async function readState(): Promise<CpState> {
   const raw = await getDoc<CpState>(DOC, { bonds: [], asks: [] });
-  return {
-    bonds: Array.isArray(raw.bonds) ? raw.bonds : [],
-    asks: Array.isArray(raw.asks) ? raw.asks : [],
-  };
+  const now = Date.now();
+  const asks = (Array.isArray(raw.asks) ? raw.asks : []).filter((item) => now - item.at < ASK_MS);
+  const bonds = Array.isArray(raw.bonds) ? raw.bonds : [];
+  if (asks.length !== (raw.asks || []).length) await setDoc(DOC, { bonds, asks });
+  return { bonds, asks };
 }
 
 function bondOf(bonds: CpBond[], username: string) {
