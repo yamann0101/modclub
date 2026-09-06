@@ -123,6 +123,15 @@ const MIC_AUDIO = {
   googAudioMirroring: false,
 } as MediaTrackConstraints;
 
+const VOICE_GAIN = 3.2;
+
+function mapFilmVolume(slider: number) {
+  const t = Math.max(0, Math.min(100, slider)) / 100;
+  const mapped = Math.round(34 * t * t);
+  if (slider <= 0) return 0;
+  return Math.max(1, mapped);
+}
+
 declare global {
   interface Window {
     YT?: {
@@ -223,7 +232,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [busy, setBusy] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [talking, setTalking] = useState<string[]>([]);
-  const [videoVol, setVideoVol] = useState(80);
+  const [videoVol, setVideoVol] = useState(22);
   const [videoMuted, setVideoMuted] = useState(false);
   const [pick, setPick] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
@@ -263,6 +272,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const revivingMic = useRef(false);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
+  const videoVolRef = useRef(22);
+  const videoMutedRef = useRef(false);
+  const voiceNodes = useRef(new Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode; stream: MediaStream }>());
+  videoVolRef.current = videoVol;
+  videoMutedRef.current = videoMuted;
 
   const refreshList = async () => {
     try {
@@ -478,6 +492,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               } else if (live.videoId) {
                 player.cueVideoById(live.videoId, cinemaTime(live, receivedAtRef.current));
               }
+              applyLocalVolume(player);
             } catch {
               setNeedStart(Boolean(live.videoId));
             }
@@ -525,6 +540,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const room = roomRef.current;
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
+      applyLocalVolume(player);
       if (roomDrive(room)) {
         const localPlay = lastPushRef.current.playing;
         if (!room.playing && !localPlay) {
@@ -605,8 +621,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     speakerOnRef.current = speakerOn;
+    voiceNodes.current.forEach((node) => {
+      node.gain.gain.value = voiceGainLevel();
+    });
     remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOn;
+      audio.muted = true;
       if (speakerOn) void audio.play().catch(() => undefined);
     });
   }, [speakerOn]);
@@ -701,11 +720,21 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function applyLocalVolume(player: YtPlayer) {
+    const slider = videoVolRef.current;
+    const muted = videoMutedRef.current || slider <= 0;
+    const talking = talkingRef.current.size > 0 || wantMicRef.current;
+    const duck = talking ? 0.35 : 0.7;
+    const target = muted ? 0 : Math.max(1, Math.round(mapFilmVolume(slider) * duck));
     try {
-      const duck = wantMicRef.current ? 0.45 : 1;
-      player.setVolume(Math.round(videoVol * duck));
-      if (videoMuted || videoVol === 0) player.mute();
-      else player.unMute();
+      if (muted) {
+        player.mute();
+        player.setVolume(0);
+        return;
+      }
+      player.unMute();
+      player.setVolume(target);
+      const now = player.getVolume?.();
+      if (typeof now === 'number' && now > target) player.setVolume(target);
     } catch {
       /* player not ready */
     }
@@ -770,6 +799,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (on) bag.add(name);
     else bag.delete(name);
     setTalking([...bag]);
+    if (playerRef.current && playerReady.current) applyLocalVolume(playerRef.current);
     if (name === user.username && lastSpeakPing.current !== on && open) {
       lastSpeakPing.current = on;
       void pingWatchRoom(open.id, { speaking: on });
@@ -784,8 +814,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       /* no audio context */
     }
     remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOnRef.current;
+      audio.muted = true;
       void audio.play().catch(() => undefined);
+    });
+    voiceNodes.current.forEach((node) => {
+      node.gain.gain.value = voiceGainLevel();
     });
   }
 
@@ -876,6 +909,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
+  function voiceGainLevel() {
+    return speakerOnRef.current ? VOICE_GAIN : 0;
+  }
+
   function bindRemoteAudio(name: string, stream: MediaStream) {
     let audio = remoteAudio.current.get(name);
     if (!audio) {
@@ -888,8 +925,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       remoteAudio.current.set(name, audio);
     }
     if (audio.srcObject !== stream) audio.srcObject = stream;
-    audio.muted = !speakerOnRef.current;
+    audio.muted = true;
+    audio.volume = 1;
     void audio.play().catch(() => undefined);
+    try {
+      if (!audioCtx.current) audioCtx.current = new AudioContext();
+      const ctx = audioCtx.current;
+      void ctx.resume();
+      const prev = voiceNodes.current.get(name);
+      if (prev?.stream !== stream) {
+        try { prev?.source.disconnect(); prev?.gain.disconnect(); } catch { /* stale node */ }
+        const source = ctx.createMediaStreamSource(stream);
+        const gain = ctx.createGain();
+        gain.gain.value = voiceGainLevel();
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        voiceNodes.current.set(name, { source, gain, stream });
+      } else if (prev) {
+        prev.gain.gain.value = voiceGainLevel();
+      }
+    } catch {
+      audio.muted = !speakerOnRef.current;
+    }
   }
 
   async function attachLocal(peer: RTCPeerConnection) {
@@ -1001,6 +1058,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           audio.remove();
         }
         remoteAudio.current.delete(name);
+        const node = voiceNodes.current.get(name);
+        if (node) {
+          try { node.source.disconnect(); node.gain.disconnect(); } catch { /* ignore */ }
+          voiceNodes.current.delete(name);
+        }
       }
     }
     for (const member of others) {
@@ -1013,8 +1075,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       }
     }
     remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOnRef.current;
+      audio.muted = true;
       void audio.play().catch(() => undefined);
+    });
+    voiceNodes.current.forEach((node) => {
+      node.gain.gain.value = voiceGainLevel();
     });
   }
 
@@ -1025,6 +1090,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     localStream.current = null;
     peers.current.forEach((peer) => peer.close());
     peers.current.clear();
+    voiceNodes.current.forEach((node) => {
+      try { node.source.disconnect(); node.gain.disconnect(); } catch { /* ignore */ }
+    });
+    voiceNodes.current.clear();
     remoteAudio.current.forEach((audio) => {
       audio.pause();
       audio.srcObject = null;
@@ -1076,8 +1145,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     setSpeakerOn(next);
     speakerOnRef.current = next;
     unlockAudio();
+    voiceNodes.current.forEach((node) => {
+      node.gain.gain.value = voiceGainLevel();
+    });
     remoteAudio.current.forEach((audio) => {
-      audio.muted = !next;
+      audio.muted = true;
       if (next) void audio.play().catch(() => undefined);
     });
   }
