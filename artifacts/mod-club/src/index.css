@@ -2181,6 +2181,38 @@ html.dark .guess-btn-ghost {
 .room-mic.is-on { background: #166534; }
 .room-mic.is-off, .room-seat-mic.is-off { background: #7f1d1d; color: #fecaca; }
 .room-mic.room-cp.is-on { background: linear-gradient(180deg, #f472b6, #be185d); }
+.room-mic.room-emoji-btn.is-on { background: #5b21b6; }
+.room-emoji-pack {
+  display: flex;
+  align-items: stretch;
+  gap: .3rem;
+  margin: 0 .55rem;
+  padding: .35rem;
+  border-radius: 1rem;
+  background: #1a0f2e;
+  flex-shrink: 0;
+}
+.room-emoji-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .08rem;
+  min-width: 0;
+  min-height: 2.65rem;
+  padding: .2rem .1rem;
+  border-radius: .8rem;
+  background: #2a1848;
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.room-emoji-item small {
+  color: #f9a8d4;
+  font-size: .68rem;
+  font-weight: 900;
+}
+.room-page.is-keyboard .room-emoji-pack { display: none; }
 .room-dock { display: flex; flex-wrap: wrap; gap: .5rem; margin: .15rem .55rem .15rem; flex-shrink: 0; }
 .room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
 .room-tv { position: relative; overflow: hidden; border-radius: 0; background: #000; aspect-ratio: 16/9; }
@@ -2230,7 +2262,7 @@ html.dark .guess-btn-ghost {
 .room-couch { margin: .1rem .55rem 0; flex-shrink: 0; }
 .room-stage-floor {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 1.2rem;
   padding: .55rem .3rem .65rem;
   background:
@@ -2309,6 +2341,119 @@ html.dark .guess-btn-ghost {
   color: #c4b5fd;
 }
 .mic-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.mic-slot.is-react { z-index: 5; overflow: visible; }
+.mic-slot.is-react .mic-ring { overflow: visible; }
+.mic-avatar.is-react {
+  overflow: visible;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.mic-react-face {
+  display: block;
+  font-size: 2.55rem;
+  line-height: 1;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+  animation: mic-react-kiss 3s ease-in-out both;
+}
+.mic-slot.react-laugh .mic-react-face { animation-name: mic-react-laugh; }
+.mic-slot.react-cry .mic-react-face { animation-name: mic-react-cry; }
+.mic-slot.react-angry .mic-react-face { animation-name: mic-react-angry; }
+.mic-slot.react-angry .mic-avatar { filter: drop-shadow(0 0 10px rgba(248,113,113,.85)); }
+.mic-react-kisses,
+.mic-react-tears,
+.mic-react-steam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mic-react-kisses i {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  font-size: 1.05rem;
+  font-style: normal;
+  animation: mic-kiss-r 3s ease-out both;
+}
+.mic-slot.react-kiss-l .mic-react-kisses i { animation-name: mic-kiss-l; }
+.mic-react-kisses i:nth-child(2) { top: 40%; animation-delay: .35s; }
+.mic-react-kisses i:nth-child(3) { top: 6%; animation-delay: .7s; }
+.mic-react-tears i {
+  position: absolute;
+  left: 50%;
+  top: 72%;
+  width: .28rem;
+  height: .42rem;
+  border-radius: 50% 50% 55% 55%;
+  background: #7dd3fc;
+  animation: mic-tear 3s ease-in both;
+}
+.mic-react-tears i:nth-child(1) { margin-left: -.55rem; }
+.mic-react-tears i:nth-child(2) { margin-left: .2rem; animation-delay: .4s; }
+.mic-react-tears i:nth-child(3) { margin-left: -.15rem; animation-delay: .85s; }
+.mic-react-steam i {
+  position: absolute;
+  top: -.05rem;
+  width: .34rem;
+  height: .55rem;
+  border-radius: 999px;
+  background: rgba(252, 165, 165, .9);
+  animation: mic-steam 3s ease-out both;
+}
+.mic-react-steam i:first-child { left: 14%; }
+.mic-react-steam i:last-child { right: 14%; animation-delay: .22s; }
+@keyframes mic-react-kiss {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.42); }
+  34% { transform: scale(1.12); }
+  54% { transform: scale(1.38); }
+  78% { transform: scale(1.08); }
+}
+@keyframes mic-react-laugh {
+  0%, 100% { transform: scale(1) rotate(0); }
+  10% { transform: scale(1.38) rotate(-9deg); }
+  22% { transform: scale(1.18) rotate(9deg); }
+  34% { transform: scale(1.42) rotate(-7deg); }
+  48% { transform: scale(1.2) rotate(8deg); }
+  62% { transform: scale(1.36) rotate(-5deg); }
+  80% { transform: scale(1.12) rotate(4deg); }
+}
+@keyframes mic-react-cry {
+  0%, 100% { transform: scale(1) translateY(0); }
+  18% { transform: scale(1.28) translateY(3px); }
+  36% { transform: scale(1.12) translateY(-2px); }
+  54% { transform: scale(1.32) translateY(3px); }
+  76% { transform: scale(1.1) translateY(0); }
+}
+@keyframes mic-react-angry {
+  0%, 100% { transform: scale(1) translateX(0); }
+  8% { transform: scale(1.32) translateX(-4px); }
+  16% { transform: scale(1.32) translateX(4px); }
+  24% { transform: scale(1.4) translateX(-3px); }
+  36% { transform: scale(1.22) translateX(3px); }
+  52% { transform: scale(1.38) translateX(-2px); }
+  70% { transform: scale(1.18) translateX(2px); }
+}
+@keyframes mic-kiss-r {
+  0% { transform: translate(0, 0) scale(.35); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translate(2.45rem, -.55rem) scale(1.12); opacity: 0; }
+}
+@keyframes mic-kiss-l {
+  0% { transform: translate(0, 0) scale(.35); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translate(-2.45rem, -.55rem) scale(1.12); opacity: 0; }
+}
+@keyframes mic-tear {
+  0% { transform: translateY(0) scale(.55); opacity: 0; }
+  14% { opacity: 1; }
+  100% { transform: translateY(1.55rem) scale(1); opacity: 0; }
+}
+@keyframes mic-steam {
+  0% { transform: translateY(8px) scale(.35); opacity: 0; }
+  18% { opacity: .9; }
+  100% { transform: translateY(-1.15rem) scale(1.1); opacity: 0; }
+}
 .mic-slot.is-empty .mic-avatar { border-style: dashed; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.04); }
 .mic-slot.is-empty { cursor: pointer; }
 .mic-slot.is-talk .mic-avatar { box-shadow: 0 0 0 3px rgba(52,211,153,.55), 0 0 18px rgba(52,211,153,.4); }
@@ -2439,7 +2584,8 @@ html.dark .guess-btn-ghost {
 .room-chat-clear { background: #111827 !important; }
 .room-page.is-keyboard .room-stage,
 .room-page.is-keyboard .room-couch,
-.room-page.is-keyboard .room-dock {
+.room-page.is-keyboard .room-dock,
+.room-page.is-keyboard .room-emoji-pack {
   display: none;
 }
 .room-page.is-keyboard .room-chat {

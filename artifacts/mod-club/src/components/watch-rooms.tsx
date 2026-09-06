@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { DoorOpen, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Smile, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -22,6 +22,7 @@ import {
   setWatchMedia,
   type PublicRoom,
   type RoomCard,
+  type RoomMember,
   type SessionUser,
   type YoutubeHit,
 } from '@/lib/club-api';
@@ -39,6 +40,20 @@ const HEART_GAPS = [
   { x: 62.5, y: 50 },
   { x: 87.5, y: 50 },
 ];
+const SEAT_EMOJIS = [
+  { id: 'kiss-r', mark: '😘', label: 'Sağ öpücük' },
+  { id: 'kiss-l', mark: '😘', label: 'Sol öpücük' },
+  { id: 'laugh', mark: '😂', label: 'Gülme' },
+  { id: 'cry', mark: '😭', label: 'Ağlama' },
+  { id: 'angry', mark: '😡', label: 'Kızgın' },
+] as const;
+const EMOJI_MS = 3000;
+
+function liveSeatEmoji(member: RoomMember | null, serverNow: number, receivedAt: number, now: number) {
+  if (!member?.emoji || !member.emojiAt) return '';
+  return serverNow + (now - receivedAt) - member.emojiAt < EMOJI_MS ? member.emoji : '';
+}
+
 const ICE: RTCConfiguration = {
   iceCandidatePoolSize: 4,
   iceServers: [
@@ -176,6 +191,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [needStart, setNeedStart] = useState(false);
   const [cinemaKey, setCinemaKey] = useState(0);
   const [kbInset, setKbInset] = useState(0);
+  const [packOpen, setPackOpen] = useState(false);
+  const [reactNow, setReactNow] = useState(0);
+  const localReact = useRef<{ id: string; at: number } | null>(null);
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
@@ -298,6 +316,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       });
     }
   }, [kbInset]);
+
+  useEffect(() => {
+    if (!open) {
+      localReact.current = null;
+      setPackOpen(false);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (localReact.current && Date.now() - localReact.current.at >= EMOJI_MS) localReact.current = null;
+      setReactNow(Date.now());
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [open?.id]);
 
   useEffect(() => {
     if (!open) {
@@ -1052,6 +1083,23 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
+  async function sendSeatEmoji(id: string) {
+    if (!open) return;
+    if (open.you.seat < 0) {
+      setNotice('Önce mikrofona otur');
+      return;
+    }
+    const at = Date.now();
+    localReact.current = { id, at };
+    setPackOpen(false);
+    setReactNow(at);
+    try {
+      adopt((await pingWatchRoom(open.id, { emoji: id })).room);
+    } catch {
+      setNotice('Emoji gitmedi');
+    }
+  }
+
   async function onChat(event: FormEvent) {
     event.preventDefault();
     if (!open || !chatText.trim()) return;
@@ -1157,20 +1205,36 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                 const admin = Boolean(member && roomHost(open, member.username));
                 const live = Boolean(member && (member.speaking || talking.includes(member.username)));
                 const canPick = iHost && member && member.username !== user.username;
+                const mineReact = member?.username === user.username && localReact.current && reactNow - localReact.current.at < EMOJI_MS
+                  ? localReact.current.id
+                  : '';
+                const react = mineReact || liveSeatEmoji(member, open.serverNow, receivedAtRef.current, reactNow || Date.now());
+                const reactMark = SEAT_EMOJIS.find((item) => item.id === react)?.mark || '';
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''}`}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''}`}
                     onClick={() => {
                       if (!member) void sitOn(seat);
                       else if (canPick) setPick((value) => value === member.username ? null : member.username);
                     }}
                   >
                     <div className="mic-ring">
-                      {owner && <span className="mic-wings" aria-hidden="true" />}
-                      {live && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
-                      <div className="mic-avatar">
-                        {member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
+                      {owner && !react && <span className="mic-wings" aria-hidden="true" />}
+                      {live && !react && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
+                      <div className={`mic-avatar ${react ? 'is-react' : ''}`}>
+                        {react ? (
+                          <>
+                            <span className="mic-react-face" key={`${member?.username}-${react}-${member?.emojiAt || localReact.current?.at || 0}`}>{reactMark}</span>
+                            {(react === 'kiss-r' || react === 'kiss-l') && (
+                              <span className="mic-react-kisses" aria-hidden>
+                                <i>💋</i><i>💋</i><i>💋</i>
+                              </span>
+                            )}
+                            {react === 'cry' && <span className="mic-react-tears" aria-hidden><i /><i /><i /></span>}
+                            {react === 'angry' && <span className="mic-react-steam" aria-hidden><i /><i /></span>}
+                          </>
+                        ) : member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
                       </div>
                       <span className="mic-ribbon">{owner ? 'Yönetici' : admin ? 'Admin' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'}</span>
                     </div>
@@ -1226,7 +1290,28 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             <Heart size={16} fill={open.cpOn ? 'currentColor' : 'none'} />
             CP
           </button>
+          <button type="button" className={`room-mic room-emoji-btn ${packOpen ? 'is-on' : ''}`} onClick={() => setPackOpen((value) => !value)}>
+            <Smile size={16} />
+            Emoji
+          </button>
         </div>
+        {packOpen && (
+          <div className="room-emoji-pack">
+            {SEAT_EMOJIS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`room-emoji-item is-${item.id}`}
+                onClick={() => void sendSeatEmoji(item.id)}
+                title={item.label}
+              >
+                {item.id === 'kiss-l' && <small>←</small>}
+                <span>{item.mark}</span>
+                {item.id === 'kiss-r' && <small>→</small>}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="room-chat">
           <div className="room-chat-log" ref={chatLogRef}>
             {(open.chats || []).map((row) => (

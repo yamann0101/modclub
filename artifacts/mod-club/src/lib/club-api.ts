@@ -236,6 +236,8 @@ export type RoomMember = {
   micOn: boolean;
   speaking?: boolean;
   lastSeen: number;
+  emoji?: string;
+  emojiAt?: number;
 };
 
 export type RoomChat = {
@@ -303,7 +305,7 @@ export async function fetchWatchRoom(id: string) {
   return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
 }
 
-export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean } = {}) {
+export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string } = {}) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify(body) });
 }
 

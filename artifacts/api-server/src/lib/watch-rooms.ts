@@ -5,6 +5,8 @@ const SEATS = 8;
 const MAX_ROOMS = 24;
 const STALE_MS = 180_000;
 const MAX_SIGNALS = 200;
+const EMOJI_MS = 3_000;
+const EMOJI_IDS = new Set(["kiss-r", "kiss-l", "laugh", "cry", "angry"]);
 
 export type RoomMember = {
   username: string;
@@ -15,6 +17,8 @@ export type RoomMember = {
   micOn: boolean;
   speaking: boolean;
   lastSeen: number;
+  emoji?: string;
+  emojiAt?: number;
 };
 
 export type RoomChat = {
@@ -198,6 +202,7 @@ export function publicCard(room: RoomIndex): PublicRoomCard {
 
 export function publicRoom(room: WatchRoom, username: string): PublicRoom {
   const you = room.members.find((member) => member.username === username);
+  const now = Date.now();
   return {
     id: room.id,
     title: room.title,
@@ -212,8 +217,17 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     position: room.position,
     updatedAt: room.updatedAt,
     mediaRev: room.mediaRev || 0,
-    serverNow: Date.now(),
-    members: room.members.map((member) => ({ ...member, speaking: Boolean(member.speaking), micOn: Boolean(member.micOn) })),
+    serverNow: now,
+    members: room.members.map((member) => {
+      const fresh = Boolean(member.emoji && member.emojiAt && now - member.emojiAt < EMOJI_MS + 400);
+      return {
+        ...member,
+        speaking: Boolean(member.speaking),
+        micOn: Boolean(member.micOn),
+        emoji: fresh ? member.emoji : undefined,
+        emojiAt: fresh ? member.emojiAt : undefined,
+      };
+    }),
     hosts: room.hosts || [],
     chats: room.chats || [],
     cpOn: Boolean(room.cpOn),
@@ -334,13 +348,24 @@ export async function joinRoom(input: {
   return room;
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string }) {
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
   const member = room.members.find((item) => item.username === username);
   if (!member) throw new Error("member");
-  member.lastSeen = Date.now();
+  const now = Date.now();
+  member.lastSeen = now;
+  if (typeof patch?.emoji === "string" && EMOJI_IDS.has(patch.emoji)) {
+    member.emoji = patch.emoji;
+    member.emojiAt = now;
+  }
+  for (const item of room.members) {
+    if (item.emojiAt && now - item.emojiAt > EMOJI_MS + 2_000) {
+      item.emoji = undefined;
+      item.emojiAt = undefined;
+    }
+  }
   if (typeof patch?.cpOn === "boolean") room.cpOn = patch.cpOn;
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
