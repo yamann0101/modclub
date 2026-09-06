@@ -720,6 +720,20 @@ html.dark .pwa-guide-card li, html.dark .pwa-guide-x { color: #d8ccec; }
   font-size: .72rem;
 }
 .cp-card-ask button:last-child { background: #111827; }
+.cp-card-mate { display: grid; gap: .65rem; }
+.cp-card-drop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  width: 100%;
+  min-height: 2.5rem;
+  margin: 0;
+  border-radius: .9rem;
+  background: #7f1d1d !important;
+  color: #fecaca !important;
+  font-size: .78rem !important;
+}
 .cp-ask-overlay {
   position: fixed;
   inset: 0;
@@ -2520,57 +2534,124 @@ html.dark .guess-btn-ghost {
 .room-stage-floor::after { right: -2%; transform: scaleX(-1); }
 .room-seats {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .35rem .2rem;
 }
-.room-couple {
+.room-loveseat {
   position: absolute;
-  z-index: 5;
-  width: 0;
-  height: 0;
+  z-index: 1;
+  width: 50%;
+  height: 50%;
+  overflow: visible;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  animation: room-love-in .55s cubic-bezier(.22, 1.15, .32, 1) both;
 }
-.room-couple-bar {
+.room-loveseat.is-fx { z-index: 4; }
+.room-loveseat-sofa {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 8%;
+  bottom: 10%;
+  border-radius: 1.6rem 1.6rem 1.05rem 1.05rem;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 228, 230, .55), transparent 42%),
+    linear-gradient(180deg, #fb7185 0%, #be185d 55%, #701a3a 100%);
+  box-shadow: inset 0 10px 18px rgba(255,255,255,.18), 0 10px 22px rgba(190, 24, 93, .35);
+}
+.room-loveseat-sofa::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 0;
+  height: 38%;
+  border-radius: 1.3rem 1.3rem .6rem .6rem;
+  background: linear-gradient(180deg, #fda4af, #e11d48);
+  opacity: .85;
+}
+.room-loveseat-glow {
+  position: absolute;
+  inset: 4% 8%;
+  border-radius: 1.8rem;
+  box-shadow: 0 0 28px 8px rgba(251, 113, 133, .35);
+  animation: room-love-glow 1.8s ease-in-out infinite;
+}
+.room-loveseat-crown {
   position: absolute;
   left: 50%;
-  top: .2rem;
-  width: 5.4rem;
-  height: .34rem;
-  margin-left: -2.7rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, #f5d76e 12%, #fb7185 50%, #f5d76e 88%, transparent);
-  box-shadow: 0 0 16px rgba(251, 113, 133, .7);
-}
-.room-couple-crown {
-  position: absolute;
-  left: 50%;
-  top: -1.55rem;
-  color: #f5d76e;
+  top: .15rem;
+  z-index: 3;
+  color: #fde68a;
   transform: translateX(-50%);
-  filter: drop-shadow(0 4px 8px rgba(245, 215, 110, .55));
-  animation: room-couple-bob 1.35s ease-in-out infinite;
+  filter: drop-shadow(0 4px 10px rgba(253, 224, 71, .7));
+  animation: room-love-bob 1.4s ease-in-out infinite;
 }
-.room-couple-heart {
+.room-loveseat-heart {
   position: absolute;
   left: 50%;
-  top: -.15rem;
-  font-size: 1.9rem;
+  top: 38%;
+  z-index: 3;
+  font-size: 1.55rem;
   line-height: 1;
-  color: #fb7185;
-  transform: translate(-50%, -35%);
-  animation: room-couple-beat .95s ease-in-out infinite;
-  filter: drop-shadow(0 6px 12px rgba(244, 63, 94, .5));
+  color: #fff1f2;
+  transform: translate(-50%, -50%);
+  animation: room-love-beat 1s ease-in-out infinite;
+  text-shadow: 0 0 12px rgba(255, 255, 255, .7);
 }
-@keyframes room-couple-bob {
+.room-loveseat i {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  width: .42rem;
+  height: .42rem;
+  border-radius: 50% 50% 50% 0;
+  background: #fecdd3;
+  transform: rotate(-45deg);
+  animation: room-love-petal 2.4s ease-in infinite;
+}
+.room-loveseat i:nth-child(5) { left: 28%; animation-delay: .3s; }
+.room-loveseat i:nth-child(6) { left: 72%; animation-delay: .7s; }
+.room-loveseat i:nth-child(7) { left: 40%; animation-delay: 1.1s; background: #f5d76e; }
+.room-loveseat i:nth-child(8) { left: 60%; animation-delay: 1.5s; }
+.room-loveseat i:nth-child(9) { left: 34%; animation-delay: 1.9s; }
+.room-loveseat i:nth-child(10) { left: 66%; animation-delay: 2.2s; background: #f9a8d4; }
+.mic-slot.is-couple-left,
+.mic-slot.is-couple-right { z-index: 3; }
+.mic-slot.is-couple-left .mic-ring { transform: translateX(18%); }
+.mic-slot.is-couple-right .mic-ring { transform: translateX(-18%); }
+.mic-slot.is-couple-left .mic-avatar,
+.mic-slot.is-couple-right .mic-avatar {
+  border-color: #f9a8d4;
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, .45), 0 0 16px rgba(244, 63, 94, .4);
+}
+.mic-slot.is-couple-left .mic-ribbon,
+.mic-slot.is-couple-right .mic-ribbon {
+  background: linear-gradient(180deg, #fb7185, #be185d);
+  color: #fff;
+}
+@keyframes room-love-in {
+  0% { transform: scale(.7); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes room-love-glow {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+@keyframes room-love-bob {
   0%, 100% { transform: translateX(-50%) translateY(0); }
   50% { transform: translateX(-50%) translateY(-4px); }
 }
-@keyframes room-couple-beat {
-  0%, 100% { transform: translate(-50%, -35%) scale(1); }
-  40% { transform: translate(-50%, -35%) scale(1.22); }
+@keyframes room-love-beat {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  40% { transform: translate(-50%, -50%) scale(1.28); }
+}
+@keyframes room-love-petal {
+  0% { transform: rotate(-45deg) translate(0, 10px) scale(.4); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: rotate(-45deg) translate(-8px, -42px) scale(1); opacity: 0; }
 }
 .room-hearts {
   position: absolute;

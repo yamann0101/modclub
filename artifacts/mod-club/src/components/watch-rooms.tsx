@@ -50,12 +50,12 @@ const SEAT_EMOJIS = [
 ] as const;
 const EMOJI_MS = 3000;
 const COUPLE_GAPS = [
-  { a: 0, b: 1, x: 25, y: 24 },
-  { a: 1, b: 2, x: 50, y: 24 },
-  { a: 2, b: 3, x: 75, y: 24 },
-  { a: 4, b: 5, x: 25, y: 76 },
-  { a: 5, b: 6, x: 50, y: 76 },
-  { a: 6, b: 7, x: 75, y: 76 },
+  { a: 0, b: 1, left: 0, top: 0 },
+  { a: 1, b: 2, left: 25, top: 0 },
+  { a: 2, b: 3, left: 50, top: 0 },
+  { a: 4, b: 5, left: 0, top: 50 },
+  { a: 5, b: 6, left: 25, top: 50 },
+  { a: 6, b: 7, left: 50, top: 50 },
 ];
 
 function sameUser(left?: string, right?: string) {
@@ -1347,7 +1347,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
                           </>
                         ) : member ? <img src={avatarFor(member.nick, member.photo)} alt={member.nick} /> : <Mic size={18} />}
                       </div>
-                      <span className="mic-ribbon">{owner ? 'Yönetici' : admin ? 'Admin' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'}</span>
+                      <span className="mic-ribbon">{
+                        (member && (arePair(open.pairs, member.username, seats[seat + 1]?.username) || arePair(open.pairs, member.username, seats[seat - 1]?.username)))
+                          ? 'Sevgili'
+                          : owner ? 'Yönetici' : admin ? 'Admin' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'
+                      }</span>
                     </div>
                     <strong>{member ? member.nick : `Mik ${seat + 1}`}</strong>
                     {pick === member?.username && canPick && member && (
@@ -1379,10 +1383,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               })}
             </div>
             {COUPLE_GAPS.filter((gap) => arePair(open.pairs, seats[gap.a]?.username, seats[gap.b]?.username)).map((gap) => (
-              <div key={`${gap.a}-${gap.b}`} className="room-couple" style={{ left: `${gap.x}%`, top: `${gap.y}%` }} aria-hidden>
-                <span className="room-couple-crown"><Crown size={18} /></span>
-                <i className="room-couple-bar" />
-                <span className="room-couple-heart">❤</span>
+              <div key={`${gap.a}-${gap.b}`} aria-hidden>
+                <div className="room-loveseat" style={{ left: `${gap.left}%`, top: `${gap.top}%` }}>
+                  <span className="room-loveseat-sofa" />
+                  <span className="room-loveseat-glow" />
+                </div>
+                <div className="room-loveseat is-fx" style={{ left: `${gap.left}%`, top: `${gap.top}%` }}>
+                  <span className="room-loveseat-crown"><Crown size={16} /></span>
+                  <span className="room-loveseat-heart">❤</span>
+                  <i /><i /><i /><i /><i /><i />
+                </div>
               </div>
             ))}
             {open.cpOn && (

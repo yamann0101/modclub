@@ -10,7 +10,10 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void fetchCp().then(setState).catch(() => undefined);
+    const load = () => { void fetchCp().then(setState).catch(() => undefined); };
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => window.clearInterval(timer);
   }, []);
 
   async function run(work: () => Promise<CpState>, ok: string, fail: Record<string, string>) {
@@ -42,14 +45,24 @@ export function CpProfileCard({ onNotice }: { onNotice: (text: string) => void }
       <p className="cp-card-kicker">CP TAKI</p>
       <h3>Sevgili</h3>
       {state?.partner ? (
-        <div className="cp-card-partner">
-          <img src={avatarFor(state.partner.nick, state.partner.photo)} alt="" />
-          <div>
-            <strong>{state.partner.nick}</strong>
-            <small>Sevgilin</small>
+        <div className="cp-card-mate">
+          <div className="cp-card-partner">
+            <img src={avatarFor(state.partner.nick, state.partner.photo)} alt="" />
+            <div>
+              <strong>{state.partner.nick}</strong>
+              <small>Sevgilin</small>
+            </div>
           </div>
-          <button type="button" disabled={busy} onClick={() => void run(breakCp, 'CP bozuldu', {})}>
-            <HeartCrack size={14} /> Ayrıl
+          <button
+            type="button"
+            className="cp-card-drop"
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm(`${state.partner?.nick} ile CP’yi çıkarmak istiyor musun?`)) return;
+              void run(breakCp, 'CP çıkarıldı', {});
+            }}
+          >
+            <HeartCrack size={15} /> CP’yi çıkar
           </button>
         </div>
       ) : (
