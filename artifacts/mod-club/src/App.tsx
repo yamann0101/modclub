@@ -248,7 +248,6 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
 
   return (
     <div className="login-page grain flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6">
-      <div className="fixed right-3 top-3 z-40 sm:right-5 sm:top-5"><PwaInstallChip /></div>
       <div className="login-glow login-glow-one" />
       <div className="login-glow login-glow-two" />
       <div className="login-panel relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/70 bg-white/95 shadow-[0_30px_100px_rgba(43,13,79,.2)] lg:grid-cols-[1.05fr_.95fr]">
@@ -257,8 +256,9 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
           <ClubLogo className="club-logo-hero relative z-10" />
         </div>
         <div className="flex min-h-0 flex-col justify-center p-6 sm:p-10 lg:min-h-[38rem] lg:p-14">
-          <div className="mb-8 flex items-center justify-between gap-3">
+          <div className="mb-6 flex items-center justify-between gap-3">
             <ClubLogo size={72} className="club-logo-mark size-[4.5rem] lg:hidden" />
+            <div className="login-install ml-auto"><PwaInstallChip /></div>
           </div>
           <div className="mb-8"><p className="font-mono text-[.62rem] font-bold tracking-[.18em] text-[hsl(var(--primary))]">{mode === 'login' ? 'ÜYE GİRİŞİ' : 'YENİ HESAP'}</p><h2 className="mt-2 font-display text-3xl font-bold tracking-[-.06em] sm:text-4xl">{mode === 'login' ? 'Hoş geldin.' : 'Kayıt ol.'}</h2><p className="mt-3 max-w-sm text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">{mode === 'login' ? 'Kullanıcı adın ve şifrenle gir. Sohbette uygulamadaki nickin görünür.' : 'Kullanıcı adı giriş içindir. Uygulamadaki gerçek nickini ayrı yaz.'}</p></div>
           <div className="mb-5 grid grid-cols-2 rounded-xl bg-[hsl(var(--muted)/.55)] p-1 text-xs font-bold">
@@ -1440,7 +1440,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             )}
             <button data-testid="button-search" aria-label="Ara" onClick={() => setSearchOpen((open) => !open)} className="hidden size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] sm:grid"><Search size={19} /></button>
             <span className="wallet-chip"><Coins size={13} />{walletCoins}</span>
-            <PwaInstallChip />
+            <span className="shrink-0"><PwaInstallChip /></span>
             <button
               type="button"
               data-testid="button-theme-toggle"

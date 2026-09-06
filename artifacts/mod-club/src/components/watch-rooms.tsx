@@ -73,6 +73,7 @@ type YtPlayer = {
   pauseVideo: () => void;
   seekTo: (seconds: number, allow: boolean) => void;
   getCurrentTime: () => number;
+  getDuration: () => number;
   getPlayerState: () => number;
   setVolume: (value: number) => void;
   getVolume: () => number;
@@ -162,6 +163,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [chatText, setChatText] = useState('');
   const [needStart, setNeedStart] = useState(false);
   const [cinemaKey, setCinemaKey] = useState(0);
+  const [scrub, setScrub] = useState({ time: 0, duration: 0 });
+  const seekTimer = useRef(0);
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const playerReady = useRef(false);
@@ -287,8 +290,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           fs: 0,
           iv_load_policy: 3,
           origin: window.location.origin,
-          controls: 0,
-          disablekb: 1,
+          controls: room?.you.host ? 1 : 0,
+          disablekb: room?.you.host ? 0 : 1,
           autoplay: room?.playing ? 1 : 0,
           start: startAt,
           mute: 1,
@@ -324,7 +327,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               applyLocalVolume(player);
               setNeedStart(false);
             }
-            if (live.you.host) return;
+            if (live.you.host) {
+              if (event.data === 1 || event.data === 2) void pushOwnerClock(live, player);
+              return;
+            }
             if (live.playing && (event.data === 2 || event.data === 0)) {
               try { player.playVideo(); } catch { /* blocked */ }
             }
@@ -350,6 +356,14 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       const room = roomRef.current;
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
+      try {
+        setScrub({
+          time: player.getCurrentTime() || 0,
+          duration: player.getDuration() || 0,
+        });
+      } catch {
+        /* not ready */
+      }
       if (room.you.host) {
         if (!pushingRef.current && (room.mediaRev ?? 0) !== lastRevRef.current) followCinema(room, player);
         void pushOwnerClock(room, player);
@@ -496,10 +510,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const playing = state === 1;
     const time = player.getCurrentTime?.() ?? 0;
     const live = cinemaTime(room, receivedAtRef.current);
-    if (time < 1.2 && live > 4 && Date.now() - receivedAtRef.current < 5000) return;
     const prev = lastPushRef.current;
     const expected = prev.playing ? prev.position + (Date.now() - prev.at) / 1000 : prev.position;
-    const jumped = Math.abs(time - expected) > 1.35;
+    const jumped = Math.abs(time - expected) > 1.2;
+    if (!jumped && time < 1.2 && live > 4 && Date.now() - receivedAtRef.current < 5000) return;
     if (playing === prev.playing && !jumped && room.videoId === prev.videoId) return;
     pushingRef.current = true;
     lastPushRef.current = { playing, position: time, videoId: room.videoId, at: Date.now() };
@@ -903,12 +917,35 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     setQuery('');
   }
 
+  async function seekTo(next: number, playing = open?.playing ?? false) {
+    if (!open) return;
+    const time = Math.max(0, next);
+    try {
+      playerRef.current?.seekTo(time, true);
+      if (playing) playerRef.current?.playVideo();
+    } catch {
+      /* player not ready */
+    }
+    lastPushRef.current = { playing, position: time, videoId: open.videoId, at: Date.now() };
+    try {
+      adopt((await setWatchMedia(open.id, { playing, position: time })).room);
+      lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
+    } catch {
+      /* keep local seek */
+    }
+  }
+
   async function seekBy(delta: number) {
-    if (!open || !playerRef.current) return;
-    const next = Math.max(0, playerRef.current.getCurrentTime() + delta);
-    playerRef.current.seekTo(next, true);
-    adopt((await setWatchMedia(open.id, { playing: open.playing, position: next })).room);
-    lastRevRef.current = roomRef.current?.mediaRev ?? lastRevRef.current;
+    if (!open) return;
+    const now = playerRef.current && playerReady.current ? playerRef.current.getCurrentTime() : open.position;
+    await seekTo(now + delta, open.playing);
+  }
+
+  function queueSeek(next: number) {
+    setScrub((value) => ({ ...value, time: next }));
+    try { playerRef.current?.seekTo(next, true); } catch { /* ignore */ }
+    window.clearTimeout(seekTimer.current);
+    seekTimer.current = window.setTimeout(() => { void seekTo(next, open?.playing ?? true); }, 160);
   }
 
   async function onChat(event: FormEvent) {
@@ -958,6 +995,20 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
               <button type="button" className="room-tv-start" onClick={startGuestVideo}>
                 <Play size={18} /> Videoyu aç
               </button>
+            )}
+            {iHost && open.videoId && (
+              <div className="room-scrub">
+                <button type="button" onClick={() => void seekBy(-10)} aria-label="10 saniye geri"><SkipBack size={14} /></button>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(1, scrub.duration)}
+                  step={0.25}
+                  value={Math.min(scrub.time, Math.max(1, scrub.duration))}
+                  onChange={(event) => queueSeek(Number(event.target.value))}
+                />
+                <button type="button" onClick={() => void seekBy(10)} aria-label="10 saniye ileri"><SkipForward size={14} /></button>
+              </div>
             )}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>

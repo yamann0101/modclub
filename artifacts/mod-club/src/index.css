@@ -363,6 +363,7 @@ html.dark .chat-sheet { background-color: hsl(var(--card)); }
   background: #08080a;
   box-shadow: 0 8px 22px rgba(88, 20, 150, .28);
 }
+.login-install { display: flex; justify-content: flex-end; align-items: center; }
 .pwa-install-btn {
   display: inline-flex;
   align-items: center;
@@ -2027,6 +2028,29 @@ html.dark .guess-btn-ghost {
 .room-tv { position: relative; overflow: hidden; border-radius: 1rem; background: #000; aspect-ratio: 16/9; }
 .room-player, .room-player iframe { width: 100%; height: 100%; }
 .room-tv-lock { position: absolute; inset: 0; z-index: 3; }
+.room-scrub {
+  position: absolute;
+  left: .45rem;
+  right: .45rem;
+  bottom: .45rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  border-radius: .8rem;
+  background: rgba(8, 6, 16, .72);
+  padding: .35rem .45rem;
+}
+.room-scrub button {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: .5rem;
+  background: #1e1233;
+  color: #fff;
+}
+.room-scrub input { flex: 1; accent-color: #a78bfa; }
 .room-tv-start {
   position: absolute;
   left: 50%;
