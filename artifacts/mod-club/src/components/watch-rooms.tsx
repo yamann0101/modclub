@@ -74,14 +74,26 @@ function liveSeatEmoji(member: RoomMember | null, serverNow: number, receivedAt:
 }
 
 const ICE: RTCConfiguration = {
-  iceCandidatePoolSize: 4,
+  iceCandidatePoolSize: 8,
+  iceTransportPolicy: 'all',
   iceServers: [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
+
+function preferOpus(sdp = '') {
+  return sdp.replace(
+    /a=fmtp:(\d+) (.*)/g,
+    (line, id, rest) => (rest.includes('useinbandfec') && !rest.includes('maxaveragebitrate')
+      ? `a=fmtp:${id} ${rest};maxaveragebitrate=128000;stereo=0`
+      : line),
+  );
+}
 
 function localYoutubeId(value: string) {
   const text = value.trim();
@@ -122,8 +134,6 @@ const MIC_AUDIO = {
   googTypingNoiseDetection: true,
   googAudioMirroring: false,
 } as MediaTrackConstraints;
-
-const VOICE_GAIN = 3.2;
 
 function mapFilmVolume(slider: number) {
   const t = Math.max(0, Math.min(100, slider)) / 100;
@@ -658,11 +668,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     speakerOnRef.current = speakerOn;
-    voiceNodes.current.forEach((node) => {
-      node.gain.gain.value = voiceGainLevel();
-    });
     remoteAudio.current.forEach((audio) => {
-      audio.muted = true;
+      audio.muted = !speakerOn;
+      audio.volume = 1;
       if (speakerOn) void audio.play().catch(() => undefined);
     });
   }, [speakerOn]);
@@ -852,11 +860,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       /* no audio context */
     }
     remoteAudio.current.forEach((audio) => {
-      audio.muted = true;
+      audio.muted = !speakerOnRef.current;
+      audio.volume = 1;
       void audio.play().catch(() => undefined);
-    });
-    voiceNodes.current.forEach((node) => {
-      node.gain.gain.value = voiceGainLevel();
     });
   }
 
@@ -904,17 +910,24 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function acquireMic() {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false });
+    } catch {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
     localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = stream;
     const track = stream.getAudioTracks()[0];
     if (track) {
       try { await track.applyConstraints(MIC_AUDIO); } catch { /* device limits */ }
+      try { track.contentHint = 'speech'; } catch { /* ignore */ }
+      track.enabled = true;
       track.onended = () => {
         if (wantMicRef.current && !document.hidden) void reviveMic();
       };
     }
-    watchLevel(user.username, stream);
+    watchLevel(user.username, stream.clone());
   }
 
   async function applyMicToPeers(room: PublicRoom) {
@@ -947,15 +960,12 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
-  function voiceGainLevel() {
-    return speakerOnRef.current ? VOICE_GAIN : 0;
-  }
-
   function bindRemoteAudio(name: string, stream: MediaStream) {
     let audio = remoteAudio.current.get(name);
     if (!audio) {
       audio = document.createElement('audio');
       audio.autoplay = true;
+      audio.playsInline = true;
       audio.setAttribute('playsinline', 'true');
       audio.setAttribute('autoplay', '');
       audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;';
@@ -963,28 +973,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       remoteAudio.current.set(name, audio);
     }
     if (audio.srcObject !== stream) audio.srcObject = stream;
-    audio.muted = true;
+    audio.muted = !speakerOnRef.current;
     audio.volume = 1;
     void audio.play().catch(() => undefined);
-    try {
-      if (!audioCtx.current) audioCtx.current = new AudioContext();
-      const ctx = audioCtx.current;
-      void ctx.resume();
-      const prev = voiceNodes.current.get(name);
-      if (prev?.stream !== stream) {
-        try { prev?.source.disconnect(); prev?.gain.disconnect(); } catch { /* stale node */ }
-        const source = ctx.createMediaStreamSource(stream);
-        const gain = ctx.createGain();
-        gain.gain.value = voiceGainLevel();
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        voiceNodes.current.set(name, { source, gain, stream });
-      } else if (prev) {
-        prev.gain.gain.value = voiceGainLevel();
-      }
-    } catch {
-      audio.muted = !speakerOnRef.current;
-    }
   }
 
   async function attachLocal(peer: RTCPeerConnection) {
@@ -1011,7 +1002,8 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (peer.signalingState !== 'stable') return;
     makingOffer.current.add(peerName);
     try {
-      const offer = await peer.createOffer();
+      const offer = await peer.createOffer({ offerToReceiveAudio: true, voiceActivityDetection: true });
+      if (offer.sdp) offer.sdp = preferOpus(offer.sdp);
       await peer.setLocalDescription(offer);
       await sendWatchSignal(room.id, { to: peerName, type: 'offer', payload: offer });
     } finally {
@@ -1034,6 +1026,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           await flushIce(peer, signal.from);
           await attachLocal(peer);
           const answer = await peer.createAnswer();
+          if (answer.sdp) answer.sdp = preferOpus(answer.sdp);
           await peer.setLocalDescription(answer);
           await sendWatchSignal(room.id, { to: signal.from, type: 'answer', payload: answer });
         } else if (signal.type === 'answer' && peer.signalingState === 'have-local-offer') {
@@ -1069,12 +1062,21 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     };
     peer.ontrack = (event) => {
       const stream = event.streams[0] || new MediaStream([event.track]);
+      event.track.enabled = true;
       bindRemoteAudio(peerName, stream);
       unlockAudio();
     };
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
         try { peer.restartIce(); } catch { /* ignore */ }
+        window.setTimeout(() => {
+          if (peers.current.get(peerName) !== peer) return;
+          const live = roomRef.current;
+          if (!live) return;
+          peers.current.delete(peerName);
+          peer.close();
+          void ensurePeer(live, peerName, user.username.localeCompare(peerName) < 0);
+        }, 800);
       }
     };
     if (initiate) await renegotiate(room, peerName, peer);
@@ -1113,11 +1115,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       }
     }
     remoteAudio.current.forEach((audio) => {
-      audio.muted = true;
+      audio.muted = !speakerOnRef.current;
+      audio.volume = 1;
       void audio.play().catch(() => undefined);
-    });
-    voiceNodes.current.forEach((node) => {
-      node.gain.gain.value = voiceGainLevel();
     });
   }
 
@@ -1183,11 +1183,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     setSpeakerOn(next);
     speakerOnRef.current = next;
     unlockAudio();
-    voiceNodes.current.forEach((node) => {
-      node.gain.gain.value = voiceGainLevel();
-    });
     remoteAudio.current.forEach((audio) => {
-      audio.muted = true;
+      audio.muted = !next;
+      audio.volume = 1;
       if (next) void audio.play().catch(() => undefined);
     });
   }

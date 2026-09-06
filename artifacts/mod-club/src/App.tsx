@@ -1009,6 +1009,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   }, [activeNav]);
 
   useEffect(() => {
+    if (activeNav !== 'Ana Sayfa' || banners.length < 2) return;
+    const timer = window.setInterval(() => {
+      setSlide((current) => (current + 1) % banners.length);
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, [activeNav, banners.length]);
+
+  useEffect(() => {
     if (guessGame?.status === 'playing') setChatOpen(true);
   }, [guessGame?.status, guessGame?.round]);
 
