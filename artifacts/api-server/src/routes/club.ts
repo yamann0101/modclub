@@ -96,7 +96,7 @@ router.patch("/club", async (req, res) => {
   }
   const body = req.body as Record<string, unknown>;
   const staff = account.role === "ADMIN" || account.role === "MODERATOR";
-  if (body.banners || body.films || body.apps) {
+  if (body.banners || body.films || body.apps || body.news || body.announcements || body.homeEvents) {
     if (account.role !== "ADMIN") {
       res.status(403).json({ error: "admin" });
       return;
@@ -111,6 +111,9 @@ router.patch("/club", async (req, res) => {
     giveaways: body.giveaways as never,
     films: account.role === "ADMIN" ? (body.films as never) : undefined,
     apps: account.role === "ADMIN" ? (body.apps as never) : undefined,
+    news: account.role === "ADMIN" ? (body.news as never) : undefined,
+    announcements: account.role === "ADMIN" ? (body.announcements as never) : undefined,
+    homeEvents: account.role === "ADMIN" ? (body.homeEvents as never) : undefined,
     chat: body.chat as never,
     timeouts: staff ? (body.timeouts as never) : undefined,
     notices: body.notices as never,

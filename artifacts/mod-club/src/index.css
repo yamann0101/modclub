@@ -2703,7 +2703,15 @@ html.dark .guess-btn-ghost {
   font-size: .58rem;
   border-radius: .65rem;
 }
-.room-dock .room-mic span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-dock .room-mic.room-kiss {
+  flex: 0 0 auto;
+  min-width: 2.6rem;
+  padding-left: .35rem;
+  padding-right: .35rem;
+  background: linear-gradient(180deg, #fb7185, #be185d);
+  color: #fff;
+}
+.room-dock .room-mic.room-kiss.is-on { box-shadow: 0 0 0 2px #fecdd3; }
 .room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
 .room-tv { position: relative; overflow: hidden; border-radius: 0; background: #000; aspect-ratio: 16/9; }
 .room-player-home { width: 100%; height: 100%; }
@@ -3339,7 +3347,7 @@ html.dark .guess-btn-ghost {
   text-align: center;
   color: #fff;
 }
-.mic-ring { position: relative; width: 4.4rem; height: 4.8rem; }
+.mic-ring { position: relative; width: 4.4rem; height: 4.8rem; overflow: visible; }
 .mic-avatar {
   position: absolute;
   left: 50%;
@@ -3526,24 +3534,36 @@ html.dark .guess-btn-ghost {
 }
 .mic-slot.is-empty .mic-avatar { border-style: dashed; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.04); }
 .mic-slot.is-empty { cursor: pointer; }
-.mic-slot.is-talk .mic-avatar { box-shadow: 0 0 0 3px rgba(52,211,153,.55), 0 0 18px rgba(52,211,153,.4); }
+.mic-slot.is-talk { z-index: 4; overflow: visible; }
+.mic-slot.is-talk .mic-ring { overflow: visible; }
+.mic-slot.is-talk .mic-avatar,
+.mic-avatar.is-talking {
+  overflow: visible;
+  box-shadow: 0 0 0 3px rgba(52,211,153,.85), 0 0 22px rgba(52,211,153,.55);
+}
 .mic-waves, .mic-waves i {
   position: absolute;
-  left: 50%;
-  top: 1.05rem;
-  width: 3.55rem;
-  height: 3.55rem;
-  border: 2px solid rgba(74, 222, 128, .75);
+  inset: -.12rem;
+  width: auto;
+  height: auto;
+  border: 3px solid rgba(74, 222, 128, .95);
   border-radius: 999px;
-  transform: translateX(-50%);
   pointer-events: none;
+  z-index: 0;
 }
-.mic-waves i { animation: mic-wave 1.1s ease-out infinite; }
-.mic-waves i:nth-child(2) { animation-delay: .2s; }
-.mic-waves i:nth-child(3) { animation-delay: .4s; }
+.mic-waves { inset: 0; border-color: transparent; }
+.mic-avatar.is-talking img,
+.mic-avatar.is-talking svg {
+  position: relative;
+  z-index: 1;
+  border-radius: 999px;
+}
+.mic-waves i { animation: mic-wave 1.15s ease-out infinite; }
+.mic-waves i:nth-child(2) { animation-delay: .22s; }
+.mic-waves i:nth-child(3) { animation-delay: .44s; }
 @keyframes mic-wave {
-  0% { transform: translateX(-50%) scale(.92); opacity: .7; }
-  100% { transform: translateX(-50%) scale(1.55); opacity: 0; }
+  0% { transform: scale(1); opacity: .85; }
+  100% { transform: scale(1.58); opacity: 0; }
 }
 .mic-wings {
   position: absolute;

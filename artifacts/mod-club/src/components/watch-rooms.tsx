@@ -98,13 +98,51 @@ const ICE: RTCConfiguration = {
   ],
 };
 
-function forceSpeaker(record = false) {
+function silentHoldSrc() {
+  const seconds = 1;
+  const rate = 8000;
+  const samples = rate * seconds;
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+  const write = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  write(0, 'RIFF');
+  view.setUint32(4, 36 + samples * 2, true);
+  write(8, 'WAVE');
+  write(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, 'data');
+  view.setUint32(40, samples * 2, true);
+  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+}
+
+const SPEAKER_HOLD_SRC = silentHoldSrc();
+
+function forceSpeaker() {
   try {
     const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-    if (session) session.type = record ? 'play-and-record' : 'playback';
+    if (session) session.type = 'playback';
   } catch {
     /* safari only */
   }
+}
+
+function holdSpeakerRoute(el: HTMLAudioElement | null) {
+  forceSpeaker();
+  if (!el) return;
+  el.loop = true;
+  el.volume = 0.01;
+  el.muted = false;
+  const setSink = (el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
+  if (setSink) void setSink.call(el, '').catch(() => undefined);
+  void el.play().catch(() => undefined);
 }
 
 function preferOpus(sdp = '') {
@@ -725,6 +763,8 @@ export function WatchRoomsPage({
   const roomRef = useRef<PublicRoom | null>(null);
   const receivedAtRef = useRef(Date.now());
   const lastRevRef = useRef(-1);
+  const lastFollowPlay = useRef<boolean | null>(null);
+  const speakerHold = useRef<HTMLAudioElement | null>(null);
   const lastPushRef = useRef({ playing: false, position: 0, videoId: '', at: Date.now() });
   const pushingRef = useRef(false);
   const applyingCinema = useRef(false);
@@ -814,7 +854,13 @@ export function WatchRoomsPage({
         setOpen(data.room);
         const player = playerRef.current;
         if (player && playerReady.current) {
-          if (!roomDrive(data.room) || data.room.videoId !== lastVideo.current) followCinema(data.room, player);
+          const guest = !roomDrive(data.room);
+          const videoFlip = lastVideo.current !== data.room.videoId;
+          const playFlip = lastFollowPlay.current !== data.room.playing;
+          const revFlip = (data.room.mediaRev ?? 0) !== lastRevRef.current;
+          if (guest || videoFlip) {
+            if (videoFlip || playFlip || revFlip) followCinema(data.room, player);
+          }
         }
         if (data.signals.length) {
           await consumeSignals(data.room, data.signals);
@@ -842,7 +888,19 @@ export function WatchRoomsPage({
 
   useEffect(() => {
     document.body.classList.toggle('room-live', Boolean(open) && !minimized);
-    if (open) forceSpeaker(wantMicRef.current);
+    if (open) {
+      if (!speakerHold.current) {
+        const audio = document.createElement('audio');
+        audio.src = SPEAKER_HOLD_SRC;
+        audio.loop = true;
+        audio.setAttribute('playsinline', 'true');
+        audio.setAttribute('autoplay', '');
+        audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;';
+        document.body.appendChild(audio);
+        speakerHold.current = audio;
+      }
+      holdSpeakerRoute(speakerHold.current);
+    }
     return () => document.body.classList.remove('room-live');
   }, [open, minimized]);
 
@@ -1089,7 +1147,7 @@ export function WatchRoomsPage({
       } else {
         followCinema(room, player);
       }
-    }, 350);
+    }, 1800);
     return () => window.clearInterval(timer);
   }, [open?.id]);
 
@@ -1141,7 +1199,7 @@ export function WatchRoomsPage({
       resetChrome();
       keepAlive();
       restoreCinema();
-      forceSpeaker(false);
+      holdSpeakerRoute(speakerHold.current);
       unlockAudio();
       const stamped = hiddenAt.current;
       hiddenAt.current = 0;
@@ -1177,7 +1235,7 @@ export function WatchRoomsPage({
       window.setTimeout(reviveFilm, 350);
       window.setTimeout(reviveFilm, 1200);
       window.setTimeout(() => {
-        if (wantMicRef.current) forceSpeaker(true);
+        holdSpeakerRoute(speakerHold.current);
       }, 700);
       if (wantMicRef.current && (away > 400 || !micLive())) void reviveMic(true);
     };
@@ -1277,7 +1335,9 @@ export function WatchRoomsPage({
       return;
     }
     const target = cinemaTime(room, receivedAtRef.current);
+    lastFollowPlay.current = room.playing;
     try {
+      player.setPlaybackRate?.(1);
       if (lastVideo.current !== room.videoId) {
         lastVideo.current = room.videoId;
         bootVideo.current = room.videoId;
@@ -1299,15 +1359,14 @@ export function WatchRoomsPage({
       if (rev !== lastRevRef.current) {
         lastRevRef.current = rev;
         if (state === 0) return;
-        player.seekTo(target, true);
+        if (Math.abs(time - target) > 2.6) player.seekTo(target, true);
         if (room.playing) player.playVideo();
         else if (state === 1) player.pauseVideo();
         return;
       }
       if (!room.playing) {
-        player.setPlaybackRate?.(1);
         if (state === 1) player.pauseVideo();
-        if (Math.abs(time - room.position) > 0.35) player.seekTo(room.position, true);
+        if (Math.abs(time - room.position) > 2.6) player.seekTo(room.position, true);
         return;
       }
       if (state === 0 || state === 3) return;
@@ -1325,21 +1384,14 @@ export function WatchRoomsPage({
         /* duration unknown */
       }
       const drift = time - target;
-      if (Math.abs(drift) > 1.2) {
-        player.setPlaybackRate?.(1);
-        player.seekTo(target, true);
-        return;
-      }
-      if (drift < -0.22) player.setPlaybackRate?.(1.08);
-      else if (drift > 0.22) player.setPlaybackRate?.(0.94);
-      else player.setPlaybackRate?.(1);
+      if (Math.abs(drift) > 2.6) player.seekTo(target, true);
     } catch {
       if (room.playing && !filmUnlocked.current) setNeedStart(true);
     }
   }
 
   function applyLocalVolume(player: YtPlayer) {
-    if (!wantMicRef.current) forceSpeaker(false);
+    holdSpeakerRoute(speakerHold.current);
     const slider = videoVolRef.current;
     const wantMute = videoMutedRef.current || slider <= 0;
     const meTalking = talkingRef.current.has(user.username);
@@ -1468,7 +1520,7 @@ export function WatchRoomsPage({
   }
 
   function unlockAudio() {
-    forceSpeaker(wantMicRef.current);
+    holdSpeakerRoute(speakerHold.current);
     try {
       if (audioCtx.current) void audioCtx.current.resume();
     } catch {
@@ -1533,7 +1585,7 @@ export function WatchRoomsPage({
       track.stop();
     });
     localStream.current = null;
-    forceSpeaker(true);
+    holdSpeakerRoute(speakerHold.current);
     const wait = (ms: number) => new Promise<MediaStream>((_, reject) => {
       window.setTimeout(() => reject(new Error('timeout')), ms);
     });
@@ -1555,6 +1607,7 @@ export function WatchRoomsPage({
       try { await track.applyConstraints(MIC_AUDIO); } catch { /* device limits */ }
       try { track.contentHint = 'speech'; } catch { /* ignore */ }
       track.enabled = true;
+      holdSpeakerRoute(speakerHold.current);
       track.onended = () => {
         if (wantMicRef.current && !document.hidden) void reviveMic(true);
       };
@@ -1563,6 +1616,9 @@ export function WatchRoomsPage({
       };
     }
     watchLevel(user.username, stream.clone());
+    holdSpeakerRoute(speakerHold.current);
+    window.setTimeout(() => holdSpeakerRoute(speakerHold.current), 120);
+    window.setTimeout(() => holdSpeakerRoute(speakerHold.current), 500);
   }
 
   async function applyMicToPeers(room: PublicRoom) {
@@ -1622,7 +1678,7 @@ export function WatchRoomsPage({
     if (audio.srcObject !== stream) audio.srcObject = stream;
     audio.muted = !speakerOnRef.current;
     audio.volume = 1;
-    forceSpeaker(wantMicRef.current);
+    holdSpeakerRoute(speakerHold.current);
     const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
     if (setSink) void setSink.call(audio, 'default').catch(() => undefined);
     void audio.play().catch(() => undefined);
@@ -1793,6 +1849,12 @@ export function WatchRoomsPage({
     talkingRef.current.clear();
     setTalking([]);
     setPick(null);
+    const hold = speakerHold.current;
+    if (hold) {
+      hold.pause();
+      hold.remove();
+      speakerHold.current = null;
+    }
   }
 
   async function toggleMic() {
@@ -1873,6 +1935,10 @@ export function WatchRoomsPage({
   }
 
   async function onJoin(room: RoomCard) {
+    if (open?.id === room.id) {
+      growRoom();
+      return;
+    }
     const owns = room.owner === user.username || room.creator === user.username;
     if (room.locked && !owns && user.role !== 'ADMIN') {
       setJoinId(room.id);
@@ -2416,6 +2482,19 @@ export function WatchRoomsPage({
                 <span>Durdur</span>
               </button>
             )}
+            <button
+              type="button"
+              className={`room-mic room-kiss ${kissPick ? 'is-on' : ''}`}
+              onClick={() => {
+                setKissPick((value) => {
+                  const next = !value;
+                  if (next) setNotice('Öpmek için birine dokun');
+                  return next;
+                });
+              }}
+            >
+              <span>💋 Öp</span>
+            </button>
           </div>
           {fireOpen && canFire && (
             <form
@@ -2561,8 +2640,8 @@ export function WatchRoomsPage({
                   >
                     <div className="mic-ring">
                       {owner && !react && <span className="mic-wings" aria-hidden="true" />}
-                      {live && !react && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
-                      <div className={`mic-avatar ${react ? 'is-react' : ''}`}>
+                      <div className={`mic-avatar ${react ? 'is-react' : ''} ${live && !react ? 'is-talking' : ''}`}>
+                        {live && !react && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
                         {react ? (
                           <>
                             <span className="mic-react-face" key={`${member?.username}-${react}-${member?.emojiAt || localReact.current?.at || 0}`}>{reactMark}</span>
@@ -2661,12 +2740,6 @@ export function WatchRoomsPage({
               </div>
             )}
           </div>
-        </div>
-        <div className="room-kiss-bar">
-          <button type="button" className={`room-kiss-btn ${kissPick ? 'is-on' : ''}`} onClick={() => setKissPick((value) => !value)}>
-            💋 Öp
-          </button>
-          {kissPick && <span>Öpmek için birine dokun</span>}
         </div>
         <div className="room-emoji-pack">
           {SEAT_EMOJIS.map((item) => (
@@ -2795,13 +2868,11 @@ export function WatchRoomsPage({
         </form>
       </div>
     ) : null;
-
-    if (!(minimized && listed)) return <>{roomPage}{settingsModal}</>;
   }
 
-  if (!listed) return null;
+  if (!listed && !open) return null;
 
-  const listPage = (
+  const listPage = listed ? (
     <div className="page-view desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">
       <div className="page-hero page-hero-games">
         <div>
@@ -2892,7 +2963,7 @@ export function WatchRoomsPage({
       )}
       {notice && <p className="room-note">{notice}</p>}
     </div>
-  );
+  ) : null;
 
   return <>{listPage}{roomPage}{settingsModal}</>;
 }

@@ -658,6 +658,8 @@ export async function setMedia(id: string, username: string, role: string | unde
   const currentDriver = room.driver || room.owner;
   const takingWheel = Boolean(input.claim) || input.videoId !== undefined;
   if (!takingWheel && currentDriver !== username) return room;
+  const clockOnly = input.videoId === undefined && !input.claim;
+  const playingChanged = typeof input.playing === "boolean" && input.playing !== room.playing;
   if (input.videoId !== undefined) {
     if (input.videoId && !/^[a-zA-Z0-9_-]{11}$/.test(input.videoId)) throw new Error("video");
     room.videoId = input.videoId;
@@ -672,7 +674,7 @@ export async function setMedia(id: string, username: string, role: string | unde
   }
   room.driver = username;
   room.updatedAt = Date.now();
-  room.mediaRev = (room.mediaRev || 0) + 1;
+  if (!clockOnly || playingChanged) room.mediaRev = (room.mediaRev || 0) + 1;
   await writeRoom(room);
   return room;
 }

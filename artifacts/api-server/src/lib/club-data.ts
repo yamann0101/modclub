@@ -54,6 +54,37 @@ export type ContentCard = {
   link: string;
 };
 
+export type HomeNews = {
+  id: string;
+  tag: string;
+  title: string;
+  copy?: string;
+  image?: string;
+  tone?: string;
+  at: number;
+};
+
+export type HomeAnnouncement = {
+  id: string;
+  tag: string;
+  title: string;
+  copy: string;
+  at: number;
+};
+
+export type HomeEvent = {
+  id: string;
+  title: string;
+  copy: string;
+  date: string;
+  time: string;
+  category: string;
+  tone: string;
+  status: string;
+  day: string;
+  month: string;
+};
+
 export type ChatTimeout = {
   nick: string;
   until: number;
@@ -125,7 +156,7 @@ export async function ensureSchema() {
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`);
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS vip_until bigint`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('banners', $1::jsonb) ON CONFLICT (key) DO NOTHING`, [JSON.stringify(DEFAULT_BANNERS)]);
-  for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events", "rooms_index"]) {
+  for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events", "rooms_index", "home_news", "home_announcements", "home_events"]) {
     await query(`INSERT INTO club_docs (key, value) VALUES ($1, '[]'::jsonb) ON CONFLICT (key) DO NOTHING`, [key]);
   }
   await query(`INSERT INTO club_docs (key, value) VALUES ('settings', '{}'::jsonb) ON CONFLICT (key) DO NOTHING`);
@@ -377,13 +408,16 @@ export async function readGiveaways() {
 }
 
 export async function snapshot(username?: string) {
-  const [settings, accounts, banners, giveaways, films, apps, chat, timeouts, notices, guessGame, slot] = await Promise.all([
+  const [settings, accounts, banners, giveaways, films, apps, news, announcements, homeEvents, chat, timeouts, notices, guessGame, slot] = await Promise.all([
     readSettings(),
     listAccounts(),
     getDoc<Banner[]>("banners", DEFAULT_BANNERS),
     readGiveaways(),
     getDoc<ContentCard[]>("films", []),
     getDoc<ContentCard[]>("apps", []),
+    getDoc<HomeNews[]>("home_news", []),
+    getDoc<HomeAnnouncement[]>("home_announcements", []),
+    getDoc<HomeEvent[]>("home_events", []),
     getDoc<unknown[]>("chat", []),
     getDoc<ChatTimeout[]>("timeouts", []),
     getDoc<ClubNotice[]>("notices", []),
@@ -412,6 +446,9 @@ export async function snapshot(username?: string) {
     giveaways,
     films: Array.isArray(films) ? films : [],
     apps: Array.isArray(apps) ? apps : [],
+    news: Array.isArray(news) ? news : [],
+    announcements: Array.isArray(announcements) ? announcements : [],
+    homeEvents: Array.isArray(homeEvents) ? homeEvents : [],
     chat: Array.isArray(chat) ? chat : [],
     timeouts: (Array.isArray(timeouts) ? timeouts : []).filter((item) => item?.nick && item.until > Date.now()),
     notices: Array.isArray(notices) ? notices.slice(0, 40) : [],
@@ -641,6 +678,9 @@ export async function patchClub(input: {
   giveaways?: Giveaway[];
   films?: ContentCard[];
   apps?: ContentCard[];
+  news?: HomeNews[];
+  announcements?: HomeAnnouncement[];
+  homeEvents?: HomeEvent[];
   chat?: unknown[];
   timeouts?: ChatTimeout[];
   notices?: ClubNotice[];
@@ -649,6 +689,9 @@ export async function patchClub(input: {
   if (input.giveaways) await setDoc("giveaways", settleGiveaways(input.giveaways));
   if (input.films) await setDoc("films", input.films);
   if (input.apps) await setDoc("apps", input.apps);
+  if (input.news) await setDoc("home_news", input.news.slice(0, 40));
+  if (input.announcements) await setDoc("home_announcements", input.announcements.slice(0, 40));
+  if (input.homeEvents) await setDoc("home_events", input.homeEvents.slice(0, 40));
   if (input.chat) await setDoc("chat", input.chat.slice(-400));
   if (input.timeouts) await setDoc("timeouts", input.timeouts);
   if (input.notices) await setDoc("notices", input.notices.slice(0, 40));

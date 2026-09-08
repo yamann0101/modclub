@@ -44,6 +44,37 @@ export type ContentCard = {
   link: string;
 };
 
+export type HomeNews = {
+  id: string;
+  tag: string;
+  title: string;
+  copy?: string;
+  image?: string;
+  tone?: string;
+  at: number;
+};
+
+export type HomeAnnouncement = {
+  id: string;
+  tag: string;
+  title: string;
+  copy: string;
+  at: number;
+};
+
+export type HomeEvent = {
+  id: string;
+  title: string;
+  copy: string;
+  date: string;
+  time: string;
+  category: string;
+  tone: string;
+  status: string;
+  day: string;
+  month: string;
+};
+
 export type ColorMode = 'light' | 'dark';
 
 export type ClubNotice = {

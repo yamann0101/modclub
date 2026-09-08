@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Heart, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, MessageSquare, Megaphone, MicOff, Moon, MoreVertical, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Heart, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, Megaphone, MicOff, Moon, MoreVertical, Newspaper, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -14,7 +14,7 @@ import { CpAskOverlay, CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
+import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway, HomeAnnouncement, HomeEvent, HomeNews } from '@/lib/club-store';
 import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, isCosmeticTitle, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
 import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, startNotifyPolling, syncClubPush, wasNotifyPrompted } from '@/lib/notifications';
 import { PRIZE_TEMPLATES } from '@/lib/prize-art';
@@ -23,24 +23,21 @@ const queryClient = new QueryClient();
 
 const slides = DEFAULT_BANNERS;
 
-const announcements = [
-  { id: 'announcement-1', tag: 'ETKİNLİK', title: 'Haftalık Etkinlik Takvimi Yayında!', copy: 'Bu haftanın turnuva ve etkinlik programı yayınlandı.', time: '2 saat önce', icon: Gift, color: 'violet' },
-  { id: 'announcement-2', tag: 'ÖNEMLİ', title: 'Önemli: Kuralları Okumayı Unutmayın!', copy: 'Topluluk kuralları güncellendi, lütfen gözden geçir.', time: '5 saat önce', icon: AlertTriangle, color: 'amber' },
-  { id: 'announcement-3', tag: 'ÖDÜL', title: 'Yeni Ödüller Seni Bekliyor!', copy: 'Sezon ödülleri ve çekiliş havuzu yenilendi.', time: '1 gün önce', icon: Star, color: 'mint' },
-];
+function agoLabel(at: number) {
+  const ms = Math.max(0, Date.now() - at);
+  if (ms < 60_000) return 'şimdi';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} dk önce`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} saat önce`;
+  return `${Math.floor(ms / 86_400_000)} gün önce`;
+}
 
-const newsItems = [
-  { id: 'news-1', tag: 'YENİ', title: "MOD CLUB'da Yeni Sezon Heyecanı!", time: '2 saat önce', comments: 12, tone: 'violet', image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=720&q=80' },
-  { id: 'news-2', tag: 'ÖNE ÇIKAN', title: 'Büyük Turnuva Bu Hafta!', time: '5 saat önce', comments: 24, tone: 'amber', image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=720&q=80' },
-  { id: 'news-3', tag: 'DUYURU', title: 'Sunucu Güncellemesi', time: '1 gün önce', comments: 8, tone: 'sky', image: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=720&q=80' },
-];
-
-const events = [
-  { id: 'event-1', date: '12 Haziran', time: '20:00', category: 'TURNUVA', title: '5v5 Turnuvası', copy: 'Rekabetçi 5v5, ödüllü final.', tone: 'purple', day: '12', month: 'HAZ', status: 'Yaklaşıyor' },
-  { id: 'event-2', date: '15 Haziran', time: '19:30', category: 'QUIZ', title: 'Ödüllü Bilgi Yarışması', copy: 'Bilgini test et, ödülünü kap.', tone: 'blue', day: '15', month: 'HAZ', status: 'Kayıtta' },
-  { id: 'event-3', date: '18 Haziran', time: '21:00', category: 'ETKİNLİK', title: 'Topluluk Gecesi', copy: 'Sohbet, müzik ve birlikte oyun.', tone: 'green', day: '18', month: 'HAZ', status: 'Açık' },
-  { id: 'event-4', date: '23 Haziran', time: '18:30', category: 'OYUN', title: 'Özel Oyun Gecesi', copy: 'Ödüllü özel maçlar.', tone: 'rose', day: '23', month: 'HAZ', status: 'Yaklaşıyor' },
-];
+function announceLook(tag: string) {
+  const text = tag.toUpperCase();
+  if (text.includes('ÖNEM') || text.includes('KURAL')) return { icon: AlertTriangle, color: 'amber' };
+  if (text.includes('ÖDÜL') || text.includes('ÇEK')) return { icon: Star, color: 'mint' };
+  if (text.includes('ETKİN')) return { icon: Gift, color: 'violet' };
+  return { icon: Megaphone, color: 'violet' };
+}
 
 type ChatMessage = {
   id: string;
@@ -340,8 +337,104 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
   );
 }
 
-function EventsPage({ events, joinedEvents, onToggle }: { events: { id: string; date: string; time: string; category: string; title: string; copy: string; tone: string }[]; joinedEvents: string[]; onToggle: (id: string) => void }) {
-  return <div className="page-view"><div className="page-hero page-hero-events"><div><p className="page-kicker">MOD CLUB TAKVİMİ</p><h1>Etkinlikler</h1><p>Topluluğunla birlikte oynayacağın yeni anları keşfet.</p></div><CalendarDays size={48} /></div><div className="mb-5 flex items-end justify-between"><div><p className="page-kicker">YAKLAŞANLAR</p><h2 className="font-display text-xl font-bold">Seni bekleyen etkinlikler</h2></div><span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.62rem] font-bold text-[hsl(var(--primary))]">{joinedEvents.length} katılım</span></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{events.map((event) => { const joined = joinedEvents.includes(event.id); return <article key={event.id} className={`overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white ${event.tone === 'purple' ? 'shadow-[0_12px_35px_rgba(137,60,216,.1)]' : ''}`}><div className={`relative flex h-32 items-end justify-between overflow-hidden p-4 ${event.tone === 'purple' ? 'bg-[linear-gradient(135deg,#5c1e91,#b24af4)]' : event.tone === 'rose' ? 'bg-[linear-gradient(135deg,#9d286d,#ef6aa9)]' : event.tone === 'blue' ? 'bg-[linear-gradient(135deg,#2567a9,#65b8ec)]' : 'bg-[linear-gradient(135deg,#258b68,#82d59c)]'}`}><span className="rounded-full bg-white/20 px-2 py-1 font-mono text-[.5rem] font-bold text-white">{event.category}</span><span className="font-display text-5xl font-bold text-white/25">{event.id.slice(-1)}</span></div><div className="p-4"><h3 className="font-display text-base font-bold">{event.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{event.copy}</p><div className="mt-4 flex flex-wrap gap-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]"><span className="inline-flex items-center gap-1"><CalendarDays size={13} />{event.date}</span><span className="inline-flex items-center gap-1"><Clock3 size={13} />{event.time}</span></div><button onClick={() => onToggle(event.id)} className={`mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-bold ${joined ? 'bg-[#e2f6e8] text-[#2c9650]' : 'bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--primary))]'}`}>{joined && <Check size={14} />}{joined ? 'Katıldın' : 'Katıl'}</button></div></article>; })}</div></div>;
+function EventsPage({ events, joinedEvents, onToggle }: { events: HomeEvent[]; joinedEvents: string[]; onToggle: (id: string) => void }) {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-events">
+        <div><p className="page-kicker">MOD CLUB TAKVİMİ</p><h1>Etkinlikler</h1><p>Topluluğunla birlikte oynayacağın yeni anları keşfet.</p></div>
+        <CalendarDays size={48} />
+      </div>
+      <div className="mb-5 flex items-end justify-between">
+        <div><p className="page-kicker">YAKLAŞANLAR</p><h2 className="font-display text-xl font-bold">Seni bekleyen etkinlikler</h2></div>
+        <span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1.5 text-[.62rem] font-bold text-[hsl(var(--primary))]">{joinedEvents.length} katılım</span>
+      </div>
+      {!events.length ? (
+        <p className="rounded-2xl border border-[hsl(var(--border))] bg-white p-6 text-sm text-[hsl(var(--muted-foreground))]">Henüz etkinlik yok. Admin panelinden eklenince burada görünür.</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {events.map((event) => {
+            const joined = joinedEvents.includes(event.id);
+            return (
+              <article key={event.id} className={`overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white ${event.tone === 'purple' ? 'shadow-[0_12px_35px_rgba(137,60,216,.1)]' : ''}`}>
+                <div className={`relative flex h-32 items-end justify-between overflow-hidden p-4 ${event.tone === 'purple' ? 'bg-[linear-gradient(135deg,#5c1e91,#b24af4)]' : event.tone === 'rose' ? 'bg-[linear-gradient(135deg,#9d286d,#ef6aa9)]' : event.tone === 'blue' ? 'bg-[linear-gradient(135deg,#2567a9,#65b8ec)]' : 'bg-[linear-gradient(135deg,#258b68,#82d59c)]'}`}>
+                  <span className="rounded-full bg-white/20 px-2 py-1 font-mono text-[.5rem] font-bold text-white">{event.category}</span>
+                  <span className="font-display text-5xl font-bold text-white/25">{event.day}</span>
+                </div>
+                <div className="p-4">
+                  <h3 className="font-display text-base font-bold">{event.title}</h3>
+                  <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{event.copy}</p>
+                  <div className="mt-4 flex flex-wrap gap-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">
+                    <span className="inline-flex items-center gap-1"><CalendarDays size={13} />{event.date}</span>
+                    <span className="inline-flex items-center gap-1"><Clock3 size={13} />{event.time}</span>
+                  </div>
+                  <button onClick={() => onToggle(event.id)} className={`mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-bold ${joined ? 'bg-[#e2f6e8] text-[#2c9650]' : 'bg-[hsl(var(--foreground))] text-white hover:bg-[hsl(var(--primary))]'}`}>{joined && <Check size={14} />}{joined ? 'Katıldın' : 'Katıl'}</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewsPage({ items }: { items: HomeNews[] }) {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-events">
+        <div><p className="page-kicker">KULÜP</p><h1>Haberler</h1><p>Adminin yayınladığı haberler burada.</p></div>
+        <Newspaper size={48} />
+      </div>
+      {!items.length ? (
+        <p className="rounded-2xl border border-[hsl(var(--border))] bg-white p-6 text-sm text-[hsl(var(--muted-foreground))]">Henüz haber yok.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {items.map((item) => (
+            <article key={item.id} className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-white">
+              {item.image ? <img src={item.image} alt="" className="h-36 w-full object-cover" /> : null}
+              <div className="p-4">
+                <span className="font-mono text-[.55rem] font-bold tracking-[.12em] text-[hsl(var(--primary))]">{item.tag}</span>
+                <h3 className="mt-1 font-display text-base font-bold">{item.title}</h3>
+                {item.copy ? <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{item.copy}</p> : null}
+                <p className="mt-2 text-[.58rem] text-[hsl(var(--muted-foreground))]">{agoLabel(item.at)}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnnouncementsPage({ items, onOpen }: { items: HomeAnnouncement[]; onOpen: (item: HomeAnnouncement) => void }) {
+  return (
+    <div className="page-view">
+      <div className="page-hero page-hero-menu">
+        <div><p className="page-kicker">BİLDİRİM</p><h1>Duyurular</h1><p>Kulüp duyuruları ve güncellemeler.</p></div>
+        <Megaphone size={48} />
+      </div>
+      {!items.length ? (
+        <p className="rounded-2xl border border-[hsl(var(--border))] bg-white p-6 text-sm text-[hsl(var(--muted-foreground))]">Henüz duyuru yok.</p>
+      ) : (
+        <div className="grid gap-2">
+          {items.map((item) => {
+            const look = announceLook(item.tag);
+            const Icon = look.icon;
+            return (
+              <button key={item.id} type="button" onClick={() => onOpen(item)} className="home-announce">
+                <span className={`home-announce-icon ${look.color}`}><Icon size={16} /></span>
+                <span className="min-w-0 flex-1 text-left">
+                  <strong className="block truncate text-[.78rem]">{item.title}</strong>
+                  <small className="mt-0.5 block truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.copy}</small>
+                </span>
+                <span className="shrink-0 text-[.52rem] text-[hsl(var(--muted-foreground))]">{agoLabel(item.at)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUntil?: number | null; now: number; busy: boolean; onBuy: (pack: '7' | '30') => void }) {
@@ -389,7 +482,7 @@ function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout
     { title: 'Film İzle', copy: 'Önerilen siteleri aç, açıklamayı oku.', icon: Film, page: 'Film İzle' },
     { title: 'Uygulama İndir', copy: 'Topluluk uygulamalarını gör ve indir.', icon: Download, page: 'Uygulama İndir' },
     { title: 'Topluluk keşfi', copy: 'Yeni ekip arkadaşları ve odalar bul.', icon: UsersRound, page: 'Topluluk' },
-    { title: 'Duyurular', copy: 'MOD CLUB haberlerini ve güncellemeleri gör.', icon: Megaphone },
+    { title: 'Duyurular', copy: 'MOD CLUB haberlerini ve güncellemeleri gör.', icon: Megaphone, page: 'Duyurular' },
     { title: 'Sohbet', copy: 'Canlı sohbeti aç.', icon: MessageCircle, page: 'Sohbet' },
     { title: 'Mağaza', copy: 'Coin ile VIP satın al.', icon: Store, page: 'Mağaza' },
     { title: 'Ayarlar', copy: 'Hesap ve uygulama tercihlerini düzenle.', icon: Settings, page: 'Hesap ayarları' },
@@ -845,6 +938,26 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [giveaways, setGiveaways] = useState<Giveaway[]>([]);
   const [films, setFilms] = useState<ContentCard[]>([]);
   const [apps, setApps] = useState<ContentCard[]>([]);
+  const [news, setNews] = useState<HomeNews[]>([]);
+  const [announcements, setAnnouncements] = useState<HomeAnnouncement[]>([]);
+  const [homeEvents, setHomeEvents] = useState<HomeEvent[]>([]);
+  const [newsTag, setNewsTag] = useState('YENİ');
+  const [newsTitle, setNewsTitle] = useState('');
+  const [newsCopy, setNewsCopy] = useState('');
+  const [newsImage, setNewsImage] = useState('');
+  const [newsTone, setNewsTone] = useState('violet');
+  const [announceTag, setAnnounceTag] = useState('DUYURU');
+  const [announceTitle, setAnnounceTitle] = useState('');
+  const [announceCopy, setAnnounceCopy] = useState('');
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventCopy, setEventCopy] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [eventTime, setEventTime] = useState('');
+  const [eventCategory, setEventCategory] = useState('ETKİNLİK');
+  const [eventStatus, setEventStatus] = useState('Yaklaşıyor');
+  const [eventDay, setEventDay] = useState('');
+  const [eventMonth, setEventMonth] = useState('');
+  const [eventTone, setEventTone] = useState('purple');
   const [giveawayOpen, setGiveawayOpen] = useState(false);
   const [giveawayTab, setGiveawayTab] = useState<'aktif' | 'sonuclar'>('aktif');
   const [now, setNow] = useState(() => Date.now());
@@ -873,7 +986,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const selfMute = activeChatTimeout(timeouts, nick, now);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState<typeof announcements[number] | null>(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<HomeAnnouncement | null>(null);
   const [guessGame, setGuessGame] = useState<PublicGuessGame | null>(null);
   const [guessSetupOpen, setGuessSetupOpen] = useState(false);
   const [guessEndOpen, setGuessEndOpen] = useState(false);
@@ -897,7 +1010,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const liveGiveaway = openGiveaways[0];
 
   const currentSlide = banners[slide % banners.length] ?? slides[0];
-  const upcomingEvents = useMemo(() => events.slice(0, 4), []);
+  const upcomingEvents = homeEvents;
 
   const changeSlide = (direction: number) => {
     setSlide((current) => (current + direction + banners.length) % banners.length);
@@ -956,6 +1069,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setGiveaways(data.giveaways || []);
     setFilms(data.films || []);
     setApps(data.apps || []);
+    setNews(data.news || []);
+    setAnnouncements(data.announcements || []);
+    setHomeEvents(data.homeEvents || []);
     setTimeouts(data.timeouts || []);
     setNotices(data.notices || []);
     setAccounts(data.accounts || []);
@@ -1539,6 +1655,81 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setNotice('Uygulama kartı eklendi');
   };
 
+  const addNews = () => {
+    const title = newsTitle.trim();
+    if (!title) {
+      setNotice('Haber başlığı yaz');
+      return;
+    }
+    const items = [{
+      id: `news-${Date.now()}`,
+      tag: newsTag.trim() || 'YENİ',
+      title,
+      copy: newsCopy.trim() || undefined,
+      image: newsImage.trim() || undefined,
+      tone: newsTone,
+      at: Date.now(),
+    }, ...news].slice(0, 40);
+    setNews(items);
+    void patchClub({ news: items });
+    setNewsTitle('');
+    setNewsCopy('');
+    setNewsImage('');
+    setNotice('Haber yayınlandı');
+  };
+
+  const addAnnouncement = () => {
+    const title = announceTitle.trim();
+    const copy = announceCopy.trim();
+    if (!title || !copy) {
+      setNotice('Duyuru başlığı ve metni gerekli');
+      return;
+    }
+    const items = [{
+      id: `announcement-${Date.now()}`,
+      tag: announceTag.trim() || 'DUYURU',
+      title,
+      copy,
+      at: Date.now(),
+    }, ...announcements].slice(0, 40);
+    setAnnouncements(items);
+    void patchClub({ announcements: items });
+    setAnnounceTitle('');
+    setAnnounceCopy('');
+    setNotice('Duyuru yayınlandı');
+  };
+
+  const addHomeEvent = () => {
+    const title = eventTitle.trim();
+    if (!title) {
+      setNotice('Etkinlik başlığı yaz');
+      return;
+    }
+    const day = eventDay.trim() || title.slice(0, 2);
+    const month = (eventMonth.trim() || 'AY').slice(0, 3).toUpperCase();
+    const items = [...homeEvents, {
+      id: `event-${Date.now()}`,
+      title,
+      copy: eventCopy.trim() || 'Detay yakında.',
+      date: eventDate.trim() || `${day} ${month}`,
+      time: eventTime.trim() || '20:00',
+      category: eventCategory.trim() || 'ETKİNLİK',
+      tone: eventTone,
+      status: eventStatus.trim() || 'Yaklaşıyor',
+      day,
+      month,
+    }].slice(0, 40);
+    setHomeEvents(items);
+    void patchClub({ homeEvents: items });
+    setEventTitle('');
+    setEventCopy('');
+    setEventDate('');
+    setEventTime('');
+    setEventDay('');
+    setEventMonth('');
+    setNotice('Etkinlik eklendi');
+  };
+
   return (
     <div className="mod-app grain min-h-[100dvh] pb-28">
       <CpAskOverlay onNotice={setNotice} />
@@ -1649,59 +1840,67 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           </div>
         </section>
 
+        {news.length > 0 && (
         <section className="mt-7">
           <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2"><CalendarDays size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">HABERLER</h2></div>
-            <button data-testid="button-see-all-news" onClick={() => setNotice('Tüm haberler görüntüleniyor')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
+            <div className="flex items-center gap-2"><Newspaper size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">HABERLER</h2></div>
+            <button data-testid="button-see-all-news" onClick={() => handleNav('Haberler')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
           </div>
           <div className="hide-scrollbar flex gap-3 overflow-x-auto pb-1">
-            {newsItems.map((item) => (
+            {news.map((item) => (
               <article key={item.id} className="home-news-card min-w-[11.5rem] overflow-hidden rounded-2xl sm:min-w-[13rem]">
-                <div className={`home-news-cover ${item.tone}`}>
-                  <img src={item.image} alt="" loading="lazy" />
-                  <span className={`home-news-tag ${item.tone}`}>{item.tag}</span>
+                <div className={`home-news-cover ${item.tone || 'violet'}`}>
+                  {item.image ? <img src={item.image} alt="" loading="lazy" /> : null}
+                  <span className={`home-news-tag ${item.tone || 'violet'}`}>{item.tag}</span>
                 </div>
                 <div className="p-3">
                   <h3 className="line-clamp-2 text-[.72rem] font-extrabold leading-snug">{item.title}</h3>
                   <div className="mt-2 flex items-center justify-between text-[.55rem] text-[hsl(var(--muted-foreground))]">
-                    <span>{item.time}</span>
-                    <span className="inline-flex items-center gap-1"><MessageSquare size={11} />{item.comments}</span>
+                    <span>{agoLabel(item.at)}</span>
                   </div>
                 </div>
               </article>
             ))}
           </div>
         </section>
+        )}
 
+        {announcements.length > 0 && (
         <section className="mt-7">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2"><Megaphone size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">DUYURULAR</h2></div>
-            <button data-testid="button-see-all-announcements" onClick={() => setNotice('Tüm duyurular görüntüleniyor')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
+            <button data-testid="button-see-all-announcements" onClick={() => handleNav('Duyurular')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
           </div>
           <div className="grid gap-2">
-            {announcements.map(({ id, title, copy, time, icon: Icon, color }) => (
-              <button data-testid={`button-${id}`} key={id} onClick={() => setSelectedAnnouncement(announcements.find((item) => item.id === id) ?? null)} className="home-announce">
-                <span className={`home-announce-icon ${color}`}><Icon size={16} /></span>
+            {announcements.map((item) => {
+              const look = announceLook(item.tag);
+              const Icon = look.icon;
+              return (
+              <button data-testid={`button-${item.id}`} key={item.id} onClick={() => setSelectedAnnouncement(item)} className="home-announce">
+                <span className={`home-announce-icon ${look.color}`}><Icon size={16} /></span>
                 <span className="min-w-0 flex-1 text-left">
-                  <strong className="block truncate text-[.72rem]">{title}</strong>
-                  <small className="mt-0.5 block truncate text-[.58rem] text-[hsl(var(--muted-foreground))]">{copy}</small>
+                  <strong className="block truncate text-[.72rem]">{item.title}</strong>
+                  <small className="mt-0.5 block truncate text-[.58rem] text-[hsl(var(--muted-foreground))]">{item.copy}</small>
                 </span>
                 <span className="shrink-0 text-right">
-                  <small className="block text-[.52rem] text-[hsl(var(--muted-foreground))]">{time}</small>
+                  <small className="block text-[.52rem] text-[hsl(var(--muted-foreground))]">{agoLabel(item.at)}</small>
                   <ChevronRight size={14} className="ml-auto mt-1 text-[hsl(var(--muted-foreground))]" />
                 </span>
               </button>
-            ))}
+              );
+            })}
           </div>
         </section>
+        )}
 
+        {homeEvents.length > 0 && (
         <section className="mt-7">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2"><CalendarDays size={15} className="text-[hsl(var(--primary))]" /><h2 className="font-display text-[.78rem] font-extrabold tracking-[.08em]">ETKİNLİKLER</h2></div>
             <button data-testid="button-see-all-events" onClick={() => handleNav('Etkinlikler')} className="flex items-center gap-0.5 text-[.65rem] font-bold text-[hsl(var(--primary))]">Tümü <ChevronRight size={13} /></button>
           </div>
           <div className="hide-scrollbar flex gap-3 overflow-x-auto pb-1">
-            {upcomingEvents.slice(0, 3).map((event) => (
+            {homeEvents.slice(0, 3).map((event) => (
               <article data-testid={`card-${event.id}`} key={event.id} className="home-event-card min-w-[13.5rem]">
                 <div className="home-event-date">
                   <strong>{event.day}</strong>
@@ -1716,7 +1915,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : (activeNav === 'ODA AÇ' || activeNav === 'Oyunlar') ? null : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+        )}
+       </main> : (activeNav === 'ODA AÇ' || activeNav === 'Oyunlar') ? null : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Haberler' ? <NewsPage items={news} /> : activeNav === 'Duyurular' ? <AnnouncementsPage items={announcements} onOpen={setSelectedAnnouncement} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
 
       <WatchRoomsPage
         user={session}
@@ -1796,13 +1996,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[13.5rem_1fr]">
               <aside className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2.5 lg:border-b-0 lg:border-r">
                 <div className="hide-scrollbar flex gap-1.5 overflow-x-auto lg:flex-col">
-                  {(['Genel Bakış', 'Bildirimler', 'Kullanıcılar', 'Bannerlar', 'Çekilişler', 'Filmler', 'Uygulamalar', 'Sayfalar'] as const).map((section) => (
+                  {(['Genel Bakış', 'Bildirimler', 'Kullanıcılar', 'Bannerlar', 'Çekilişler', 'Filmler', 'Uygulamalar', 'İçerik', 'Sayfalar'] as const).map((section) => (
                     <button
                       key={section}
                       onClick={() => setAdminSection(section)}
                       className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-bold lg:w-full ${adminSection === section ? 'bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]'}`}
                     >
-                      {section === 'Genel Bakış' ? <LayoutDashboard size={15} /> : section === 'Bildirimler' ? <Bell size={15} /> : section === 'Kullanıcılar' ? <Users size={15} /> : section === 'Bannerlar' ? <Megaphone size={15} /> : section === 'Çekilişler' ? <Gift size={15} /> : section === 'Filmler' ? <Film size={15} /> : section === 'Uygulamalar' ? <Download size={15} /> : <PanelRightOpen size={15} />}
+                      {section === 'Genel Bakış' ? <LayoutDashboard size={15} /> : section === 'Bildirimler' ? <Bell size={15} /> : section === 'Kullanıcılar' ? <Users size={15} /> : section === 'Bannerlar' ? <Megaphone size={15} /> : section === 'Çekilişler' ? <Gift size={15} /> : section === 'Filmler' ? <Film size={15} /> : section === 'Uygulamalar' ? <Download size={15} /> : section === 'İçerik' ? <Newspaper size={15} /> : <PanelRightOpen size={15} />}
                       {section}
                     </button>
                   ))}
@@ -1827,6 +2027,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <button onClick={() => setAdminSection('Filmler')} className="admin-action-card"><Film size={18} className="text-[hsl(var(--primary))]" /><span><strong>Film İzle</strong><small>Site, açıklama ve link</small></span><ChevronRight size={16} /></button>
                       <button onClick={() => setAdminSection('Uygulamalar')} className="admin-action-card"><Download size={18} className="text-[hsl(var(--primary))]" /><span><strong>Uygulama İndir</strong><small>Resim, açıklama ve indirme</small></span><ChevronRight size={16} /></button>
                       <button onClick={() => setAdminSection('Bannerlar')} className="admin-action-card"><Megaphone size={18} className="text-[hsl(var(--primary))]" /><span><strong>Bannerlar</strong><small>Ana sayfa duyuruları</small></span><ChevronRight size={16} /></button>
+                      <button onClick={() => setAdminSection('İçerik')} className="admin-action-card"><Newspaper size={18} className="text-[hsl(var(--primary))]" /><span><strong>Haber / duyuru / etkinlik</strong><small>Ana sayfa bölümlerini sen doldur</small></span><ChevronRight size={16} /></button>
                     </div>
                     <div className="admin-note"><strong>Not</strong><span>Çekiliş süre bitince kazanan otomatik seçilir. Sohbette nick görünür, ID nicke dokununca açılır.</span></div>
                   </div>
@@ -2102,6 +2303,90 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                           <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Download size={16} /></span>
                           <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.link}</p></div>
                           <button aria-label={`${item.title} sil`} onClick={() => { const items = apps.filter((current) => current.id !== item.id); setApps(items); void patchClub({ apps: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {adminSection === 'İçerik' && (
+                  <div className="space-y-8">
+                    <div>
+                      <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ANA SAYFA</p>
+                      <h3 className="mt-1 font-display text-xl font-bold">Haberler, duyurular, etkinlikler</h3>
+                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Buraya eklediklerin ana sayfada görünür. Boş bırakırsan o bölüm gizlenir.</p>
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addNews(); }} className="grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <h4 className="sm:col-span-2 font-display text-base font-bold">Haber ekle</h4>
+                      <input value={newsTag} onChange={(event) => setNewsTag(event.target.value)} placeholder="Etiket (YENİ)" className="admin-field" />
+                      <select value={newsTone} onChange={(event) => setNewsTone(event.target.value)} className="admin-field">
+                        <option value="violet">Mor</option>
+                        <option value="amber">Amber</option>
+                        <option value="sky">Mavi</option>
+                      </select>
+                      <input value={newsTitle} onChange={(event) => setNewsTitle(event.target.value)} placeholder="Başlık" className="admin-field sm:col-span-2" />
+                      <input value={newsCopy} onChange={(event) => setNewsCopy(event.target.value)} placeholder="Kısa metin (isteğe bağlı)" className="admin-field sm:col-span-2" />
+                      <input value={newsImage} onChange={(event) => setNewsImage(event.target.value)} placeholder="Kapak resmi linki" className="admin-field" />
+                      <label className="admin-field flex h-11 items-center gap-2 text-[.62rem] font-bold">
+                        Resim yükle
+                        <input type="file" accept="image/*" className="min-w-0 flex-1 text-[.55rem] font-normal" onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = '';
+                          if (file) void fileToBanner(file).then(setNewsImage).catch(() => setNotice('Haber resmi yüklenemedi'));
+                        }} />
+                      </label>
+                      {newsImage ? <img src={newsImage} alt="" className="sm:col-span-2 h-24 w-full rounded-xl object-cover" /> : null}
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Haber yayınla</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {news.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          {item.image ? <img src={item.image} alt="" className="size-12 rounded-xl object-cover" /> : <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Newspaper size={16} /></span>}
+                          <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.tag}</p></div>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = news.filter((current) => current.id !== item.id); setNews(items); void patchClub({ news: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addAnnouncement(); }} className="grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <h4 className="sm:col-span-2 font-display text-base font-bold">Duyuru ekle</h4>
+                      <input value={announceTag} onChange={(event) => setAnnounceTag(event.target.value)} placeholder="Etiket (DUYURU)" className="admin-field" />
+                      <input value={announceTitle} onChange={(event) => setAnnounceTitle(event.target.value)} placeholder="Başlık" className="admin-field" />
+                      <textarea value={announceCopy} onChange={(event) => setAnnounceCopy(event.target.value)} placeholder="Metin" className="admin-area min-h-[4.5rem] sm:col-span-2" />
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Duyuru yayınla</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {announcements.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Megaphone size={16} /></span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.copy}</p></div>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = announcements.filter((current) => current.id !== item.id); setAnnouncements(items); void patchClub({ announcements: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                        </div>
+                      ))}
+                    </div>
+                    <form onSubmit={(event) => { event.preventDefault(); addHomeEvent(); }} className="grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <h4 className="sm:col-span-2 font-display text-base font-bold">Etkinlik ekle</h4>
+                      <input value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} placeholder="Başlık" className="admin-field sm:col-span-2" />
+                      <input value={eventCopy} onChange={(event) => setEventCopy(event.target.value)} placeholder="Açıklama" className="admin-field sm:col-span-2" />
+                      <input value={eventDate} onChange={(event) => setEventDate(event.target.value)} placeholder="Tarih (12 Eylül)" className="admin-field" />
+                      <input value={eventTime} onChange={(event) => setEventTime(event.target.value)} placeholder="Saat (20:00)" className="admin-field" />
+                      <input value={eventDay} onChange={(event) => setEventDay(event.target.value)} placeholder="Gün (12)" className="admin-field" />
+                      <input value={eventMonth} onChange={(event) => setEventMonth(event.target.value)} placeholder="Ay (EYL)" className="admin-field" />
+                      <input value={eventCategory} onChange={(event) => setEventCategory(event.target.value)} placeholder="Kategori" className="admin-field" />
+                      <input value={eventStatus} onChange={(event) => setEventStatus(event.target.value)} placeholder="Durum (Yaklaşıyor)" className="admin-field" />
+                      <select value={eventTone} onChange={(event) => setEventTone(event.target.value)} className="admin-field sm:col-span-2">
+                        <option value="purple">Mor</option>
+                        <option value="blue">Mavi</option>
+                        <option value="green">Yeşil</option>
+                        <option value="rose">Pembe</option>
+                      </select>
+                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Etkinlik ekle</button>
+                    </form>
+                    <div className="grid gap-2">
+                      {homeEvents.map((item) => (
+                        <div key={item.id} className="admin-row">
+                          <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><CalendarDays size={16} /></span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.title}</p><p className="truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.date} · {item.time}</p></div>
+                          <button aria-label={`${item.title} sil`} onClick={() => { const items = homeEvents.filter((current) => current.id !== item.id); setHomeEvents(items); void patchClub({ homeEvents: items }); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
                         </div>
                       ))}
                     </div>

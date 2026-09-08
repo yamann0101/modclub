@@ -1,4 +1,4 @@
-import type { Banner, ChatTimeout, ClubAccount, ClubNotice, ClubSettings, ContentCard, Giveaway } from './club-store';
+import type { Banner, ChatTimeout, ClubAccount, ClubNotice, ClubSettings, ContentCard, Giveaway, HomeAnnouncement, HomeEvent, HomeNews } from './club-store';
 
 export type SessionUser = {
   username: string;
@@ -53,6 +53,9 @@ export type ClubSnapshot = {
   giveaways: Giveaway[];
   films: ContentCard[];
   apps: ContentCard[];
+  news: HomeNews[];
+  announcements: HomeAnnouncement[];
+  homeEvents: HomeEvent[];
   chat: unknown[];
   timeouts: ChatTimeout[];
   notices: ClubNotice[];
@@ -140,7 +143,7 @@ export async function fetchClub() {
   return request<ClubSnapshot>('/api/club');
 }
 
-export async function patchClub(body: Partial<Pick<ClubSnapshot, 'banners' | 'giveaways' | 'films' | 'apps' | 'chat' | 'timeouts' | 'notices'>>) {
+export async function patchClub(body: Partial<Pick<ClubSnapshot, 'banners' | 'giveaways' | 'films' | 'apps' | 'news' | 'announcements' | 'homeEvents' | 'chat' | 'timeouts' | 'notices'>>) {
   return request<ClubSnapshot>('/api/club', { method: 'PATCH', body: JSON.stringify(body) });
 }
 
