@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Mic, MicOff, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -250,7 +250,17 @@ function cinemaTime(room: PublicRoom, receivedAt: number) {
   return Math.max(0, atSend + (Date.now() - receivedAt) / 1000);
 }
 
-export function WatchRoomsPage({ user }: { user: SessionUser }) {
+export function WatchRoomsPage({
+  user,
+  listed = true,
+  onBrowse,
+  onExpand,
+}: {
+  user: SessionUser;
+  listed?: boolean;
+  onBrowse?: () => void;
+  onExpand?: () => void;
+}) {
   const [rooms, setRooms] = useState<RoomCard[]>([]);
   const [open, setOpen] = useState<PublicRoom | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -278,6 +288,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
   const [joinBanner, setJoinBanner] = useState('');
   const [joinStamp, setJoinStamp] = useState(0);
+  const [minimized, setMinimized] = useState(false);
   const localReact = useRef<{ id: string; at: number } | null>(null);
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
@@ -324,12 +335,13 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   };
 
   useEffect(() => {
+    if (!listed && !open) return;
     void refreshList();
     const timer = window.setInterval(() => {
       if (!open) void refreshList();
     }, 4000);
     return () => window.clearInterval(timer);
-  }, [open]);
+  }, [open, listed]);
 
   useEffect(() => {
     const id = readStayRoom();
@@ -385,6 +397,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
           teardownVoice();
           writeStayRoom(null);
+          setMinimized(false);
           setOpen(null);
           setNotice((err as Error).message === 'banned' ? 'Odadan atıldın' : 'Oda kapandı');
         }
@@ -399,10 +412,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }, [open?.id]);
 
   useEffect(() => {
-    document.body.classList.toggle('room-live', Boolean(open));
+    document.body.classList.toggle('room-live', Boolean(open) && !minimized);
     if (open) forceSpeaker(wantMicRef.current);
     return () => document.body.classList.remove('room-live');
-  }, [open]);
+  }, [open, minimized]);
+
+  useEffect(() => {
+    if (!open) {
+      setMinimized(false);
+      return;
+    }
+    if (!listed) setMinimized(true);
+    else setMinimized(false);
+  }, [listed]);
 
   useEffect(() => {
     if (!open) {
@@ -1320,8 +1342,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     lastRevRef.current = -1;
     setNeedStart(false);
     setCinemaKey((value) => value + 1);
+    setMinimized(false);
     setOpen(null);
     void refreshList();
+  }
+
+  function shrinkRoom() {
+    setMinimized(true);
+    onBrowse?.();
+  }
+
+  function growRoom() {
+    setMinimized(false);
+    onExpand?.();
   }
 
   async function onCloseRoom(id: string) {
@@ -1335,6 +1368,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         playerReady.current = false;
         lastVideo.current = '';
         setOpen(null);
+        setMinimized(false);
         setCinemaKey((value) => value + 1);
       }
       await closeWatchRoom(id);
@@ -1487,9 +1521,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     const iHost = Boolean(open.you.host);
     return (
       <div
-        className={`page-view room-page ${kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
+        className={`page-view room-page ${minimized ? 'is-pip' : ''} ${!minimized && kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
         onPointerDown={unlockAudio}
-        style={kbInset > 0 && focusField === 'chat' && kbFrame
+        style={!minimized && kbInset > 0 && focusField === 'chat' && kbFrame
           ? { top: kbFrame.top, height: kbFrame.height, bottom: 'auto', paddingBottom: 0 }
           : undefined}
       >
@@ -1514,6 +1548,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
             {open.hidden ? 'Odayı göster' : 'Odayı gizle'}
           </button>
         )}
+        <button type="button" className="room-mini" onClick={minimized ? growRoom : shrinkRoom} aria-label={minimized ? 'Odayı büyüt' : 'Odayı küçült'}>
+          {minimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+        </button>
         <button type="button" className="room-exit" onClick={() => void onLeave()} aria-label="Çık">
           <X size={18} />
         </button>
@@ -1521,7 +1558,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
         <div className="room-stage">
           <div className="room-tv">
             <div ref={boxRef} className="room-player" />
-            {!iHost && <div className="room-tv-lock" onClick={startGuestVideo} />}
+            {!iHost && !minimized && <div className="room-tv-lock" onClick={startGuestVideo} />}
+            {minimized && !needStart && (
+              <button type="button" className="room-pip-hit" onClick={growRoom} aria-label="Odayı büyüt" />
+            )}
             {needStart && open.videoId && (
               <button type="button" className="room-tv-start" onClick={startGuestVideo}>
                 <Play size={18} /> Videoyu aç
@@ -1774,12 +1814,26 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
           </form>
         </div>
         {notice && <p className="room-note">{notice}</p>}
+        {minimized && (
+          <div className="room-pip-bar">
+            <button type="button" onClick={growRoom} aria-label="Odayı büyüt"><Maximize2 size={14} /></button>
+            <button type="button" className={open.you.micOn ? 'is-on' : ''} onClick={() => void toggleMic()} aria-label="Mikrofon">
+              {open.you.micOn ? <Mic size={14} /> : <MicOff size={14} />}
+            </button>
+            <button type="button" className={speakerOn ? 'is-on' : ''} onClick={toggleSpeaker} aria-label="Oda sesi">
+              {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            </button>
+            <button type="button" onClick={() => void onLeave()} aria-label="Çık"><X size={14} /></button>
+          </div>
+        )}
       </div>
     );
   }
 
+  if (!listed) return null;
+
   return (
-    <div className="page-view">
+    <div className="page-view desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">
       <div className="page-hero page-hero-games">
         <div>
           <p className="page-kicker">BİRLİKTE İZLE</p>

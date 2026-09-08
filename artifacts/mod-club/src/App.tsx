@@ -348,10 +348,6 @@ function StorePage({ coins, vipUntil, now, busy, onBuy }: { coins: number; vipUn
   );
 }
 
-function GamesPage({ session }: { session: SessionUser }) {
-  return <WatchRoomsPage user={session} />;
-}
-
 function MenuPage({ onAdmin, onLogout, onOpen }: { onAdmin: () => void; onLogout: () => void; onOpen: (page: string) => void }) {
   const items = [
     { title: 'Film İzle', copy: 'Önerilen siteleri aç, açıklamayı oku.', icon: Film, page: 'Film İzle' },
@@ -1636,7 +1632,21 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             ))}
           </div>
         </section>
-       </main> : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'ODA AÇ' || activeNav === 'Oyunlar' ? <GamesPage session={session} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+       </main> : (activeNav === 'ODA AÇ' || activeNav === 'Oyunlar') ? null : <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">{activeNav === 'Etkinlikler' ? <EventsPage events={upcomingEvents} joinedEvents={joinedEvents} onToggle={toggleJoin} /> : activeNav === 'Mağaza' ? <StorePage coins={walletCoins} vipUntil={walletVip} now={now} busy={storeBusy} onBuy={purchaseVip} /> : activeNav === 'Menü' ? <MenuPage onAdmin={() => setAdminPanelOpen(true)} onLogout={onLogout} onOpen={handleNav} /> : activeNav === 'Film İzle' ? <ContentCardsPage title="Film İzle" kicker="SİNEMA" copy="Adminin eklediği siteleri Aç butonuyla yeni sekmede aç." items={films} actionLabel="Aç" /> : activeNav === 'Uygulama İndir' ? <ContentCardsPage title="Uygulama İndir" kicker="UYGULAMALAR" copy="Resim, link ve açıklaması olan uygulamaları buradan indir." items={apps} actionLabel="İndir" /> : activeNav === 'Topluluk' ? <CommunityPage /> : activeNav === 'Hesap ayarları' ? <SettingsPage session={session} colorMode={colorMode} onColorMode={changeColorMode} onOpenProfile={() => handleNav('Profil')} /> : <ProfilePage session={session} onLogout={onLogout} onSession={onSession} onNotice={setNotice} />}</main>}
+
+      <WatchRoomsPage
+        user={session}
+        listed={activeNav === 'ODA AÇ' || activeNav === 'Oyunlar'}
+        onBrowse={() => {
+          setChatOpen(false);
+          setActiveNav('Ana Sayfa');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onExpand={() => {
+          setChatOpen(false);
+          setActiveNav('ODA AÇ');
+        }}
+      />
 
       {!chatOpen && (
         <button

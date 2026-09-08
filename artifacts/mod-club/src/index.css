@@ -2404,6 +2404,20 @@ html.dark .guess-btn-ghost {
   background: #111827;
   color: #fff;
 }
+.room-mini {
+  position: fixed;
+  top: max(.45rem, env(safe-area-inset-top));
+  right: 2.7rem;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+}
 .room-mic { display: inline-flex; align-items: center; gap: .35rem; }
 .room-mic.is-on { background: #166534; }
 .room-mic.is-off, .room-seat-mic.is-off { background: #7f1d1d; color: #fecaca; }
@@ -3025,6 +3039,70 @@ body.room-live .chat-fab {
 }
 body.room-live .mod-app { padding-bottom: 0; }
 .room-page .room-note { margin: 0 .55rem; color: #fecaca; }
+.room-page.is-pip {
+  inset: auto;
+  left: .7rem;
+  bottom: calc(5.2rem + env(safe-area-inset-bottom));
+  width: min(46vw, 11.4rem);
+  z-index: 45;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: .9rem;
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 14px 36px rgba(0,0,0,.42);
+  background: #0b0614;
+}
+.room-page.is-pip .room-kill,
+.room-page.is-pip .room-hide,
+.room-page.is-pip .room-mini,
+.room-page.is-pip .room-exit,
+.room-page.is-pip .room-join-banner,
+.room-page.is-pip .room-couch,
+.room-page.is-pip .room-emoji-pack,
+.room-page.is-pip .room-search,
+.room-page.is-pip .room-vol,
+.room-page.is-pip .room-follow,
+.room-page.is-pip .room-hits,
+.room-page.is-pip .room-chat,
+.room-page.is-pip .room-dock,
+.room-page.is-pip .room-note {
+  display: none !important;
+}
+.room-page.is-pip .room-stage {
+  padding: 0;
+}
+.room-page.is-pip .room-tv {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  aspect-ratio: 16 / 9;
+}
+.room-pip-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: transparent;
+}
+.room-pip-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .2rem;
+  padding: .28rem .32rem .32rem;
+  background: #11081d;
+}
+.room-pip-bar button {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: .45rem;
+  background: #1f1233;
+  color: #fff;
+}
+.room-pip-bar button.is-on { background: #166534; }
 @media (max-width: 640px) {
   .room-seats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mic-ring { width: 3.7rem; height: 4.2rem; }
