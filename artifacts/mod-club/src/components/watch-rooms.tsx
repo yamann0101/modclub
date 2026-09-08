@@ -86,10 +86,10 @@ const ICE: RTCConfiguration = {
   ],
 };
 
-function forceSpeaker() {
+function forceSpeaker(record = false) {
   try {
     const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-    if (session) session.type = 'playback';
+    if (session) session.type = record ? 'play-and-record' : 'playback';
   } catch {
     /* safari only */
   }
@@ -145,10 +145,9 @@ const MIC_AUDIO = {
 } as MediaTrackConstraints;
 
 function mapFilmVolume(slider: number) {
-  const t = Math.max(0, Math.min(100, slider)) / 100;
-  const mapped = Math.round(34 * t * t);
-  if (slider <= 0) return 0;
-  return Math.max(1, mapped);
+  const t = Math.max(0, Math.min(100, slider));
+  if (t <= 0) return 0;
+  return Math.max(1, Math.round(t * 0.92));
 }
 
 const ROOM_STAY = 'mc_watch_room';
@@ -266,7 +265,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const [busy, setBusy] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [talking, setTalking] = useState<string[]>([]);
-  const [videoVol, setVideoVol] = useState(22);
+  const [videoVol, setVideoVol] = useState(70);
   const [videoMuted, setVideoMuted] = useState(false);
   const [pick, setPick] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
@@ -305,9 +304,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   const speakerOnRef = useRef(true);
   const wantMicRef = useRef(false);
   const revivingMic = useRef(false);
+  const reclaimAt = useRef(0);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
-  const videoVolRef = useRef(22);
+  const videoVolRef = useRef(70);
   const videoMutedRef = useRef(false);
   const voiceNodes = useRef(new Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode; stream: MediaStream }>());
   videoVolRef.current = videoVol;
@@ -400,7 +400,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     document.body.classList.toggle('room-live', Boolean(open));
-    if (open) forceSpeaker();
+    if (open) forceSpeaker(wantMicRef.current);
     return () => document.body.classList.remove('room-live');
   }, [open]);
 
@@ -632,10 +632,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     };
     const onVisible = () => {
       keepAlive();
+      forceSpeaker(wantMicRef.current);
       unlockAudio();
       const room = roomRef.current;
       if (room) void syncVoice(room);
-      void reviveMic();
+      void reviveMic(true);
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
       followCinema(room, player);
@@ -661,16 +662,21 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     window.addEventListener('freeze', onHidden);
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('focus', onVisible);
+    const onDevices = () => {
+      if (wantMicRef.current) void reviveMic(true);
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
     const watchdog = window.setInterval(() => {
-      if (document.hidden || !wantMicRef.current || micLive()) return;
-      void reviveMic();
-    }, 2500);
+      if (document.hidden || !wantMicRef.current) return;
+      if (!micLive()) void reviveMic(true);
+    }, 1800);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHidden);
       window.removeEventListener('freeze', onHidden);
       window.removeEventListener('pageshow', onVisible);
       window.removeEventListener('focus', onVisible);
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices);
       window.clearInterval(watchdog);
     };
   }, [open?.id]);
@@ -712,6 +718,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       setCinemaKey((value) => value + 1);
     }
     setOpen(room);
+    if (room.you.micOn && !room.you.muted) {
+      wantMicRef.current = true;
+      void reviveMic(true);
+    }
   }
 
   function followCinema(room: PublicRoom, player: YtPlayer) {
@@ -785,11 +795,11 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function applyLocalVolume(player: YtPlayer) {
-    forceSpeaker();
+    forceSpeaker(wantMicRef.current);
     const slider = videoVolRef.current;
     const wantMute = videoMutedRef.current || slider <= 0;
-    const talking = talkingRef.current.size > 0 || wantMicRef.current;
-    const duck = talking ? 0.35 : 0.7;
+    const meTalking = talkingRef.current.has(user.username);
+    const duck = meTalking ? 0.88 : 1;
     const target = wantMute ? 0 : Math.max(1, Math.round(mapFilmVolume(slider) * duck));
     try {
       const now = player.getVolume?.();
@@ -873,7 +883,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function unlockAudio() {
-    forceSpeaker();
+    forceSpeaker(wantMicRef.current);
     try {
       if (audioCtx.current) void audioCtx.current.resume();
     } catch {
@@ -913,7 +923,9 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   function micLive() {
-    return Boolean(localStream.current?.getAudioTracks().some((track) => track.readyState === 'live' && track.enabled));
+    return Boolean(localStream.current?.getAudioTracks().some((track) => (
+      track.readyState === 'live' && track.enabled && !track.muted
+    )));
   }
 
   async function tuneAudioSender(peer: RTCPeerConnection) {
@@ -930,13 +942,19 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
   }
 
   async function acquireMic() {
+    localStream.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.onmute = null;
+      track.stop();
+    });
+    localStream.current = null;
+    forceSpeaker(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false });
     } catch {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
-    localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = stream;
     const track = stream.getAudioTracks()[0];
     if (track) {
@@ -944,7 +962,10 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
       try { track.contentHint = 'speech'; } catch { /* ignore */ }
       track.enabled = true;
       track.onended = () => {
-        if (wantMicRef.current && !document.hidden) void reviveMic();
+        if (wantMicRef.current && !document.hidden) void reviveMic(true);
+      };
+      track.onmute = () => {
+        if (wantMicRef.current && !document.hidden) void reviveMic(true);
       };
     }
     watchLevel(user.username, stream.clone());
@@ -958,14 +979,16 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     }
   }
 
-  async function reviveMic() {
+  async function reviveMic(force = false) {
     const room = roomRef.current;
     if (!room || !wantMicRef.current || revivingMic.current || room.you.muted) return;
-    if (micLive()) {
+    if (!force && micLive()) {
       unlockAudio();
       for (const peer of peers.current.values()) await attachLocal(peer);
       return;
     }
+    if (force && Date.now() - reclaimAt.current < 700) return;
+    if (force) reclaimAt.current = Date.now();
     revivingMic.current = true;
     try {
       await acquireMic();
@@ -995,7 +1018,7 @@ export function WatchRoomsPage({ user }: { user: SessionUser }) {
     if (audio.srcObject !== stream) audio.srcObject = stream;
     audio.muted = !speakerOnRef.current;
     audio.volume = 1;
-    forceSpeaker();
+    forceSpeaker(wantMicRef.current);
     const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
     if (setSink) void setSink.call(audio, 'default').catch(() => undefined);
     void audio.play().catch(() => undefined);
