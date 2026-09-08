@@ -531,6 +531,7 @@ export async function kickMember(id: string, username: string, role: string | un
   const room = prune(raw);
   if (!canManage(room, username, role)) throw new Error("owner");
   if (target === room.owner) throw new Error("owner");
+  if (isHost(room, target) && room.owner !== username) throw new Error("owner");
   room.members = room.members.filter((member) => member.username !== target);
   room.hosts = (room.hosts || []).filter((name) => name !== target);
   if ((room.driver || room.owner) === target) room.driver = room.owner;
@@ -632,26 +633,72 @@ function collectVideos(node: unknown, out: { id: string; title: string; thumb: s
       out.push({ id, title: String(title).slice(0, 120), thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` });
     }
   }
+  const lockup = row.lockupViewModel as { contentId?: string; metadata?: { lockupMetadataViewModel?: { title?: { content?: string } } } } | undefined;
+  if (lockup?.contentId && /^[a-zA-Z0-9_-]{11}$/.test(lockup.contentId) && !seen.has(lockup.contentId)) {
+    const title = lockup.metadata?.lockupMetadataViewModel?.title?.content || "YouTube";
+    seen.add(lockup.contentId);
+    out.push({ id: lockup.contentId, title: String(title).slice(0, 120), thumb: `https://i.ytimg.com/vi/${lockup.contentId}/hqdefault.jpg` });
+  }
   for (const value of Object.values(row)) collectVideos(value, out, seen);
 }
 
-async function searchInnertube(q: string) {
-  const response = await fetch("https://www.youtube.com/youtubei/v1/search?prettyPrint=false", {
+function innertubeBody(extra: Record<string, unknown>, android = false) {
+  return {
+    context: {
+      client: android
+        ? { clientName: "ANDROID", clientVersion: "19.47.53", hl: "tr", gl: "TR" }
+        : { clientName: "WEB", clientVersion: "2.20260326.01.00", hl: "tr", gl: "TR" },
+    },
+    ...extra,
+  };
+}
+
+async function innertubePost(path: string, extra: Record<string, unknown>, android = false) {
+  const response = await fetch(`https://www.youtube.com/youtubei/v1/${path}?prettyPrint=false`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "user-agent": "Mozilla/5.0",
+      "user-agent": android
+        ? "com.google.android.youtube/19.47.53 (Linux; U; Android 14; TR) gzip"
+        : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+      "x-youtube-client-name": android ? "3" : "1",
+      "x-youtube-client-version": android ? "19.47.53" : "2.20260326.01.00",
     },
-    body: JSON.stringify({
-      context: { client: { clientName: "WEB", clientVersion: "2.20260326.01.00", hl: "tr", gl: "TR" } },
-      query: q,
-    }),
+    body: JSON.stringify(innertubeBody(extra, android)),
     signal: AbortSignal.timeout(7000),
   });
   if (!response.ok) return [];
   const items: { id: string; title: string; thumb: string }[] = [];
   collectVideos(await response.json(), items);
   return items;
+}
+
+async function searchInnertube(q: string) {
+  try {
+    const android = await innertubePost("search", { query: q }, true);
+    if (android.length) return android;
+  } catch {
+    /* web next */
+  }
+  return innertubePost("search", { query: q }, false);
+}
+
+export async function relatedYoutube(videoId: string) {
+  const id = parseYoutubeId(videoId);
+  if (!id) return [];
+  try {
+    const android = await innertubePost("next", { videoId: id }, true);
+    const next = android.filter((item) => item.id !== id);
+    if (next.length) return next.slice(0, 8);
+  } catch {
+    /* web next */
+  }
+  try {
+    const web = await innertubePost("next", { videoId: id }, false);
+    return web.filter((item) => item.id !== id).slice(0, 8);
+  } catch {
+    return [];
+  }
 }
 
 async function searchPiped(q: string) {

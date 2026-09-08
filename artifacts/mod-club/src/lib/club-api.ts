@@ -340,6 +340,10 @@ export async function searchWatchYoutube(q: string) {
   return request<{ items: YoutubeHit[] }>('/api/rooms/search', { method: 'POST', body: JSON.stringify({ q }) });
 }
 
+export async function searchWatchRelated(videoId: string) {
+  return request<{ items: YoutubeHit[] }>('/api/rooms/related', { method: 'POST', body: JSON.stringify({ videoId }) });
+}
+
 export async function sendWatchSignal(id: string, body: { to: string; type: RoomSignal['type']; payload: unknown }) {
   return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/signal`, { method: 'POST', body: JSON.stringify(body) });
 }

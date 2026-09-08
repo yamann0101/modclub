@@ -18,6 +18,7 @@ import {
   pushSignal,
   readRoom,
   searchYoutube,
+  relatedYoutube,
   setHidden,
   setHost,
   setMedia,
@@ -75,6 +76,17 @@ router.post("/rooms/search", async (req, res) => {
   const q = String((req.body as { q?: string }).q || "");
   try {
     res.json({ items: await searchYoutube(q) });
+  } catch {
+    res.json({ items: [] });
+  }
+});
+
+router.post("/rooms/related", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const videoId = String((req.body as { videoId?: string }).videoId || "");
+  try {
+    res.json({ items: await relatedYoutube(videoId) });
   } catch {
     res.json({ items: [] });
   }

@@ -2763,8 +2763,9 @@ html.dark .guess-btn-ghost {
   display: block;
   font-size: 2.55rem;
   line-height: 1;
+  transform-origin: 50% 80%;
   filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
-  animation: mic-react-kiss 3s ease-in-out both;
+  animation: mic-react-kiss 3s cubic-bezier(.22,1.2,.32,1) both;
 }
 .mic-slot.react-kiss-l .mic-react-face { animation-name: mic-react-kiss-l; }
 .mic-slot.react-laugh .mic-react-face { animation-name: mic-react-laugh; }
@@ -2773,7 +2774,9 @@ html.dark .guess-btn-ghost {
 .mic-slot.react-angry .mic-avatar { filter: drop-shadow(0 0 10px rgba(248,113,113,.85)); }
 .mic-react-kisses,
 .mic-react-tears,
-.mic-react-steam {
+.mic-react-steam,
+.mic-react-ha,
+.mic-react-bang {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -2781,27 +2784,44 @@ html.dark .guess-btn-ghost {
 .mic-react-kisses i {
   position: absolute;
   left: 50%;
-  top: 18%;
+  top: 28%;
   font-size: 1.05rem;
   font-style: normal;
   animation: mic-kiss-r 3s ease-out both;
 }
 .mic-slot.react-kiss-l .mic-react-kisses i { animation-name: mic-kiss-l; }
-.mic-react-kisses i:nth-child(2) { top: 40%; animation-delay: .35s; }
-.mic-react-kisses i:nth-child(3) { top: 6%; animation-delay: .7s; }
+.mic-react-kisses i:nth-child(2) { top: 42%; animation-delay: .28s; }
+.mic-react-kisses i:nth-child(3) { top: 12%; animation-delay: .55s; }
+.mic-react-kisses i:nth-child(4) { top: 55%; animation-delay: .82s; }
+.mic-react-ha i {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  font-size: .62rem;
+  font-style: italic;
+  font-weight: 900;
+  color: #fde68a;
+  text-shadow: 0 1px 2px rgba(0,0,0,.45);
+  animation: mic-ha 3s ease-out both;
+}
+.mic-react-ha i:nth-child(1) { margin-left: .7rem; }
+.mic-react-ha i:nth-child(2) { margin-left: -.2rem; animation-delay: .22s; }
+.mic-react-ha i:nth-child(3) { margin-left: 1.1rem; animation-delay: .44s; }
 .mic-react-tears i {
   position: absolute;
   left: 50%;
-  top: 72%;
+  top: 62%;
   width: .28rem;
-  height: .42rem;
-  border-radius: 50% 50% 55% 55%;
-  background: #7dd3fc;
+  height: .5rem;
+  border-radius: 50% 50% 60% 60%;
+  background: linear-gradient(#e0f2fe, #38bdf8);
   animation: mic-tear 3s ease-in both;
 }
-.mic-react-tears i:nth-child(1) { margin-left: -.55rem; }
-.mic-react-tears i:nth-child(2) { margin-left: .2rem; animation-delay: .4s; }
-.mic-react-tears i:nth-child(3) { margin-left: -.15rem; animation-delay: .85s; }
+.mic-react-tears i:nth-child(1) { margin-left: -.62rem; }
+.mic-react-tears i:nth-child(2) { margin-left: .18rem; animation-delay: .28s; }
+.mic-react-tears i:nth-child(3) { margin-left: -.18rem; animation-delay: .55s; }
+.mic-react-tears i:nth-child(4) { margin-left: .48rem; animation-delay: .82s; }
+.mic-react-tears i:nth-child(5) { margin-left: -.78rem; animation-delay: 1.08s; }
 .mic-react-steam i {
   position: absolute;
   top: -.05rem;
@@ -2811,66 +2831,93 @@ html.dark .guess-btn-ghost {
   background: rgba(252, 165, 165, .9);
   animation: mic-steam 3s ease-out both;
 }
-.mic-react-steam i:first-child { left: 14%; }
-.mic-react-steam i:last-child { right: 14%; animation-delay: .22s; }
+.mic-react-steam i:nth-child(1) { left: 12%; }
+.mic-react-steam i:nth-child(2) { right: 12%; animation-delay: .18s; }
+.mic-react-steam i:nth-child(3) { left: 46%; animation-delay: .36s; }
+.mic-react-bang {
+  display: grid;
+  place-items: center;
+  font-size: 1.15rem;
+  animation: mic-bang 3s ease-out both;
+}
 @keyframes mic-react-kiss {
-  0%, 100% { transform: scale(1); }
-  14% { transform: scale(1.42); }
-  34% { transform: scale(1.12); }
-  54% { transform: scale(1.38); }
-  78% { transform: scale(1.08); }
+  0% { transform: scale(1) rotate(0) translate(0,0); }
+  12% { transform: scale(1.08, .92) rotate(8deg) translate(.18rem, .12rem); }
+  24% { transform: scale(.9, 1.12) rotate(16deg) translate(.42rem, .08rem); }
+  38% { transform: scale(1.18, .86) rotate(10deg) translate(.32rem, .18rem); }
+  52% { transform: scale(.94, 1.08) rotate(18deg) translate(.48rem, .06rem); }
+  70% { transform: scale(1.1, .94) rotate(6deg) translate(.16rem, .1rem); }
+  100% { transform: scale(1) rotate(0) translate(0,0); }
 }
 @keyframes mic-react-kiss-l {
-  0%, 100% { transform: scaleX(-1) scale(1); }
-  14% { transform: scaleX(-1) scale(1.42); }
-  34% { transform: scaleX(-1) scale(1.12); }
-  54% { transform: scaleX(-1) scale(1.38); }
-  78% { transform: scaleX(-1) scale(1.08); }
+  0% { transform: scaleX(-1) scale(1) rotate(0) translate(0,0); }
+  12% { transform: scaleX(-1) scale(1.08, .92) rotate(8deg) translate(.18rem, .12rem); }
+  24% { transform: scaleX(-1) scale(.9, 1.12) rotate(16deg) translate(.42rem, .08rem); }
+  38% { transform: scaleX(-1) scale(1.18, .86) rotate(10deg) translate(.32rem, .18rem); }
+  52% { transform: scaleX(-1) scale(.94, 1.08) rotate(18deg) translate(.48rem, .06rem); }
+  70% { transform: scaleX(-1) scale(1.1, .94) rotate(6deg) translate(.16rem, .1rem); }
+  100% { transform: scaleX(-1) scale(1) rotate(0) translate(0,0); }
 }
 @keyframes mic-react-laugh {
-  0%, 100% { transform: scale(1) rotate(0); }
-  10% { transform: scale(1.38) rotate(-9deg); }
-  22% { transform: scale(1.18) rotate(9deg); }
-  34% { transform: scale(1.42) rotate(-7deg); }
-  48% { transform: scale(1.2) rotate(8deg); }
-  62% { transform: scale(1.36) rotate(-5deg); }
-  80% { transform: scale(1.12) rotate(4deg); }
+  0%, 100% { transform: translateY(0) rotate(0) scale(1,1); }
+  8% { transform: translateY(-10px) rotate(-12deg) scale(1.08, .9); }
+  16% { transform: translateY(4px) rotate(12deg) scale(.92, 1.14); }
+  24% { transform: translateY(-12px) rotate(-10deg) scale(1.12, .88); }
+  32% { transform: translateY(5px) rotate(11deg) scale(.9, 1.16); }
+  42% { transform: translateY(-9px) rotate(-8deg) scale(1.1, .9); }
+  54% { transform: translateY(3px) rotate(8deg) scale(.94, 1.1); }
+  68% { transform: translateY(-6px) rotate(-4deg) scale(1.06, .94); }
+  82% { transform: translateY(1px) rotate(3deg) scale(.98, 1.04); }
 }
 @keyframes mic-react-cry {
-  0%, 100% { transform: scale(1) translateY(0); }
-  18% { transform: scale(1.28) translateY(3px); }
-  36% { transform: scale(1.12) translateY(-2px); }
-  54% { transform: scale(1.32) translateY(3px); }
-  76% { transform: scale(1.1) translateY(0); }
+  0%, 100% { transform: translateY(0) rotate(0) scale(1); }
+  14% { transform: translateY(5px) rotate(-8deg) scale(.96, 1.06); }
+  28% { transform: translateY(7px) rotate(6deg) scale(1.04, .94); }
+  44% { transform: translateY(4px) rotate(-5deg) scale(.97, 1.05); }
+  62% { transform: translateY(8px) rotate(4deg) scale(1.03, .95); }
+  80% { transform: translateY(3px) rotate(-2deg) scale(.99, 1.02); }
 }
 @keyframes mic-react-angry {
-  0%, 100% { transform: scale(1) translateX(0); }
-  8% { transform: scale(1.32) translateX(-4px); }
-  16% { transform: scale(1.32) translateX(4px); }
-  24% { transform: scale(1.4) translateX(-3px); }
-  36% { transform: scale(1.22) translateX(3px); }
-  52% { transform: scale(1.38) translateX(-2px); }
-  70% { transform: scale(1.18) translateX(2px); }
+  0%, 100% { transform: translateX(0) rotate(0) scale(1); }
+  6% { transform: translateX(-5px) rotate(-8deg) scale(1.12); }
+  12% { transform: translateX(5px) rotate(8deg) scale(1.12); }
+  18% { transform: translateX(-6px) rotate(-10deg) scale(1.16); }
+  24% { transform: translateX(6px) rotate(10deg) scale(1.16); }
+  32% { transform: translateX(-4px) rotate(-6deg) scale(1.1); }
+  42% { transform: translateX(4px) rotate(6deg) scale(1.1); }
+  58% { transform: translateX(-3px) rotate(-4deg) scale(1.06); }
+  74% { transform: translateX(2px) rotate(3deg) scale(1.04); }
 }
 @keyframes mic-kiss-r {
-  0% { transform: translate(0, 0) scale(.35); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(2.45rem, -.55rem) scale(1.12); opacity: 0; }
+  0% { transform: translate(0, 0) scale(.2) rotate(-20deg); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate(2.7rem, -1.35rem) scale(1.2) rotate(18deg); opacity: 0; }
 }
 @keyframes mic-kiss-l {
-  0% { transform: translate(0, 0) scale(.35); opacity: 0; }
-  12% { opacity: 1; }
-  100% { transform: translate(-2.45rem, -.55rem) scale(1.12); opacity: 0; }
+  0% { transform: translate(0, 0) scale(.2) rotate(20deg); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate(-2.7rem, -1.35rem) scale(1.2) rotate(-18deg); opacity: 0; }
+}
+@keyframes mic-ha {
+  0% { transform: translate(-50%, .4rem) scale(.4); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: translate(-50%, -1.45rem) scale(1.05); opacity: 0; }
 }
 @keyframes mic-tear {
-  0% { transform: translateY(0) scale(.55); opacity: 0; }
-  14% { opacity: 1; }
-  100% { transform: translateY(1.55rem) scale(1); opacity: 0; }
+  0% { transform: translateY(0) scale(.4); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translateY(1.85rem) scale(1.05); opacity: 0; }
 }
 @keyframes mic-steam {
   0% { transform: translateY(8px) scale(.35); opacity: 0; }
   18% { opacity: .9; }
   100% { transform: translateY(-1.15rem) scale(1.1); opacity: 0; }
+}
+@keyframes mic-bang {
+  0% { transform: scale(.2) rotate(-20deg); opacity: 0; }
+  12% { transform: scale(1.3) rotate(8deg); opacity: 1; }
+  28% { transform: scale(1) rotate(-6deg); }
+  100% { transform: scale(.8) rotate(0); opacity: 0; }
 }
 .mic-slot.is-empty .mic-avatar { border-style: dashed; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.04); }
 .mic-slot.is-empty { cursor: pointer; }
@@ -3052,6 +3099,8 @@ body.room-live .mod-app { padding-bottom: 0; }
   border: 1px solid rgba(255,255,255,.14);
   box-shadow: 0 14px 36px rgba(0,0,0,.42);
   background: #0b0614;
+  touch-action: none;
+  cursor: grab;
 }
 .room-page.is-pip .room-kill,
 .room-page.is-pip .room-hide,
@@ -3101,8 +3150,24 @@ body.room-live .mod-app { padding-bottom: 0; }
   border-radius: .45rem;
   background: #1f1233;
   color: #fff;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 .room-pip-bar button.is-on { background: #166534; }
+.room-end-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  background: #050308;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.room-page.is-pip .room-end-mask { font-size: .52rem; }
 @media (max-width: 640px) {
   .room-seats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mic-ring { width: 3.7rem; height: 4.2rem; }
