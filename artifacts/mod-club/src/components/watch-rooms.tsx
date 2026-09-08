@@ -61,7 +61,27 @@ const FIRE_KINDS = [
   { id: 'hearts', label: 'Kalp', mark: '❤️' },
   { id: 'rain', label: 'Yağmur', mark: '🌧️' },
 ] as const;
+const FIRE_ANIMS = [
+  { id: 'pop', label: 'Patlama' },
+  { id: 'glow', label: 'Parıltı' },
+  { id: 'bounce', label: 'Zıpla' },
+  { id: 'wave', label: 'Dalga' },
+  { id: 'neon', label: 'Neon' },
+  { id: 'pulse', label: 'Nabız' },
+] as const;
+const FIRE_COLORS = [
+  { id: '#fff7d6', label: 'Altın' },
+  { id: '#ffffff', label: 'Beyaz' },
+  { id: '#fb7185', label: 'Pembe' },
+  { id: '#38bdf8', label: 'Mavi' },
+  { id: '#4ade80', label: 'Yeşil' },
+  { id: '#facc15', label: 'Sarı' },
+  { id: '#c084fc', label: 'Mor' },
+  { id: 'rainbow', label: 'Gökkuşağı' },
+] as const;
+const FIRE_TEXT_MAX = 400;
 type FireKind = typeof FIRE_KINDS[number]['id'];
+type FireAnim = typeof FIRE_ANIMS[number]['id'];
 const COUPLE_GAPS = [
   { a: 0, b: 1, left: 0, top: 0 },
   { a: 1, b: 2, left: 25, top: 0 },
@@ -177,6 +197,27 @@ function roomHost(room: PublicRoom, username: string) {
 function roomDrive(room: PublicRoom) {
   if (typeof room.you.drive === 'boolean') return room.you.drive;
   return (room.driver || room.owner) === room.you.username;
+}
+
+function roomSteer(room: PublicRoom, role?: string) {
+  return Boolean(room.you.owner || roomDrive(room) || role === 'ADMIN');
+}
+
+function splitFireMarks(value?: string) {
+  const raw = String(value || '').trim();
+  if (!raw) return [] as string[];
+  try {
+    return [...new Intl.Segmenter('tr', { granularity: 'grapheme' }).segment(raw)]
+      .map((item) => item.segment)
+      .filter((item) => item.trim());
+  } catch {
+    return Array.from(raw).filter((item) => item.trim());
+  }
+}
+
+function fireFontSize(len: number) {
+  const n = Math.max(1, len);
+  return Math.round(Math.max(13, Math.min(46, 318 / Math.sqrt(n * 0.72))));
 }
 
 const MIC_AUDIO = {
@@ -605,21 +646,32 @@ function fireBits(at: number, count: number) {
   return bits;
 }
 
-function RoomFireworks({ firework }: { firework: { text: string; kind?: string; ms?: number; at: number } }) {
+function RoomFireworks({ firework }: { firework: { text: string; kind?: string; ms?: number; at: number; color?: string; anim?: string; emojis?: string } }) {
   const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' || firework.kind === 'rain'
     ? firework.kind
     : 'burst';
-  const burst = kind === 'burst' ? 1.8 : kind === 'rain' ? 2.35 : 2.55;
-  const count = kind === 'rain' ? 78 : kind === 'hearts' ? 60 : kind === 'roses' ? 48 : kind === 'fire' ? 40 : 52;
-  const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖', '💕'] : kind === 'rain' ? ['💧', '🌧️', '💦'] : ['✦'];
+  const anim = firework.anim === 'glow' || firework.anim === 'bounce' || firework.anim === 'wave' || firework.anim === 'neon' || firework.anim === 'pulse'
+    ? firework.anim
+    : 'pop';
+  const custom = splitFireMarks(firework.emojis);
+  const burst = kind === 'burst' ? 1.8 : kind === 'rain' || custom.length ? 2.5 : 2.55;
+  const count = custom.length ? 92 : kind === 'rain' ? 78 : kind === 'hearts' ? 60 : kind === 'roses' ? 48 : kind === 'fire' ? 40 : 52;
+  const marks = custom.length
+    ? custom
+    : kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖', '💕'] : kind === 'rain' ? ['💧', '🌧️', '💦'] : ['✦'];
+  const rain = Boolean(custom.length) || kind !== 'burst';
   const bits = fireBits(firework.at, count).map((bit, index) => ({
     ...bit,
     delay: (index % Math.max(8, Math.floor(count / 6))) * (burst / 8),
     mark: marks[index % marks.length],
     tone: bit.i % 6,
   }));
+  const text = firework.text || '';
+  const color = firework.color === 'rainbow' || !firework.color ? '#fff7d6' : firework.color;
+  const rainbow = firework.color === 'rainbow';
+  const chars = anim === 'wave' ? splitFireMarks(text) : [];
   return (
-    <div className={`room-fireworks is-${kind}`} aria-hidden="true">
+    <div className={`room-fireworks is-${kind}${custom.length ? ' is-emoji' : ''}`} aria-hidden="true">
       {kind === 'burst' && bits.map((bit) => (
         <i
           key={bit.i}
@@ -634,14 +686,14 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
           }}
         />
       ))}
-      {kind !== 'burst' && bits.map((bit) => (
+      {rain && bits.map((bit) => (
         <span
-          key={bit.i}
+          key={`drop-${bit.i}`}
           className="room-fire-drop"
           style={{
             left: `${bit.x}%`,
-            top: kind === 'fire' ? `${72 + (bit.y % 22)}%` : `${-18 - (bit.i % 24)}%`,
-            fontSize: `${bit.size + (kind === 'hearts' || kind === 'rain' ? 10 : 5)}px`,
+            top: kind === 'fire' && !custom.length ? `${72 + (bit.y % 22)}%` : `${-18 - (bit.i % 24)}%`,
+            fontSize: `${bit.size + (custom.length || kind === 'hearts' || kind === 'rain' ? 12 : 5)}px`,
             animationDelay: `${bit.delay}s`,
             animationDuration: `${burst}s`,
           }}
@@ -656,7 +708,22 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
           style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s`, animationDuration: `${burst}s` }}
         />
       ))}
-      {firework.text ? <strong className="room-fire-text">{firework.text}</strong> : null}
+      {text ? (
+        <strong
+          className={`room-fire-text is-${anim}${rainbow ? ' is-rainbow' : ''}`}
+          style={{ color, fontSize: `${fireFontSize(text.length)}px` }}
+        >
+          {anim === 'wave'
+            ? chars.map((ch, index) => (
+              ch === '\n'
+                ? <br key={index} />
+                : ch === ' '
+                  ? ' '
+                  : <span key={`${ch}-${index}`} style={{ animationDelay: `${(index % 14) * 0.05}s` }}>{ch}</span>
+            ))
+            : text}
+        </strong>
+      ) : null}
     </div>
   );
 }
@@ -742,6 +809,9 @@ export function WatchRoomsPage({
   const [fireText, setFireText] = useState('');
   const [fireKind, setFireKind] = useState<FireKind>('burst');
   const [fireSec, setFireSec] = useState(5);
+  const [fireColor, setFireColor] = useState('#fff7d6');
+  const [fireAnim, setFireAnim] = useState<FireAnim>('glow');
+  const [fireEmojis, setFireEmojis] = useState('');
   const [kissPick, setKissPick] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -1063,6 +1133,13 @@ export function WatchRoomsPage({
             if (live.playing) {
               ready.unMute();
               ready.playVideo();
+              window.setTimeout(() => {
+                try {
+                  ready.unMute();
+                  applyLocalVolume(ready);
+                  ready.playVideo();
+                } catch { /* autoplay */ }
+              }, 400);
             } else ready.pauseVideo();
           } catch {
             if (!filmUnlocked.current) setNeedStart(Boolean(live.videoId));
@@ -1076,7 +1153,7 @@ export function WatchRoomsPage({
           const live = roomRef.current;
           setNotice('Bu video açılamadı, sıradaki açılıyor.');
           setEndCover(true);
-          if (live?.you.host) void playNextVideo();
+          if (live && roomSteer(live, user.role)) void playNextVideo();
           else setNeedStart(true);
         },
         onStateChange: (event: { data: number }) => {
@@ -1092,18 +1169,15 @@ export function WatchRoomsPage({
           }
           if (event.data === 0) {
             setEndCover(true);
-            if (live.you.host) void playNextVideo();
+            if (roomSteer(live, user.role)) void playNextVideo();
             return;
           }
           if (applyingCinema.current) return;
-          if (live.you.host && (event.data === 1 || event.data === 2)) {
+          if (roomSteer(live, user.role) && (event.data === 1 || event.data === 2)) {
             const playing = event.data === 1;
             if (document.hidden && event.data === 2) return;
             if (event.data === 2 && Date.now() - lastLoadAt.current < 2500) return;
-            const time = ready.getCurrentTime?.() ?? 0;
-            const target = cinemaTime(live, receivedAtRef.current);
-            const drifted = Math.abs(time - target) > 1.4;
-            if (playing === live.playing && !drifted) return;
+            if (playing === live.playing) return;
             void claimCinema(live, ready, playing);
             return;
           }
@@ -1140,10 +1214,6 @@ export function WatchRoomsPage({
       const player = playerRef.current;
       if (!room || !player || !playerReady.current) return;
       if (roomDrive(room)) {
-        const localPlay = lastPushRef.current.playing;
-        if (!room.playing && !localPlay) {
-          followCinema(room, player);
-        }
         if (!document.hidden) void pushOwnerClock(room, player);
       } else {
         followCinema(room, player);
@@ -1308,7 +1378,8 @@ export function WatchRoomsPage({
       lastVideo.current = '';
       lastRevRef.current = -1;
       playerReady.current = false;
-      setNeedStart(Boolean(room.videoId));
+      filmUnlocked.current = false;
+      setNeedStart(false);
       setCinemaKey((value) => value + 1);
     }
     setOpen(room);
@@ -1334,7 +1405,6 @@ export function WatchRoomsPage({
     } catch {
       return;
     }
-    const target = cinemaTime(room, receivedAtRef.current);
     lastFollowPlay.current = room.playing;
     try {
       player.setPlaybackRate?.(1);
@@ -1344,29 +1414,28 @@ export function WatchRoomsPage({
         lastRevRef.current = room.mediaRev ?? 0;
         lastLoadAt.current = Date.now();
         setEndCover(false);
-        player.mute();
+        const startAt = cinemaTime(room, receivedAtRef.current);
         if (room.playing) {
-          player.loadVideoById(room.videoId, target);
+          player.loadVideoById(room.videoId, startAt);
           try { player.playVideo(); } catch { /* autoplay */ }
+          window.setTimeout(() => {
+            try {
+              player.unMute();
+              applyLocalVolume(player);
+            } catch { /* ignore */ }
+          }, 280);
           if (!filmUnlocked.current) setNeedStart(true);
         } else {
-          player.cueVideoById(room.videoId, target);
+          player.cueVideoById(room.videoId, startAt);
           try { player.pauseVideo(); } catch { /* ignore */ }
         }
         return;
       }
       const rev = room.mediaRev ?? 0;
-      if (rev !== lastRevRef.current) {
-        lastRevRef.current = rev;
-        if (state === 0) return;
-        if (Math.abs(time - target) > 2.6) player.seekTo(target, true);
-        if (room.playing) player.playVideo();
-        else if (state === 1) player.pauseVideo();
-        return;
-      }
+      const revFlip = rev !== lastRevRef.current;
+      lastRevRef.current = rev;
       if (!room.playing) {
         if (state === 1) player.pauseVideo();
-        if (Math.abs(time - room.position) > 2.6) player.seekTo(room.position, true);
         return;
       }
       if (state === 0 || state === 3) return;
@@ -1376,15 +1445,15 @@ export function WatchRoomsPage({
         return;
       }
       if (state === 2) player.playVideo();
-      if (state !== 1) return;
+      if (revFlip && Math.abs(time - room.position) > 6.5) {
+        player.seekTo(cinemaTime(room, receivedAtRef.current), true);
+      }
       try {
         const dur = player.getDuration?.() || 0;
         if (dur > 8 && dur - time < 0.55) setEndCover(true);
       } catch {
         /* duration unknown */
       }
-      const drift = time - target;
-      if (Math.abs(drift) > 2.6) player.seekTo(target, true);
     } catch {
       if (room.playing && !filmUnlocked.current) setNeedStart(true);
     }
@@ -1417,22 +1486,28 @@ export function WatchRoomsPage({
     const room = roomRef.current;
     if (!player || !room?.videoId) return;
     unlockAudio();
+    filmUnlocked.current = true;
     try {
-      player.mute();
+      let state = -2;
+      try { state = player.getPlayerState(); } catch { /* ignore */ }
+      const same = lastVideo.current === room.videoId;
       if (room.playing) {
-        player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
+        if (!same || state < 1) {
+          player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
+        }
         player.playVideo();
+        player.unMute();
+        applyLocalVolume(player);
         window.setTimeout(() => {
           try { player.unMute(); applyLocalVolume(player); } catch { /* ignore */ }
-        }, 350);
+        }, 280);
       } else {
-        player.cueVideoById(room.videoId, room.position);
+        if (!same) player.cueVideoById(room.videoId, room.position);
         player.pauseVideo();
       }
       lastVideo.current = room.videoId;
       lastRevRef.current = room.mediaRev ?? 0;
       lastLoadAt.current = Date.now();
-      window.setTimeout(() => applyLocalVolume(player), 500);
     } catch {
       setNeedStart(true);
       return;
@@ -1486,7 +1561,7 @@ export function WatchRoomsPage({
 
   async function playNextVideo() {
     const room = roomRef.current;
-    if (!room?.you.host || nextBusy.current) return;
+    if (!room || !roomSteer(room, user.role) || nextBusy.current) return;
     nextBusy.current = true;
     setEndCover(true);
     try {
@@ -2004,6 +2079,8 @@ export function WatchRoomsPage({
   }
 
   async function onJoin(room: RoomCard) {
+    unlockAudio();
+    holdSpeakerRoute(speakerHold.current);
     if (open?.id === room.id) {
       growRoom();
       return;
@@ -2026,6 +2103,8 @@ export function WatchRoomsPage({
 
   async function confirmJoin() {
     if (!joinId) return;
+    unlockAudio();
+    holdSpeakerRoute(speakerHold.current);
     setBusy(true);
     try {
       adopt((await joinWatchRoom(joinId, joinPassword)).room, true);
@@ -2085,9 +2164,17 @@ export function WatchRoomsPage({
   async function launchFirework() {
     if (!open) return;
     try {
-      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind, ms: Math.round(Math.max(1, fireSec) * 1000) } })).room);
+      adopt((await pingWatchRoom(open.id, {
+        firework: {
+          text: fireText.trim().slice(0, FIRE_TEXT_MAX),
+          kind: fireKind,
+          ms: Math.round(Math.max(1, fireSec) * 1000),
+          color: fireColor,
+          anim: fireAnim,
+          emojis: fireEmojis.trim(),
+        },
+      })).room);
       setFireOpen(false);
-      setFireText('');
     } catch {
       setNotice('Havai fişek atılmadı');
     }
@@ -2255,7 +2342,7 @@ export function WatchRoomsPage({
   }
 
   async function seekTo(next: number, playing = open?.playing ?? false) {
-    if (!open) return;
+    if (!open || !roomSteer(open, user.role)) return;
     const time = Math.max(0, next);
     try {
       playerRef.current?.seekTo(time, true);
@@ -2381,6 +2468,7 @@ export function WatchRoomsPage({
   let settingsModal: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
+    const canSteer = roomSteer(open, user.role);
     const fireMs = Math.min(FIREWORK_MAX_MS, Math.max(1_000, open.firework?.ms || FIREWORK_MS));
     const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < fireMs + 400);
     const kissAsk = open.kiss?.status === 'ask' && open.kiss.to === user.username;
@@ -2466,10 +2554,10 @@ export function WatchRoomsPage({
                 className={`room-film-hud ${filmHud ? 'is-on' : ''}`}
                 onClick={() => {
                   flashFilmHud();
-                  if (!iHost) startGuestVideo();
+                  if (!canSteer) startGuestVideo();
                 }}
               >
-                {iHost && filmHud && (
+                {canSteer && filmHud && (
                   <div className="room-film-tools" onClick={(event) => event.stopPropagation()}>
                     <button
                       type="button"
@@ -2504,7 +2592,7 @@ export function WatchRoomsPage({
                 )}
               </div>
             )}
-            {!iHost && !minimized && <div className="room-tv-lock" onClick={startGuestVideo} />}
+            {!canSteer && !minimized && <div className="room-tv-lock" onClick={startGuestVideo} />}
             {minimized && !needStart && (
               <div
                 className="room-pip-hit"
@@ -2587,11 +2675,44 @@ export function WatchRoomsPage({
               </div>
               <div className="room-fire-row">
                 <input
-                  value={fireText}
-                  onChange={(event) => setFireText(event.target.value)}
-                  maxLength={48}
-                  placeholder="Yazı (isteğe bağlı, alta devam eder)"
+                  value={fireEmojis}
+                  onChange={(event) => setFireEmojis(event.target.value.slice(0, 72))}
+                  maxLength={72}
+                  placeholder="Yağdırılacak emoji (😂🔥❤️)"
                 />
+              </div>
+              <div className="room-fire-row">
+                <textarea
+                  value={fireText}
+                  onChange={(event) => setFireText(event.target.value.slice(0, FIRE_TEXT_MAX))}
+                  maxLength={FIRE_TEXT_MAX}
+                  rows={2}
+                  placeholder="Yazı uzunlamasına dolar, alta iner (isteğe bağlı)"
+                />
+              </div>
+              <div className="room-fire-opts">
+                {FIRE_COLORS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`room-fire-swatch ${fireColor === item.id ? 'is-on' : ''} ${item.id === 'rainbow' ? 'is-rainbow' : ''}`}
+                    style={item.id === 'rainbow' ? undefined : { background: item.id }}
+                    onClick={() => setFireColor(item.id)}
+                    title={item.label}
+                    aria-label={item.label}
+                  />
+                ))}
+                <label className="room-fire-anim">
+                  <span>Animasyon</span>
+                  <select value={fireAnim} onChange={(event) => setFireAnim(event.target.value as FireAnim)}>
+                    {FIRE_ANIMS.map((item) => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="room-fire-row">
+                <span className="room-fire-count">{fireText.length}/{FIRE_TEXT_MAX}</span>
                 <label className="room-fire-sec">
                   <span>Sn</span>
                   <input
@@ -2604,7 +2725,7 @@ export function WatchRoomsPage({
                 </label>
                 <button type="submit">Patlat</button>
                 <button type="button" onClick={() => void stopFirework()}>Durdur</button>
-                <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
+                <button type="button" onClick={() => { setFireOpen(false); }}>Vazgeç</button>
               </div>
             </form>
           )}
@@ -2639,25 +2760,35 @@ export function WatchRoomsPage({
               />
               <button type="submit" disabled={busy}>Ara</button>
               <div className="room-search-tools">
-                <button type="button" onClick={() => {
-                  const time = playerRef.current?.getCurrentTime() || open.position;
-                  const nextPlaying = !open.playing;
-                  if (nextPlaying) playerRef.current?.playVideo();
-                  else playerRef.current?.pauseVideo();
-                  lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
-                  void setWatchMedia(open.id, { playing: nextPlaying, position: time, claim: true }).then((data) => {
-                    lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
-                    adopt(data.room);
-                  });
-                }}>
-                  {open.playing ? <Pause size={15} /> : <Play size={15} />}
-                </button>
-                <button type="button" onClick={() => void seekBy(-10)}><SkipBack size={15} /></button>
-                <button type="button" onClick={() => void seekBy(10)}><SkipForward size={15} /></button>
+                {canSteer && (
+                  <>
+                    <button type="button" onClick={() => {
+                      const time = playerRef.current?.getCurrentTime() || open.position;
+                      const nextPlaying = !open.playing;
+                      if (nextPlaying) playerRef.current?.playVideo();
+                      else playerRef.current?.pauseVideo();
+                      lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
+                      void setWatchMedia(open.id, { playing: nextPlaying, position: time, claim: true }).then((data) => {
+                        lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
+                        adopt(data.room);
+                      });
+                    }}>
+                      {open.playing ? <Pause size={15} /> : <Play size={15} />}
+                    </button>
+                    <button type="button" onClick={() => void seekBy(-10)}><SkipBack size={15} /></button>
+                    <button type="button" onClick={() => void seekBy(10)}><SkipForward size={15} /></button>
+                  </>
+                )}
               </div>
             </form>
           )}
-          {!iHost && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
+          {!iHost && (
+            <p className="room-follow">
+              {open.videoTitle
+                ? `Şu an: ${open.videoTitle}${canSteer ? ' · Videoyu sen yönetiyorsun' : ''}`
+                : 'Yönetici video seçince senin ekranda da açılır.'}
+            </p>
+          )}
           {hits.length > 0 && (
             <div
               className="room-hits"

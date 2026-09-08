@@ -12,6 +12,8 @@ const EMOJI_IDS = new Set(["kiss-r", "kiss-l", "laugh", "cry", "angry"]);
 const FIREWORK_MS = 5_000;
 const FIREWORK_MAX_MS = 9_999_000;
 const FIRE_KINDS = new Set(["burst", "roses", "fire", "hearts", "rain"]);
+const FIRE_ANIMS = new Set(["pop", "glow", "bounce", "wave", "neon", "pulse"]);
+const FIRE_TEXT_MAX = 400;
 const KISS_ASK_MS = 25_000;
 const KISS_LIVE_MS = 5_000;
 
@@ -73,7 +75,7 @@ export type WatchRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; kind: string; ms: number; at: number };
+  firework?: { text: string; kind: string; ms: number; at: number; color?: string; anim?: string; emojis?: string };
   kiss?: {
     from: string;
     to: string;
@@ -123,7 +125,7 @@ export type PublicRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; kind: string; ms: number; at: number };
+  firework?: { text: string; kind: string; ms: number; at: number; color?: string; anim?: string; emojis?: string };
   kiss?: {
     from: string;
     to: string;
@@ -453,14 +455,42 @@ export async function joinRoom(input: {
   return room;
 }
 
-export type FireworkPatch = string | false | { text?: string; kind?: string; ms?: number };
+export type FireworkPatch = string | false | { text?: string; kind?: string; ms?: number; color?: string; anim?: string; emojis?: string };
+
+function cleanFireColor(value?: string) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "rainbow") return "rainbow";
+  return /^#[0-9a-f]{6}$/.test(text) ? text : "#fff7d6";
+}
+
+function cleanFireEmojis(value?: string) {
+  const raw = String(value || "").slice(0, 160);
+  try {
+    return [...new Intl.Segmenter("tr", { granularity: "grapheme" }).segment(raw)]
+      .map((item) => item.segment)
+      .filter((item) => item.trim() && !/^[A-Za-z0-9.,!?;:]+$/.test(item))
+      .slice(0, 24)
+      .join("");
+  } catch {
+    return raw.replace(/[A-Za-z0-9\s]/g, "").slice(0, 72);
+  }
+}
 
 function fireworkFrom(patch: FireworkPatch, now: number) {
   if (patch === false) return undefined;
   const payload = typeof patch === "string" ? { text: patch, kind: "burst", ms: FIREWORK_MS } : patch;
   const kind = FIRE_KINDS.has(String(payload.kind || "")) ? String(payload.kind) : "burst";
+  const anim = FIRE_ANIMS.has(String(payload.anim || "")) ? String(payload.anim) : "pop";
   const ms = Math.min(FIREWORK_MAX_MS, Math.max(1_000, Number(payload.ms) || FIREWORK_MS));
-  return { text: String(payload.text || "").trim().slice(0, 48), kind, ms, at: now };
+  return {
+    text: String(payload.text || "").trim().slice(0, FIRE_TEXT_MAX),
+    kind,
+    ms,
+    at: now,
+    color: cleanFireColor(payload.color),
+    anim,
+    emojis: cleanFireEmojis(payload.emojis),
+  };
 }
 
 export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean; title?: string; frame?: string; role?: string }, role?: string) {
@@ -580,6 +610,10 @@ export function canManage(room: WatchRoom, username: string, role?: string) {
   return isHost(room, username) || role === "ADMIN" || role === "MODERATOR";
 }
 
+export function canSteerCinema(room: WatchRoom, username: string, role?: string) {
+  return room.owner === username || (room.driver || room.owner) === username || role === "ADMIN";
+}
+
 export async function patchRoomSettings(input: {
   id: string;
   username: string;
@@ -664,27 +698,39 @@ export async function setMedia(id: string, username: string, role: string | unde
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
-  if (!canManage(room, username, role)) throw new Error("owner");
+  const picking = input.videoId !== undefined;
+  const takingWheel = Boolean(input.claim) || picking;
+  if (picking) {
+    if (!canManage(room, username, role) && !canSteerCinema(room, username, role)) throw new Error("owner");
+  } else if (!canSteerCinema(room, username, role)) {
+    throw new Error("owner");
+  }
   const currentDriver = room.driver || room.owner;
-  const takingWheel = Boolean(input.claim) || input.videoId !== undefined;
   if (!takingWheel && currentDriver !== username) return room;
-  const clockOnly = input.videoId === undefined && !input.claim;
+  const now = Date.now();
+  const expected = room.playing
+    ? room.position + Math.max(0, (now - room.updatedAt) / 1000)
+    : room.position;
+  const nextPos = typeof input.position === "number" && Number.isFinite(input.position)
+    ? Math.max(0, input.position)
+    : room.position;
+  const seekJump = Math.abs(nextPos - expected) > 2.4;
   const playingChanged = typeof input.playing === "boolean" && input.playing !== room.playing;
-  if (input.videoId !== undefined) {
+  if (picking) {
     if (input.videoId && !/^[a-zA-Z0-9_-]{11}$/.test(input.videoId)) throw new Error("video");
-    room.videoId = input.videoId;
+    room.videoId = input.videoId || "";
     room.videoTitle = String(input.videoTitle || "").slice(0, 120);
     room.position = typeof input.position === "number" ? Math.max(0, input.position) : 0;
     room.playing = typeof input.playing === "boolean" ? input.playing : Boolean(input.videoId);
   } else {
     if (typeof input.playing === "boolean") room.playing = input.playing;
     if (typeof input.position === "number" && Number.isFinite(input.position)) {
-      room.position = Math.max(0, input.position);
+      room.position = nextPos;
     }
   }
-  room.driver = username;
-  room.updatedAt = Date.now();
-  if (!clockOnly || playingChanged) room.mediaRev = (room.mediaRev || 0) + 1;
+  if (takingWheel) room.driver = username;
+  room.updatedAt = now;
+  if (picking || playingChanged || (takingWheel && seekJump)) room.mediaRev = (room.mediaRev || 0) + 1;
   await writeRoom(room);
   return room;
 }

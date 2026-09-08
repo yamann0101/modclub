@@ -2822,8 +2822,11 @@ html.dark .guess-btn-ghost {
 }
 .room-fire-kinds {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: .28rem;
+}
+@media (max-width: 420px) {
+  .room-fire-kinds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .room-fire-kinds button {
   min-width: 0;
@@ -2840,6 +2843,63 @@ html.dark .guess-btn-ghost {
   display: flex;
   gap: .28rem;
   align-items: center;
+}
+.room-fire-form textarea {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.6rem;
+  max-height: 6.2rem;
+  resize: none;
+  border-radius: .7rem;
+  border: 0;
+  background: #1e1233;
+  color: #fff;
+  padding: .5rem .7rem;
+  font-size: 16px;
+  line-height: 1.25;
+}
+.room-fire-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .28rem;
+  align-items: center;
+}
+.room-fire-swatch {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  padding: 0;
+  border: 2px solid transparent;
+  flex: 0 0 auto;
+}
+.room-fire-swatch.is-on { border-color: #fff; box-shadow: 0 0 0 1px #7c3aed; }
+.room-fire-swatch.is-rainbow {
+  background: linear-gradient(90deg, #fb7185, #facc15, #4ade80, #38bdf8, #c084fc);
+}
+.room-fire-anim {
+  display: flex;
+  align-items: center;
+  gap: .28rem;
+  margin-left: auto;
+  color: #c4b5fd;
+  font-size: .58rem;
+  font-weight: 800;
+}
+.room-fire-anim select {
+  border: 0;
+  border-radius: .55rem;
+  background: #1e1233;
+  color: #fff;
+  padding: .28rem .4rem;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.room-fire-count {
+  color: #a78bfa;
+  font-size: .58rem;
+  font-weight: 800;
+  min-width: 3.2rem;
 }
 .room-fire-sec {
   display: flex;
@@ -2919,24 +2979,60 @@ html.dark .guess-btn-ghost {
 .room-fireworks.is-fire .room-fire-drop { animation-name: room-fire-rise; }
 .room-fireworks.is-hearts .room-fire-drop { animation-name: room-fire-fall; }
 .room-fireworks.is-rain .room-fire-drop { animation-name: room-fire-fall; filter: drop-shadow(0 0 8px #7dd3fc); }
+.room-fireworks.is-emoji .room-fire-drop { animation-name: room-fire-fall; filter: drop-shadow(0 6px 10px rgba(0,0,0,.28)); }
 .room-fire-text {
   position: absolute;
   left: 50%;
-  top: 32%;
+  top: 36%;
   z-index: 2;
   transform: translate(-50%, -50%);
   color: #fff7d6;
-  font-size: clamp(1.15rem, 6.4vw, 2.2rem);
+  font-size: clamp(0.82rem, 4.6vw, 2.4rem);
   font-weight: 900;
-  letter-spacing: .04em;
+  letter-spacing: .03em;
   text-align: center;
   line-height: 1.18;
   text-shadow: 0 0 18px #f97316, 0 0 32px #7c3aed;
-  animation: room-fire-text .4s ease-out both;
-  white-space: normal;
+  white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  max-width: 88%;
+  max-width: 94vw;
+  width: min(94vw, 46rem);
+  max-height: 64vh;
+  overflow: hidden;
+  display: block;
+}
+.room-fire-text.is-pop { animation: room-fire-text-pop .5s cubic-bezier(.2,1.4,.32,1) both; }
+.room-fire-text.is-glow {
+  animation: room-fire-text-pop .45s ease-out both, room-fire-text-glow 1.5s ease-in-out .4s infinite;
+}
+.room-fire-text.is-bounce {
+  animation: room-fire-text-pop .4s ease-out both, room-fire-text-bounce 1.15s ease-in-out .35s infinite;
+}
+.room-fire-text.is-neon {
+  animation: room-fire-text-pop .45s ease-out both, room-fire-text-neon 1.2s ease-in-out .35s infinite;
+}
+.room-fire-text.is-pulse {
+  animation: room-fire-text-pop .45s ease-out both, room-fire-text-pulse 1.35s ease-in-out .3s infinite;
+}
+.room-fire-text.is-wave {
+  display: block;
+  animation: room-fire-text-pop .45s ease-out both;
+}
+.room-fire-text.is-wave span {
+  display: inline-block;
+  animation: room-fire-text-wave .7s ease-in-out infinite;
+}
+.room-fire-text.is-rainbow {
+  background: linear-gradient(90deg, #fb7185, #facc15, #4ade80, #38bdf8, #c084fc, #fb7185);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  animation: room-fire-text-pop .45s ease-out both, room-fire-rainbow 2.4s linear infinite;
+  text-shadow: none;
+  filter: drop-shadow(0 0 10px rgba(251, 113, 133, .45));
 }
 @keyframes room-spark {
   0% { transform: translate(0, 0) scale(.35); opacity: 1; }
@@ -2963,9 +3059,33 @@ html.dark .guess-btn-ghost {
   12% { opacity: 1; }
   100% { transform: translate3d(18px, -88vh, 0) scale(1.2); opacity: .2; }
 }
-@keyframes room-fire-text {
-  0% { transform: translate(-50%, -50%) scale(.55); opacity: 0; }
+@keyframes room-fire-text-pop {
+  0% { transform: translate(-50%, -50%) scale(.42); opacity: 0; }
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+@keyframes room-fire-text-glow {
+  0%, 100% { filter: drop-shadow(0 0 8px currentColor); transform: translate(-50%, -50%) scale(1); }
+  50% { filter: drop-shadow(0 0 22px currentColor) drop-shadow(0 0 36px #7c3aed); transform: translate(-50%, -50%) scale(1.04); }
+}
+@keyframes room-fire-text-bounce {
+  0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+  50% { transform: translate(-50%, -50%) translateY(-12px); }
+}
+@keyframes room-fire-text-neon {
+  0%, 100% { text-shadow: 0 0 8px currentColor, 0 0 18px #7c3aed; }
+  50% { text-shadow: 0 0 18px currentColor, 0 0 34px #22d3ee, 0 0 48px #f97316; }
+}
+@keyframes room-fire-text-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(.96); opacity: .88; }
+  50% { transform: translate(-50%, -50%) scale(1.06); opacity: 1; }
+}
+@keyframes room-fire-text-wave {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes room-fire-rainbow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 220% 50%; }
 }
 .room-kiss-bar {
   display: flex;

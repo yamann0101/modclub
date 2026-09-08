@@ -233,7 +233,7 @@ router.post("/rooms/:id/ping", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   try {
-    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string; ms?: number }; kiss?: string | false; kissAnswer?: boolean };
+    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string; ms?: number; color?: string; anim?: string; emojis?: string }; kiss?: string | false; kissAnswer?: boolean };
     const room = await pingRoom(req.params.id, account.username, {
       micOn: typeof body.micOn === "boolean" ? body.micOn : undefined,
       speaking: typeof body.speaking === "boolean" ? body.speaking : undefined,
