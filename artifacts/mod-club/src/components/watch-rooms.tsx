@@ -52,11 +52,13 @@ const SEAT_EMOJIS = [
 ] as const;
 const EMOJI_MS = 3000;
 const FIREWORK_MS = 5000;
+const FIREWORK_MAX_MS = 9_999_000;
 const FIRE_KINDS = [
   { id: 'burst', label: 'Havai fişek', mark: '🎆' },
   { id: 'roses', label: 'Gül yağmuru', mark: '🌹' },
   { id: 'fire', label: 'Ateş', mark: '🔥' },
   { id: 'hearts', label: 'Kalp', mark: '❤️' },
+  { id: 'rain', label: 'Yağmur', mark: '🌧️' },
 ] as const;
 type FireKind = typeof FIRE_KINDS[number]['id'];
 const COUPLE_GAPS = [
@@ -557,54 +559,42 @@ function fireBits(at: number, count: number) {
 }
 
 function RoomFireworks({ firework }: { firework: { text: string; kind?: string; ms?: number; at: number } }) {
-  const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' ? firework.kind : 'burst';
-  const ms = Math.min(30_000, Math.max(1_000, firework.ms || FIREWORK_MS));
-  const burst = kind === 'burst' ? 1.8 : 2.15;
-  const waves = Math.min(28, Math.max(2, Math.round(ms / 380)));
-  const gap = Math.max(0.2, (ms / 1000 - 0.35) / Math.max(1, waves - 1));
-  const perWave = kind === 'burst' ? (waves > 16 ? 16 : 26) : (waves > 16 ? 10 : 16);
-  const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖'] : ['✦'];
-  const bits: { key: string; x: number; y: number; delay: number; size: number; dx: number; dy: number; mark: string; tone: number }[] = [];
-  for (let w = 0; w < waves; w += 1) {
-    const wave = fireBits(firework.at + w * 131, perWave);
-    wave.forEach((bit, index) => {
-      bits.push({
-        key: `${w}-${bit.i}`,
-        x: bit.x,
-        y: bit.y,
-        delay: w * gap + (index % 6) * 0.04,
-        size: bit.size,
-        dx: bit.dx,
-        dy: bit.dy,
-        mark: marks[index % marks.length],
-        tone: bit.i % 6,
-      });
-    });
-  }
+  const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' || firework.kind === 'rain'
+    ? firework.kind
+    : 'burst';
+  const burst = kind === 'burst' ? 1.8 : kind === 'rain' ? 2.35 : 2.55;
+  const count = kind === 'rain' ? 78 : kind === 'hearts' ? 60 : kind === 'roses' ? 48 : kind === 'fire' ? 40 : 52;
+  const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖', '💕'] : kind === 'rain' ? ['💧', '🌧️', '💦'] : ['✦'];
+  const bits = fireBits(firework.at, count).map((bit, index) => ({
+    ...bit,
+    delay: (index % Math.max(8, Math.floor(count / 6))) * (burst / 8),
+    mark: marks[index % marks.length],
+    tone: bit.i % 6,
+  }));
   return (
     <div className={`room-fireworks is-${kind}`} aria-hidden="true">
       {kind === 'burst' && bits.map((bit) => (
         <i
-          key={bit.key}
+          key={bit.i}
           className={`room-spark tone-${bit.tone}`}
           style={{
             left: `${bit.x}%`,
             top: `${bit.y}%`,
             animationDelay: `${bit.delay}s`,
             animationDuration: `${burst}s`,
-            ['--dx' as string]: `${bit.dx * 8}px`,
-            ['--dy' as string]: `${bit.dy * 7}px`,
+            ['--dx' as string]: `${bit.dx * 10}px`,
+            ['--dy' as string]: `${bit.dy * 9}px`,
           }}
         />
       ))}
       {kind !== 'burst' && bits.map((bit) => (
         <span
-          key={bit.key}
+          key={bit.i}
           className="room-fire-drop"
           style={{
             left: `${bit.x}%`,
-            top: kind === 'fire' ? `${70 + (bit.y % 28)}%` : `${(Number(bit.key.split('-')[1] || 0) % 18) - 8}%`,
-            fontSize: `${bit.size + (kind === 'hearts' ? 6 : 4)}px`,
+            top: kind === 'fire' ? `${72 + (bit.y % 22)}%` : `${-18 - (bit.i % 24)}%`,
+            fontSize: `${bit.size + (kind === 'hearts' || kind === 'rain' ? 10 : 5)}px`,
             animationDelay: `${bit.delay}s`,
             animationDuration: `${burst}s`,
           }}
@@ -612,9 +602,9 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
           {bit.mark}
         </span>
       ))}
-      {kind === 'burst' && bits.filter((_, index) => index % 8 === 0).map((bit) => (
+      {kind === 'burst' && bits.filter((_, index) => index % 6 === 0).map((bit) => (
         <span
-          key={`bloom-${bit.key}`}
+          key={`bloom-${bit.i}`}
           className="room-fire-bloom"
           style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s`, animationDuration: `${burst}s` }}
         />
@@ -710,6 +700,8 @@ export function WatchRoomsPage({
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const cinemaHomeRef = useRef<HTMLDivElement | null>(null);
+  const cinemaPip = useRef<Window | null>(null);
   const playerReady = useRef(false);
   const lastLoadAt = useRef(0);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
@@ -1105,14 +1097,53 @@ export function WatchRoomsPage({
       document.body.classList.remove('room-typing');
       window.scrollTo(0, 0);
     };
+    const keepFilmPlaying = () => {
+      const player = playerRef.current;
+      const room = roomRef.current;
+      if (!player || !room?.videoId || !room.playing) return;
+      try { player.playVideo(); } catch { /* os may still pause */ }
+    };
+    const parkCinema = async () => {
+      const box = boxRef.current;
+      const home = cinemaHomeRef.current;
+      const pipApi = (window as Window & { documentPictureInPicture?: { requestWindow: (opts?: { width?: number; height?: number }) => Promise<Window> } }).documentPictureInPicture;
+      if (!box || !home || !pipApi?.requestWindow || cinemaPip.current) return;
+      try {
+        const win = await pipApi.requestWindow({ width: 360, height: 202 });
+        cinemaPip.current = win;
+        win.document.body.style.margin = '0';
+        win.document.body.style.background = '#000';
+        win.document.body.appendChild(box);
+        const restore = () => {
+          if (boxRef.current && cinemaHomeRef.current && !cinemaHomeRef.current.contains(boxRef.current)) {
+            cinemaHomeRef.current.appendChild(boxRef.current);
+          }
+          cinemaPip.current = null;
+        };
+        win.addEventListener('pagehide', restore);
+        win.addEventListener('unload', restore);
+      } catch {
+        /* no document pip */
+      }
+    };
+    const restoreCinema = () => {
+      const box = boxRef.current;
+      const home = cinemaHomeRef.current;
+      if (box && home && !home.contains(box)) home.appendChild(box);
+      try { cinemaPip.current?.close(); } catch { /* ignore */ }
+      cinemaPip.current = null;
+    };
     const onHidden = () => {
       hiddenAt.current = Date.now();
       keepAlive();
+      keepFilmPlaying();
+      void parkCinema();
     };
     const resumeRoom = () => {
       if (leftRef.current || document.hidden) return;
       resetChrome();
       keepAlive();
+      restoreCinema();
       forceSpeaker(wantMicRef.current);
       unlockAudio();
       const stamped = hiddenAt.current;
@@ -1125,23 +1156,15 @@ export function WatchRoomsPage({
         } catch { /* ignore */ }
         peers.current.clear();
         iceBag.current.clear();
-        setCinemaKey((value) => value + 1);
         if (room) void syncVoice(room);
       } else if (room) {
         void syncVoice(room);
-        const player = playerRef.current;
-        if (player && playerReady.current && room.videoId) {
-          followCinema(room, player);
-          try {
-            if (room.playing) {
-              player.seekTo(cinemaTime(room, receivedAtRef.current), true);
-              player.playVideo();
-            }
-          } catch {
-            setCinemaKey((value) => value + 1);
-          }
-        } else if (room.videoId && away > 400) {
-          setCinemaKey((value) => value + 1);
+      }
+      const player = playerRef.current;
+      if (player && playerReady.current && room?.videoId && room.playing) {
+        followCinema(room, player);
+        try { player.playVideo(); } catch {
+          /* keep existing iframe */
         }
       }
       if (wantMicRef.current && (away > 400 || !micLive())) void reviveMic(true);
@@ -1166,7 +1189,11 @@ export function WatchRoomsPage({
     const watchdog = window.setInterval(() => {
       if (leftRef.current) return;
       keepAlive();
-      if (document.hidden || !wantMicRef.current) return;
+      if (document.hidden) {
+        keepFilmPlaying();
+        return;
+      }
+      if (!wantMicRef.current) return;
       if (!micLive()) void reviveMic(true);
     }, 1800);
     return () => {
@@ -1911,11 +1938,21 @@ export function WatchRoomsPage({
   async function launchFirework() {
     if (!open) return;
     try {
-      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind, ms: Math.round(fireSec * 1000) } })).room);
+      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind, ms: Math.round(Math.max(1, fireSec) * 1000) } })).room);
       setFireOpen(false);
       setFireText('');
     } catch {
       setNotice('Havai fişek atılmadı');
+    }
+  }
+
+  async function stopFirework() {
+    if (!open) return;
+    try {
+      adopt((await pingWatchRoom(open.id, { firework: false })).room);
+      setFireOpen(false);
+    } catch {
+      setNotice('Durdurulamadı');
     }
   }
 
@@ -2158,7 +2195,7 @@ export function WatchRoomsPage({
   let roomPage: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
-    const fireMs = Math.min(30_000, Math.max(1_000, open.firework?.ms || FIREWORK_MS));
+    const fireMs = Math.min(FIREWORK_MAX_MS, Math.max(1_000, open.firework?.ms || FIREWORK_MS));
     const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < fireMs + 400);
     const kissAsk = open.kiss?.status === 'ask' && open.kiss.to === user.username;
     const kissLive = open.kiss?.status === 'live' && open.serverNow + (Date.now() - receivedAtRef.current) - open.kiss.at < 5400;
@@ -2220,7 +2257,9 @@ export function WatchRoomsPage({
 
         <div className="room-stage">
           <div className="room-tv">
-            <div ref={boxRef} className="room-player" />
+            <div ref={cinemaHomeRef} className="room-player-home">
+              <div ref={boxRef} className="room-player" />
+            </div>
             {!minimized && open.videoId && (
               <div
                 className={`room-film-hud ${filmHud ? 'is-on' : ''}`}
@@ -2306,6 +2345,11 @@ export function WatchRoomsPage({
                 <span>Fişek</span>
               </button>
             )}
+            {canFire && fireLive && (
+              <button type="button" className="room-mic room-fire is-on" onClick={() => void stopFirework()}>
+                <span>Durdur</span>
+              </button>
+            )}
           </div>
           {fireOpen && canFire && (
             <form
@@ -2339,12 +2383,13 @@ export function WatchRoomsPage({
                   <input
                     type="number"
                     min={1}
-                    max={30}
+                    max={9999}
                     value={fireSec}
-                    onChange={(event) => setFireSec(Math.min(30, Math.max(1, Number(event.target.value) || 5)))}
+                    onChange={(event) => setFireSec(Math.min(9999, Math.max(1, Number(event.target.value) || 5)))}
                   />
                 </label>
                 <button type="submit">Patlat</button>
+                <button type="button" onClick={() => void stopFirework()}>Durdur</button>
                 <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
               </div>
             </form>

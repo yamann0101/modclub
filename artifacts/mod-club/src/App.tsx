@@ -16,7 +16,7 @@ import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
 import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
-import { getDeviceId, isChatMuted, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, setChatMuted as persistChatMute, startNotifyPolling, wasNotifyPrompted } from '@/lib/notifications';
+import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, startNotifyPolling, syncClubPush, wasNotifyPrompted } from '@/lib/notifications';
 import { cn } from '@/lib/utils';
 
 const queryClient = new QueryClient();
@@ -68,6 +68,42 @@ type ChatMessage = {
 
 function isSystemChat(message: Pick<ChatMessage, 'kind'>) {
   return Boolean(message.kind && message.kind !== 'text');
+}
+
+const BANNER_W = 1080;
+const BANNER_H = 420;
+
+function fileToBanner(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Resim seç'));
+      return;
+    }
+    const image = new Image();
+    const blobUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = BANNER_W;
+      canvas.height = BANNER_H;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(blobUrl);
+        reject(new Error('Resim işlenemedi'));
+        return;
+      }
+      const scale = Math.max(BANNER_W / image.width, BANNER_H / image.height);
+      const w = image.width * scale;
+      const h = image.height * scale;
+      context.drawImage(image, (BANNER_W - w) / 2, (BANNER_H - h) / 2, w, h);
+      URL.revokeObjectURL(blobUrl);
+      resolve(canvas.toDataURL('image/jpeg', 0.76));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error('Resim okunamadı'));
+    };
+    image.src = blobUrl;
+  });
 }
 
 const chatEmojis = ['😀', '😂', '😍', '🔥', '👏', '🎮', '🎉', '💜', '🙌', '🤝', '😎', '❤️'];
@@ -787,6 +823,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerCopy, setBannerCopy] = useState('');
   const [bannerHasButton, setBannerHasButton] = useState(true);
+  const [bannerImage, setBannerImage] = useState('');
   const [broadcastTitle, setBroadcastTitle] = useState('Duyuru');
   const [broadcastBody, setBroadcastBody] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
@@ -812,7 +849,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [appLink, setAppLink] = useState('');
   const [colorMode, setColorMode] = useState<ColorMode>(() => (typeof window !== 'undefined' ? loadColorMode() : 'dark'));
   const [notices, setNotices] = useState<ClubNotice[]>([]);
-  const [chatReadAt, setChatReadAt] = useState(0);
+  const [chatReadAt, setChatReadAt] = useState(() => (typeof window !== 'undefined' ? loadChatReadAt() : Date.now()));
   const user = resolveSession(session);
   const nick = displayNick(user);
   const myPhoto = avatarFor(nick, user.photo);
@@ -981,7 +1018,11 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   };
 
   const unreadNoticeCount = notices.filter((item) => !item.read).length;
-  const unreadChatCount = chatMessages.filter((message) => Boolean(message.at) && !message.mine && message.author !== nick && (message.at as number) > chatReadAt).length;
+  const unreadChatCount = chatMessages.filter((message) => {
+    if (!message.at || message.mine || isSystemChat(message)) return false;
+    if (message.author === nick || message.author === 'MOD CLUB') return false;
+    return message.at > chatReadAt;
+  }).length;
 
   const showTicker = (title: string, body: string) => {
     setTicker({ id: `t-${Date.now()}`, title, body });
@@ -1040,10 +1081,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
 
   useEffect(() => {
     void registerClubWorker();
+    void syncClubPush();
     const stop = startNotifyPolling((event) => {
       if (event.type !== 'chat') pushNotice(event.title, event.body);
-      if (event.type === 'admin' || event.type === 'guess') showTicker(event.title, event.body);
-      if (event.type === 'chat') setNotice(event.body);
       if (event.type === 'guess') {
         setNotice(event.body);
         setChatOpen(true);
@@ -1055,7 +1095,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       }
     });
     return stop;
-  }, []);
+  }, [session.username]);
 
   const toggleChatMute = () => {
     const next = !chatMuted;
@@ -1122,6 +1162,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     if (chatOpen) {
       const stamped = Date.now();
       setChatReadAt(stamped);
+      saveChatReadAt(stamped);
     }
   }, [chatOpen, chatMessages]);
 
@@ -1360,13 +1401,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       return;
     }
     setBroadcastSending(true);
-    showTicker(title, body);
     pushNotice(title, body);
     setBroadcastLog((current) => [{ id: `b-${Date.now()}`, title, body, at: Date.now() }, ...current].slice(0, 8));
     const ok = await publishClubEvent({ type: 'admin', title, body });
     setBroadcastSending(false);
     setBroadcastBody('');
-    setNotice(ok ? 'Bildirim tüm cihazlara gönderildi' : 'Sunucuya ulaşılamadı. Bildirim bu cihazda gösterildi.');
+    setNotice(ok ? 'Sesli bildirim tüm telefonlara gönderildi' : 'Sunucuya ulaşılamadı.');
   };
 
   const addBanner = () => {
@@ -1385,11 +1425,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       copy,
       action: 'Keşfet',
       hasButton: bannerHasButton,
+      image: bannerImage || undefined,
     }];
     setBanners(next);
     void patchClub({ banners: next });
     setBannerTitle('');
     setBannerCopy('');
+    setBannerImage('');
     setNotice('Yeni banner yayınlandı');
   };
 
@@ -1562,7 +1604,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
         </div>
       </header>
        {activeNav === 'Ana Sayfa' ? <main className="desktop-shell mx-auto w-full px-4 pb-10 pt-4 sm:px-6 sm:pt-6 lg:px-8">
-        <section className="home-hero relative isolate overflow-hidden rounded-[1.35rem]">
+        <section className={`home-hero relative isolate overflow-hidden rounded-[1.35rem] ${currentSlide.image ? 'has-photo' : ''}`}>
+          {currentSlide.image ? <img className="home-hero-photo" src={currentSlide.image} alt="" /> : null}
           <div className="home-hero-glow" aria-hidden="true" />
           <div className="relative z-10 flex min-h-[11.5rem] items-center justify-between gap-3 px-5 py-5 sm:min-h-[14rem] sm:px-8">
             <div className="min-w-0 max-w-[18rem] sm:max-w-[24rem]">
@@ -1776,7 +1819,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                     <div className="mb-4">
                       <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">DUYURU</p>
                       <h3 className="mt-1 font-display text-xl font-bold">Bildirim gönder</h3>
-                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Yazdığın metin tüm açık cihazlarda kayarak görünür. Bildirim izni varsa telefona da gider.</p>
+                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Yazdığın metin kilitli telefonlara sesli PWA bildirimi olarak gider. Uygulamada kayan yazı çıkmaz.</p>
                     </div>
                     <form
                       onSubmit={(event) => { event.preventDefault(); void sendAdminBroadcast(); }}
@@ -1800,8 +1843,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         className="admin-field admin-area"
                       />
                       <p className="text-[.58rem] font-semibold text-[hsl(var(--muted-foreground))]">{broadcastBody.length}/280</p>
-                      <button type="submit" data-testid="button-broadcast-send" disabled={broadcastSending} className="admin-btn">
-                        <Send size={15} />{broadcastSending ? 'Gönderiliyor...' : 'Bildirim gönder'}
+          <button type="submit" data-testid="button-broadcast-send" disabled={broadcastSending} className="admin-btn">
+                        <Send size={15} />{broadcastSending ? 'Gönderiliyor...' : 'Telefona bildirim at'}
                       </button>
                     </form>
                     {broadcastLog.length > 0 && (
@@ -1895,6 +1938,21 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                     <form onSubmit={(event) => { event.preventDefault(); addBanner(); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
                       <input value={bannerTitle} onChange={(event) => setBannerTitle(event.target.value)} placeholder="Başlık" className="admin-field" />
                       <input value={bannerCopy} onChange={(event) => setBannerCopy(event.target.value)} placeholder="Kısa açıklama" className="admin-field" />
+                      <label className="grid gap-1.5 text-xs font-semibold text-[hsl(var(--foreground))]">
+                        Banner resmi
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            void fileToBanner(file).then(setBannerImage).catch((err) => setNotice((err as Error).message));
+                          }}
+                          className="admin-field py-2"
+                        />
+                      </label>
+                      <p className="rounded-xl bg-[hsl(var(--muted))] px-3 py-2 text-[.62rem] font-semibold leading-relaxed text-[hsl(var(--muted-foreground))]">Tam sığan boyut: <strong className="text-[hsl(var(--foreground))]">1080 × 420 px</strong> (oran 18:7). Daha büyük resmi seçersen otomatik kırpılır.</p>
+                      {bannerImage ? <img src={bannerImage} alt="" className="h-24 w-full rounded-xl object-cover" /> : null}
                       <label className="flex items-center gap-2 text-xs font-semibold text-[hsl(var(--foreground))]">
                         <input type="checkbox" checked={bannerHasButton} onChange={(event) => setBannerHasButton(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />
                         Buton göster
@@ -1908,6 +1966,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                             <p className="text-sm font-bold">{banner.title} <span className="font-normal text-[hsl(var(--primary))]">{banner.accent}</span></p>
                             <p className="mt-0.5 truncate text-[.62rem] text-[hsl(var(--muted-foreground))]">{banner.copy}</p>
                           </div>
+                          {banner.image ? <img src={banner.image} alt="" className="h-10 w-[4.6rem] rounded-md object-cover" /> : null}
                           <button disabled={banners.length === 1} aria-label={`${banner.title} bannerını sil`} onClick={() => { const items = banners.filter((item) => item.id !== banner.id); setBanners(items); setSlide((current) => Math.min(current, Math.max(0, items.length - 1))); void patchClub({ banners: items }); setNotice('Banner kaldırıldı'); }} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))] disabled:opacity-30"><Trash2 size={16} /></button>
                         </div>
                       ))}
@@ -2365,7 +2424,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white"><Bell size={18} /></span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold">Telefon bildirimleri</p>
-              <p className="mt-1 text-[.72rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Çekiliş açılınca ve sohbette mesaj gelince tüm telefonlara bildirim gitsin. Arka planda da çalışır.</p>
+              <p className="mt-1 text-[.72rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Sohbet mesajı ve admin duyurusu kilitli telefona sesli bildirim gider. Ana ekrana ekli PWA gerekir.</p>
               <div className="mt-3 flex gap-2">
                 <button type="button" onClick={() => void allowPhoneNotify()} className="rounded-xl bg-[hsl(var(--primary))] px-3 py-2 text-[.68rem] font-bold text-white">İzin ver</button>
                 <button type="button" onClick={() => { markNotifyPrompted(); setNotifyPromptOpen(false); }} className="rounded-xl bg-[hsl(var(--muted))] px-3 py-2 text-[.68rem] font-bold text-[hsl(var(--muted-foreground))]">Şimdi değil</button>

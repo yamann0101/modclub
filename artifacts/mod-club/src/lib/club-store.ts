@@ -64,6 +64,7 @@ export type Banner = {
   copy: string;
   action: string;
   hasButton: boolean;
+  image?: string;
 };
 
 export const DEFAULT_BANNERS: Banner[] = [

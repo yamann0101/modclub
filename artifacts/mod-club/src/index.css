@@ -1654,6 +1654,20 @@ html.dark .home-hero-badge { background: rgba(255,255,255,.1); color: #e9d5ff; }
 html.dark .home-hero-emblem { filter: drop-shadow(0 16px 32px rgba(196, 181, 253, .28)); }
 html.dark .home-hero-dot { background: rgba(255,255,255,.28); }
 html.dark .home-hero-dot-on { background: #c4b5fd; }
+.home-hero-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.home-hero.has-photo { color: #fff; }
+.home-hero.has-photo h1 span { color: #f5d0fe; }
+.home-hero.has-photo .home-hero-copy { color: rgba(255,255,255,.88); }
+.home-hero.has-photo .home-hero-badge { background: rgba(0,0,0,.4); color: #fff; }
+.home-hero.has-photo .home-hero-glow {
+  background: linear-gradient(90deg, rgba(12,4,22,.74) 0%, rgba(12,4,22,.32) 58%, rgba(12,4,22,.14) 100%);
+}
 .home-hero-glow {
   position: absolute;
   inset: 0;
@@ -2529,6 +2543,7 @@ html.dark .guess-btn-ghost {
 .room-dock .room-mic span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .room-stage { border-radius: 0; background: #0b0614; padding: 0 0 .35rem; flex-shrink: 0; }
 .room-tv { position: relative; overflow: hidden; border-radius: 0; background: #000; aspect-ratio: 16/9; }
+.room-player-home { width: 100%; height: 100%; }
 .room-player, .room-player iframe { width: 100%; height: 100%; }
 .room-tv-lock { position: absolute; inset: 0; z-index: 3; }
 .room-tv-start {
@@ -2685,9 +2700,9 @@ html.dark .guess-btn-ghost {
 .room-fire-form .room-fire-row button:last-child { background: #1f2937; }
 .room-mic.room-fire { background: #9a3412; }
 .room-fireworks {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 48;
+  z-index: 90;
   pointer-events: none;
   overflow: hidden;
 }
@@ -2699,7 +2714,7 @@ html.dark .guess-btn-ghost {
   border-radius: 999px;
   background: #fde68a;
   box-shadow: 0 0 12px #f97316, 0 0 22px #facc15;
-  animation: room-spark 1.8s ease-out both;
+  animation: room-spark 1.8s ease-out infinite;
 }
 .room-spark.tone-1 { background: #fb7185; box-shadow: 0 0 12px #e11d48; }
 .room-spark.tone-2 { background: #a78bfa; box-shadow: 0 0 12px #7c3aed; }
@@ -2713,17 +2728,18 @@ html.dark .guess-btn-ghost {
   margin: -1.6rem 0 0 -1.6rem;
   border-radius: 999px;
   background: radial-gradient(circle, rgba(253,224,71,.85) 0%, rgba(249,115,22,.45) 38%, transparent 70%);
-  animation: room-fire-bloom 1.8s ease-out both;
+  animation: room-fire-bloom 1.8s ease-out infinite;
 }
 .room-fire-drop {
   position: absolute;
   z-index: 1;
   line-height: 1;
   filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
-  animation: room-fire-fall 2.15s linear both;
+  animation: room-fire-fall 2.4s linear infinite;
 }
 .room-fireworks.is-fire .room-fire-drop { animation-name: room-fire-rise; }
-.room-fireworks.is-hearts .room-fire-drop { animation-name: room-fire-float; }
+.room-fireworks.is-hearts .room-fire-drop { animation-name: room-fire-fall; }
+.room-fireworks.is-rain .room-fire-drop { animation-name: room-fire-fall; filter: drop-shadow(0 0 8px #7dd3fc); }
 .room-fire-text {
   position: absolute;
   left: 50%;
@@ -2966,7 +2982,6 @@ html.dark .guess-btn-ghost {
   100% { transform: rotate(-45deg) translateY(-78px) scale(1.15); opacity: 0; }
 }
 .room-page.is-pip .room-film-hud,
-.room-page.is-pip .room-fireworks,
 .room-page.is-pip .room-fire-form,
 .room-page.is-pip .room-kiss-show,
 .room-page.is-pip .room-kiss-bar {

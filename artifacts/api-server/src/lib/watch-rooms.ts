@@ -9,8 +9,8 @@ const MAX_SIGNALS = 200;
 const EMOJI_MS = 3_000;
 const EMOJI_IDS = new Set(["kiss-r", "kiss-l", "laugh", "cry", "angry"]);
 const FIREWORK_MS = 5_000;
-const FIREWORK_MAX_MS = 30_000;
-const FIRE_KINDS = new Set(["burst", "roses", "fire", "hearts"]);
+const FIREWORK_MAX_MS = 9_999_000;
+const FIRE_KINDS = new Set(["burst", "roses", "fire", "hearts", "rain"]);
 const KISS_ASK_MS = 25_000;
 const KISS_LIVE_MS = 5_000;
 

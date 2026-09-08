@@ -1,6 +1,7 @@
 import { query } from "./pg";
 import { publicSlot, readSlot } from "./olympus-slot";
 import { readHideGrants, readSeeGrants, readFireGrants } from "./room-hide";
+import { dispatchClubPush } from "./web-push";
 
 export type ClubRole = "ADMIN" | "ÜYE" | "MODERATOR";
 
@@ -27,6 +28,7 @@ export type Banner = {
   copy: string;
   action: string;
   hasButton: boolean;
+  image?: string;
 };
 
 export type Giveaway = {
@@ -77,6 +79,7 @@ export type ClubEvent = {
   title: string;
   body: string;
   sender?: string;
+  from?: string;
   at: number;
 };
 
@@ -561,6 +564,7 @@ export async function addEvent(event: ClubEvent) {
   const items = await readEvents();
   items.push(event);
   await setDoc("events", items.slice(-250));
+  void dispatchClubPush(event);
   return event;
 }
 
