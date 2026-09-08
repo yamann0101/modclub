@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, Sparkles, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -17,6 +17,7 @@ import {
   pingWatchRoom,
   searchWatchYoutube,
   searchWatchRelated,
+  fetchWatchPlay,
   requestCp,
   sendWatchChat,
   sendWatchSignal,
@@ -147,39 +148,70 @@ const MIC_AUDIO = {
 
 function playReactSound(kind: string) {
   try {
-    const ctx = new AudioContext();
+    const AudioEngine = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioEngine) return;
+    const ctx = new AudioEngine();
     void ctx.resume();
     const t0 = ctx.currentTime;
-    const out = ctx.destination;
-    const tone = (type: OscillatorType, freq: number, at: number, dur: number, gain = 0.16, slide?: number) => {
+    const master = ctx.createGain();
+    master.gain.value = 0.85;
+    master.connect(ctx.destination);
+    const tone = (type: OscillatorType, freq: number, at: number, dur: number, gain = 0.28, slide?: number) => {
       const osc = ctx.createOscillator();
       const amp = ctx.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(freq, t0 + at);
       if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, slide), t0 + at + dur);
       amp.gain.setValueAtTime(0.0001, t0 + at);
-      amp.gain.exponentialRampToValueAtTime(gain, t0 + at + 0.02);
+      amp.gain.exponentialRampToValueAtTime(gain, t0 + at + 0.018);
       amp.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
       osc.connect(amp);
-      amp.connect(out);
+      amp.connect(master);
       osc.start(t0 + at);
-      osc.stop(t0 + at + dur + 0.02);
+      osc.stop(t0 + at + dur + 0.03);
+    };
+    const noise = (at: number, dur: number, gain: number, freq: number, type: BiquadFilterType = 'bandpass') => {
+      const buffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = freq;
+      filter.Q.value = 1.4;
+      const amp = ctx.createGain();
+      amp.gain.setValueAtTime(gain, t0 + at);
+      amp.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+      src.connect(filter);
+      filter.connect(amp);
+      amp.connect(master);
+      src.start(t0 + at);
     };
     if (kind === 'laugh') {
-      [320, 390, 300, 410, 280].forEach((freq, i) => tone('sawtooth', freq, i * 0.13, 0.11, 0.12, freq - 90));
+      [0, 0.14, 0.28, 0.42, 0.56].forEach((at, i) => {
+        tone('sawtooth', 240 + (i % 2) * 70, at, 0.12, 0.32, 160);
+        tone('triangle', 420 + (i % 2) * 50, at + 0.02, 0.1, 0.18, 220);
+        noise(at, 0.09, 0.22, 1400, 'highpass');
+      });
     } else if (kind === 'kiss-r' || kind === 'kiss-l') {
-      tone('sine', 520, 0, 0.08, 0.14, 180);
-      tone('triangle', 240, 0.05, 0.12, 0.1, 90);
+      noise(0, 0.07, 0.38, 900, 'lowpass');
+      tone('sine', 680, 0.02, 0.09, 0.28, 180);
+      tone('triangle', 320, 0.05, 0.14, 0.22, 90);
+      noise(0.08, 0.05, 0.16, 2200, 'bandpass');
     } else if (kind === 'angry') {
-      tone('square', 110, 0, 0.18, 0.12, 70);
-      tone('sawtooth', 180, 0.12, 0.2, 0.1, 90);
-      tone('square', 90, 0.28, 0.22, 0.11, 55);
+      noise(0, 0.22, 0.28, 180, 'lowpass');
+      tone('square', 92, 0, 0.2, 0.26, 60);
+      tone('sawtooth', 160, 0.12, 0.24, 0.22, 80);
+      noise(0.2, 0.18, 0.2, 320, 'bandpass');
+      tone('square', 70, 0.32, 0.28, 0.24, 48);
     } else if (kind === 'cry') {
-      tone('sine', 420, 0, 0.28, 0.1, 180);
-      tone('sine', 360, 0.22, 0.32, 0.09, 140);
-      tone('triangle', 300, 0.48, 0.4, 0.08, 110);
+      tone('sine', 480, 0, 0.34, 0.24, 190);
+      tone('triangle', 390, 0.2, 0.38, 0.2, 150);
+      noise(0.18, 0.22, 0.12, 2400, 'highpass');
+      tone('sine', 320, 0.48, 0.46, 0.18, 110);
     }
-    window.setTimeout(() => { void ctx.close(); }, 1400);
+    window.setTimeout(() => { void ctx.close(); }, 1800);
   } catch {
     /* no audio */
   }
@@ -234,6 +266,115 @@ type YtPlayer = {
   setPlaybackRate: (value: number) => void;
   destroy: () => void;
 };
+
+function createFilmPlayer(box: HTMLElement, hooks: {
+  onReady: () => void;
+  onStateChange: (event: { data: number }) => void;
+  onError: () => void;
+}): YtPlayer {
+  const video = document.createElement('video');
+  video.playsInline = true;
+  video.setAttribute('playsinline', 'true');
+  video.setAttribute('webkit-playsinline', 'true');
+  video.preload = 'auto';
+  video.controls = false;
+  video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;display:block';
+  box.innerHTML = '';
+  box.appendChild(video);
+  let currentId = '';
+  let loadGen = 0;
+  let volume = 70;
+  let muted = true;
+  video.muted = true;
+
+  const stateOf = () => {
+    if (!currentId) return 5;
+    if (video.ended) return 0;
+    if (video.seeking || (video.readyState < 3 && !video.paused && !video.ended)) return 3;
+    if (video.paused) return 2;
+    return 1;
+  };
+
+  const emit = () => hooks.onStateChange({ data: stateOf() });
+
+  video.addEventListener('playing', emit);
+  video.addEventListener('pause', emit);
+  video.addEventListener('ended', emit);
+  video.addEventListener('waiting', emit);
+
+  async function attach(id: string, start = 0) {
+    const gen = ++loadGen;
+    currentId = id;
+    const data = await fetchWatchPlay(id);
+    if (gen !== loadGen) return;
+    const urls = data.urls || [];
+    if (!urls.length) {
+      hooks.onError();
+      return;
+    }
+    for (const url of urls) {
+      if (gen !== loadGen) return;
+      const ok = await new Promise<boolean>((resolve) => {
+        const finish = (value: boolean) => {
+          video.removeEventListener('canplay', onOk);
+          video.removeEventListener('loadeddata', onOk);
+          video.removeEventListener('error', onErr);
+          window.clearTimeout(timer);
+          resolve(value);
+        };
+        const onOk = () => finish(true);
+        const onErr = () => finish(false);
+        video.addEventListener('canplay', onOk);
+        video.addEventListener('loadeddata', onOk);
+        video.addEventListener('error', onErr);
+        const timer = window.setTimeout(() => finish(video.readyState >= 2), 7000);
+        video.src = url;
+        video.load();
+      });
+      if (ok) {
+        if (start > 0) {
+          try { video.currentTime = start; } catch { /* ignore */ }
+        }
+        hooks.onReady();
+        emit();
+        return;
+      }
+    }
+    hooks.onError();
+  }
+
+  return {
+    loadVideoById: (id: string, start = 0) => { void attach(id, start); },
+    cueVideoById: (id: string, start = 0) => {
+      void attach(id, start).then(() => { video.pause(); });
+    },
+    playVideo: () => { void video.play().catch(() => undefined); },
+    pauseVideo: () => { video.pause(); },
+    seekTo: (seconds: number) => {
+      try { video.currentTime = Math.max(0, seconds); } catch { /* ignore */ }
+    },
+    getCurrentTime: () => video.currentTime || 0,
+    getDuration: () => (Number.isFinite(video.duration) ? video.duration : 0),
+    getPlayerState: () => stateOf(),
+    getVideoData: () => ({ video_id: currentId }),
+    setVolume: (value: number) => {
+      volume = Math.max(0, Math.min(100, value));
+      video.volume = muted ? 0 : volume / 100;
+    },
+    getVolume: () => volume,
+    mute: () => { muted = true; video.muted = true; },
+    unMute: () => { muted = false; video.muted = false; video.volume = volume / 100; },
+    isMuted: () => muted || video.muted,
+    setPlaybackRate: (value: number) => { video.playbackRate = value; },
+    destroy: () => {
+      loadGen += 1;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      video.remove();
+    },
+  };
+}
 
 function fileToCover(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -334,6 +475,9 @@ export function WatchRoomsPage({
   const [minimized, setMinimized] = useState(false);
   const [pipPoint, setPipPoint] = useState<{ x: number; y: number } | null>(null);
   const [endCover, setEndCover] = useState(false);
+  const [filmHud, setFilmHud] = useState(false);
+  const [fireOpen, setFireOpen] = useState(false);
+  const [fireText, setFireText] = useState('');
   const localReact = useRef<{ id: string; at: number } | null>(null);
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
@@ -355,6 +499,7 @@ export function WatchRoomsPage({
   const nextBusy = useRef(false);
   const heardReact = useRef(new Set<string>());
   const pipDrag = useRef<{ ox: number; oy: number; x: number; y: number; moved: boolean } | null>(null);
+  const hudTimer = useRef(0);
   const peers = useRef(new Map<string, RTCPeerConnection>());
   const localStream = useRef<MediaStream | null>(null);
   const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
@@ -465,7 +610,6 @@ export function WatchRoomsPage({
       return;
     }
     if (!listed) setMinimized(true);
-    else setMinimized(false);
   }, [listed]);
 
   useEffect(() => {
@@ -587,118 +731,83 @@ export function WatchRoomsPage({
         box = boxRef.current;
       }
       if (cancelled || !box) return;
-      await loadYoutube();
-      if (cancelled || !box || !window.YT) return;
       try { playerRef.current?.destroy(); } catch { /* ignore */ }
       playerRef.current = null;
       playerReady.current = false;
       lastVideo.current = '';
       box.innerHTML = '';
-      const node = document.createElement('div');
-      node.style.width = '100%';
-      node.style.height = '100%';
-      box.appendChild(node);
       const room = roomRef.current;
       bootVideo.current = room?.videoId || '';
-      const startAt = room?.videoId ? Math.floor(cinemaTime(room, receivedAtRef.current)) : 0;
-      playerRef.current = new window.YT.Player(node, {
-        width: '100%',
-        height: '100%',
-        videoId: room?.videoId || undefined,
-        host: 'https://www.youtube.com',
-        playerVars: {
-          rel: 0,
-          modestbranding: 1,
-          playsinline: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          hl: 'tr',
-          cc_load_policy: 0,
-          enablejsapi: 1,
-          origin: window.location.origin,
-          widget_referrer: window.location.origin,
-          controls: room?.you.host ? 1 : 0,
-          disablekb: room?.you.host ? 0 : 1,
-          autoplay: room?.playing ? 1 : 0,
-          start: startAt,
-          mute: 1,
+      const startAt = room?.videoId ? cinemaTime(room, receivedAtRef.current) : 0;
+      const player = createFilmPlayer(box, {
+        onReady: () => {
+          playerReady.current = true;
+          const live = roomRef.current;
+          const ready = playerRef.current;
+          if (!ready || !live) return;
+          if (live.videoId) {
+            lastVideo.current = live.videoId;
+            lastRevRef.current = live.mediaRev ?? 0;
+            lastLoadAt.current = Date.now();
+          }
+          try {
+            applyLocalVolume(ready);
+            if (live.playing) ready.playVideo();
+            else ready.pauseVideo();
+          } catch {
+            if (!filmUnlocked.current) setNeedStart(Boolean(live.videoId));
+          }
         },
-        events: {
-          onReady: () => {
-            playerReady.current = true;
-            const player = playerRef.current;
-            const live = roomRef.current;
-            if (!player || !live) return;
-            try {
-              const iframe = player.getIframe?.();
-              if (iframe) iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-            } catch {
-              /* iframe locked */
-            }
-            if (live.videoId) {
-              lastVideo.current = live.videoId;
-              lastRevRef.current = live.mediaRev ?? 0;
-              lastLoadAt.current = Date.now();
-            }
-            try {
-              player.mute();
-              if (live.videoId && live.playing) {
-                player.seekTo(cinemaTime(live, receivedAtRef.current), true);
-                player.playVideo();
-              } else if (live.videoId) {
-                player.cueVideoById(live.videoId, cinemaTime(live, receivedAtRef.current));
-              }
-              applyLocalVolume(player);
-            } catch {
-              if (!filmUnlocked.current) setNeedStart(Boolean(live.videoId));
-            }
-          },
-          onError: () => {
-            const live = roomRef.current;
-            if (live?.you.host) void playNextVideo();
-            else setNeedStart(true);
-          },
-          onStateChange: (event: { data: number }) => {
-            const live = roomRef.current;
-            const player = playerRef.current;
-            if (!live || !player) return;
-            if (event.data === 1) {
-              filmUnlocked.current = true;
-              applyLocalVolume(player);
-              setNeedStart(false);
-              setEndCover(false);
-            }
-            if (event.data === 0) {
-              setEndCover(true);
-              if (live.you.host) void playNextVideo();
-              return;
-            }
-            if (applyingCinema.current) return;
-            if (live.you.host && (event.data === 1 || event.data === 2)) {
-              const playing = event.data === 1;
-              if (document.hidden && event.data === 2) return;
-              if (event.data === 2 && Date.now() - lastLoadAt.current < 2500) return;
-              const time = player.getCurrentTime?.() ?? 0;
-              const target = cinemaTime(live, receivedAtRef.current);
-              const drifted = Math.abs(time - target) > 1.4;
-              if (playing === live.playing && !drifted) return;
-              void claimCinema(live, player, playing);
-              return;
-            }
-            if (roomDrive(live)) return;
-            if (!live.playing && event.data === 1) {
-              try { player.pauseVideo(); } catch { /* ignore */ }
-              return;
-            }
-            if (live.playing && event.data === 2) {
-              try { player.playVideo(); } catch { /* blocked */ }
-            }
-            if (live.playing && (event.data === -1 || event.data === 5) && !filmUnlocked.current) {
-              setNeedStart(true);
-            }
-          },
+        onError: () => {
+          const live = roomRef.current;
+          setNotice('Bu video YouTube gömmede kapalı, başka kaynaktan açmayı deniyoruz.');
+          if (live?.you.host) void playNextVideo();
+          else setNeedStart(true);
+        },
+        onStateChange: (event: { data: number }) => {
+          const live = roomRef.current;
+          const ready = playerRef.current;
+          if (!live || !ready) return;
+          if (event.data === 1) {
+            filmUnlocked.current = true;
+            applyLocalVolume(ready);
+            setNeedStart(false);
+            setEndCover(false);
+            setFilmHud(false);
+          }
+          if (event.data === 0) {
+            setEndCover(true);
+            if (live.you.host) void playNextVideo();
+            return;
+          }
+          if (applyingCinema.current) return;
+          if (live.you.host && (event.data === 1 || event.data === 2)) {
+            const playing = event.data === 1;
+            if (document.hidden && event.data === 2) return;
+            if (event.data === 2 && Date.now() - lastLoadAt.current < 2500) return;
+            const time = ready.getCurrentTime?.() ?? 0;
+            const target = cinemaTime(live, receivedAtRef.current);
+            const drifted = Math.abs(time - target) > 1.4;
+            if (playing === live.playing && !drifted) return;
+            void claimCinema(live, ready, playing);
+            return;
+          }
+          if (roomDrive(live)) return;
+          if (!live.playing && event.data === 1) {
+            try { ready.pauseVideo(); } catch { /* ignore */ }
+            return;
+          }
+          if (live.playing && event.data === 2) {
+            try { ready.playVideo(); } catch { /* blocked */ }
+          }
+          if (live.playing && (event.data === -1 || event.data === 5) && !filmUnlocked.current) {
+            setNeedStart(true);
+          }
         },
       });
+      playerRef.current = player;
+      if (room?.videoId) player.loadVideoById(room.videoId, startAt);
+      else playerReady.current = true;
     })();
     return () => {
       cancelled = true;
@@ -1486,6 +1595,23 @@ export function WatchRoomsPage({
     onExpand?.();
   }
 
+  function flashFilmHud() {
+    setFilmHud(true);
+    window.clearTimeout(hudTimer.current);
+    hudTimer.current = window.setTimeout(() => setFilmHud(false), 2200);
+  }
+
+  async function launchFirework() {
+    if (!open) return;
+    try {
+      adopt((await pingWatchRoom(open.id, { firework: fireText.trim() })).room);
+      setFireOpen(false);
+      setFireText('');
+    } catch {
+      setNotice('Havai fişek atılmadı');
+    }
+  }
+
   function onPipPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!minimized) {
       unlockAudio();
@@ -1697,9 +1823,11 @@ export function WatchRoomsPage({
   const canHideRooms = user.role === 'ADMIN' || hideUntil > Date.now();
   const mineId = rooms.find((room) => room.creator === user.username || room.owner === user.username)?.id;
 
+  let roomPage: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
-    return (
+    const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < 7000);
+    roomPage = (
       <div
         className={`page-view room-page ${minimized ? 'is-pip' : ''} ${!minimized && kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
         onPointerDown={onPipPointerDown}
@@ -1712,6 +1840,14 @@ export function WatchRoomsPage({
             ? { top: kbFrame.top, height: kbFrame.height, bottom: 'auto', paddingBottom: 0 }
             : undefined}
       >
+        {fireLive && open.firework && (
+          <div className="room-fireworks" key={open.firework.at} aria-hidden="true">
+            {Array.from({ length: 22 }, (_, index) => (
+              <i key={index} className={`room-spark tone-${index % 6}`} style={{ animationDelay: `${(index % 8) * 0.08}s`, ['--rot' as string]: `${index * 16}deg` }} />
+            ))}
+            {open.firework.text ? <strong className="room-fire-text">{open.firework.text}</strong> : null}
+          </div>
+        )}
         {joinBanner && (
           <div className="room-join-banner" key={joinStamp}>
             <span className="room-join-shine" aria-hidden="true" />
@@ -1743,6 +1879,49 @@ export function WatchRoomsPage({
         <div className="room-stage">
           <div className="room-tv">
             <div ref={boxRef} className="room-player" />
+            {!minimized && open.videoId && (
+              <div
+                className={`room-film-hud ${filmHud ? 'is-on' : ''}`}
+                onClick={() => {
+                  flashFilmHud();
+                  if (!iHost) startGuestVideo();
+                }}
+              >
+                {iHost && filmHud && (
+                  <div className="room-film-tools" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextPlaying = !open.playing;
+                        if (nextPlaying) playerRef.current?.playVideo();
+                        else playerRef.current?.pauseVideo();
+                        const time = playerRef.current?.getCurrentTime() || open.position;
+                        lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
+                        void setWatchMedia(open.id, { playing: nextPlaying, position: time, claim: true }).then((data) => {
+                          lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
+                          adopt(data.room);
+                        });
+                        flashFilmHud();
+                      }}
+                    >
+                      {open.playing ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1000}
+                      value={Math.max(0, Math.min(1000, Math.round((playerRef.current?.getCurrentTime?.() || open.position) / Math.max(1, playerRef.current?.getDuration?.() || open.position + 1) * 1000)))}
+                      onChange={(event) => {
+                        const duration = playerRef.current?.getDuration?.() || 0;
+                        if (!duration) return;
+                        void seekTo((Number(event.target.value) / 1000) * duration, open.playing);
+                        flashFilmHud();
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {!iHost && !minimized && <div className="room-tv-lock" onClick={startGuestVideo} />}
             {minimized && !needStart && (
               <div
@@ -1814,6 +1993,7 @@ export function WatchRoomsPage({
           {!iHost && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
           {hits.length > 0 && (
             <div className="room-hits">
+              <button type="button" className="room-hits-clear" onClick={() => { setHits([]); setQuery(''); }}>Vazgeç</button>
               {hits.map((hit) => (
                 <button key={hit.id} type="button" onClick={() => void playHit(hit)}>
                   <img src={hit.thumb} alt="" />
@@ -1964,7 +2144,31 @@ export function WatchRoomsPage({
               CP
             </button>
           )}
+          {iHost && (
+            <button type="button" className="room-mic room-fire" onClick={() => setFireOpen((value) => !value)}>
+              <Sparkles size={16} />
+              Havai fişek
+            </button>
+          )}
         </div>
+        {fireOpen && iHost && (
+          <form
+            className="room-fire-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void launchFirework();
+            }}
+          >
+            <input
+              value={fireText}
+              onChange={(event) => setFireText(event.target.value)}
+              maxLength={24}
+              placeholder="Yazı (boş bırakınca normal patlar)"
+            />
+            <button type="submit">Patlat</button>
+            <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
+          </form>
+        )}
         <div className="room-emoji-pack">
           {SEAT_EMOJIS.map((item) => (
             <button
@@ -2039,11 +2243,13 @@ export function WatchRoomsPage({
         )}
       </div>
     );
+
+    if (!(minimized && listed)) return roomPage;
   }
 
   if (!listed) return null;
 
-  return (
+  const listPage = (
     <div className="page-view desktop-shell mx-auto w-full px-4 pb-10 pt-5 sm:px-6 sm:pt-7 lg:px-8">
       <div className="page-hero page-hero-games">
         <div>
@@ -2129,4 +2335,6 @@ export function WatchRoomsPage({
       {notice && <p className="room-note">{notice}</p>}
     </div>
   );
+
+  return <>{listPage}{roomPage}</>;
 }

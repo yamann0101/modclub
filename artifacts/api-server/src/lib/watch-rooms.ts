@@ -63,6 +63,7 @@ export type WatchRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
+  firework?: { text: string; at: number };
 };
 
 export type PublicRoomCard = {
@@ -245,6 +246,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     cpOn: Boolean(room.cpOn),
     hidden: Boolean(room.hidden),
     lastJoin: room.lastJoin && now - room.lastJoin.at < 8_000 ? room.lastJoin : undefined,
+    firework: room.firework && now - room.firework.at < 8_000 ? room.firework : undefined,
     you: {
       username,
       owner: room.owner === username,
@@ -374,7 +376,7 @@ export async function joinRoom(input: {
   return room;
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false }) {
   const raw = await readRoom(id);
   if (!raw) throw new Error("missing");
   const room = prune(raw);
@@ -394,6 +396,12 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   }
   if (typeof patch?.cpOn === "boolean" && (username === room.owner || username === (room.creator || room.owner))) {
     room.cpOn = patch.cpOn;
+  }
+  if (patch?.firework !== undefined && isHost(room, username)) {
+    if (patch.firework === false) room.firework = undefined;
+    else {
+      room.firework = { text: String(patch.firework).trim().slice(0, 24), at: now };
+    }
   }
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
@@ -758,4 +766,82 @@ export async function searchYoutube(queryText: string) {
     /* next */
   }
   return [];
+}
+
+const PLAY_PIPED = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.leptons.xyz",
+  "https://api.piped.private.coffee",
+];
+
+const PLAY_INVIDIOUS = [
+  "https://inv.nadeko.net",
+  "https://invidious.nerdvpn.de",
+  "https://yewtu.be",
+  "https://iv.ggtyler.dev",
+  "https://invidious.materialio.us",
+];
+
+function pushUrl(bag: string[], url?: string) {
+  const value = String(url || "").trim();
+  if (value.startsWith("http") && !bag.includes(value)) bag.push(value);
+}
+
+export async function resolveYoutubePlay(videoId: string) {
+  const id = parseYoutubeId(videoId);
+  if (!id) return { urls: [] as string[], title: "" };
+  const urls: string[] = [];
+  let title = "";
+
+  for (const host of PLAY_INVIDIOUS) {
+    pushUrl(urls, `${host}/latest_version?id=${id}&itag=22`);
+    pushUrl(urls, `${host}/latest_version?id=${id}&itag=18`);
+  }
+
+  for (const host of PLAY_PIPED) {
+    try {
+      const response = await fetch(`${host}/streams/${id}`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as {
+        title?: string;
+        hls?: string;
+        videoStreams?: { url?: string; videoOnly?: boolean; mimeType?: string; quality?: string }[];
+      };
+      if (data.title) title = String(data.title).slice(0, 120);
+      pushUrl(urls, data.hls);
+      const muxed = (data.videoStreams || []).filter((row) => !row.videoOnly && String(row.mimeType || "").includes("mp4"));
+      muxed.sort((a, b) => (parseInt(b.quality || "0", 10) || 0) - (parseInt(a.quality || "0", 10) || 0));
+      for (const row of muxed) pushUrl(urls, row.url);
+      if (muxed.length) break;
+    } catch {
+      /* next instance */
+    }
+  }
+
+  for (const host of PLAY_INVIDIOUS) {
+    try {
+      const response = await fetch(`${host}/api/v1/videos/${id}?hl=tr&region=TR`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as {
+        title?: string;
+        formatStreams?: { url?: string }[];
+        hlsUrl?: string;
+      };
+      if (data.title) title = String(data.title).slice(0, 120);
+      pushUrl(urls, data.hlsUrl);
+      for (const row of data.formatStreams || []) pushUrl(urls, row.url);
+      if ((data.formatStreams || []).length) break;
+    } catch {
+      /* next instance */
+    }
+  }
+
+  return { urls, title };
 }

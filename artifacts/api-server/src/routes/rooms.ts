@@ -19,6 +19,7 @@ import {
   readRoom,
   searchYoutube,
   relatedYoutube,
+  resolveYoutubePlay,
   setHidden,
   setHost,
   setMedia,
@@ -92,6 +93,17 @@ router.post("/rooms/related", async (req, res) => {
   }
 });
 
+router.post("/rooms/play", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const videoId = String((req.body as { videoId?: string }).videoId || "");
+  try {
+    res.json(await resolveYoutubePlay(videoId));
+  } catch {
+    res.json({ urls: [], title: "" });
+  }
+});
+
 router.get("/rooms/:id", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
@@ -143,12 +155,13 @@ router.post("/rooms/:id/ping", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   try {
-    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string };
+    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false };
     const room = await pingRoom(req.params.id, account.username, {
       micOn: typeof body.micOn === "boolean" ? body.micOn : undefined,
       speaking: typeof body.speaking === "boolean" ? body.speaking : undefined,
       cpOn: typeof body.cpOn === "boolean" ? body.cpOn : undefined,
       emoji: typeof body.emoji === "string" ? body.emoji : undefined,
+      firework: body.firework === false || typeof body.firework === "string" ? body.firework : undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
