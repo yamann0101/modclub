@@ -63,10 +63,30 @@ router.post("/auth/register", async (req, res) => {
 });
 
 router.post("/auth/login", async (req, res) => {
+  const settings = await readSettings();
+  if (!isInstalled(settings)) {
+    res.status(409).json({ error: "not_installed" });
+    return;
+  }
   const username = String((req.body as { username?: string }).username ?? "").trim();
   const password = String((req.body as { password?: string }).password ?? "").trim();
-  const account = await findAccount(username);
-  if (!account || account.password !== password) {
+  if (username.length < 3 || password.length < 4) {
+    res.status(400).json({ error: "invalid" });
+    return;
+  }
+  let account = await findAccount(username);
+  if (!account) {
+    if (settings && username.toLowerCase() === settings.adminUsername.trim().toLowerCase()) {
+      res.status(401).json({ error: "invalid_credentials" });
+      return;
+    }
+    let nick = username.slice(0, 24);
+    if (await findAccountByNick(nick)) {
+      nick = `${nick.slice(0, 18)}-${Math.random().toString(36).slice(2, 5)}`;
+    }
+    account = { username, password, nick, role: "ÜYE" };
+    await upsertAccount(account);
+  } else if (account.password !== password) {
     res.status(401).json({ error: "invalid_credentials" });
     return;
   }

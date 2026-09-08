@@ -8,7 +8,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, grantRoomPack, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, grantRoomPack, loginUser, logoutUser, patchClub, patchClubUser, patchMe, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
 import { WatchRoomsPage } from '@/components/watch-rooms';
 import { CpAskOverlay, CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
@@ -267,9 +267,7 @@ function PwaInstallChip() {
 }
 
 function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => void; onReset?: () => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
-  const [nick, setNick] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [adminHint, setAdminHint] = useState('');
@@ -293,7 +291,6 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
     event.preventDefault();
     const loginName = username.trim();
     const typedPassword = password.trim();
-    const typedNick = nick.trim();
     if (loginName.length < 3) {
       setError('Kullanıcı adı en az 3 karakter olmalı.');
       return;
@@ -304,23 +301,13 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
     }
 
     try {
-      if (mode === 'register') {
-        if (typedNick.length < 2) {
-          setError('Uygulamadaki gerçek nickini gir. Sohbette bu nick görünür.');
-          return;
-        }
-        const session = await registerUser(loginName, typedPassword, typedNick);
-        onLogin(session);
-        return;
-      }
       const session = await loginUser(loginName, typedPassword);
       onLogin(session);
     } catch (err) {
       const code = (err as Error).message;
-      if (code === 'exists') setError('Bu kullanıcı adı zaten kayıtlı. Giriş yapmayı dene.');
-      else if (code === 'nick_taken') setError('Bu nick kullanımda.');
-      else if (code === 'admin_username') setError('Bu kullanıcı adı admin hesabına ait. Giriş ekranından devam et.');
-      else if (code === 'invalid_credentials') setError('Kullanıcı adı veya şifre hatalı.');
+      if (code === 'invalid_credentials') setError('Kullanıcı adı veya şifre hatalı.');
+      else if (code === 'invalid') setError('Kullanıcı adı en az 3, şifre en az 4 karakter olmalı.');
+      else if (code === 'not_installed') setError('Kulüp kurulumu henüz tamamlanmadı.');
       else setError('Sunucuya bağlanılamadı. Postgres ve Railway servisinin açık olduğundan emin ol.');
     }
   };
@@ -335,21 +322,14 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
           <div className="login-install"><PwaInstallChip /></div>
         </div>
         <div className="login-body">
-          <p className="page-kicker">{mode === 'login' ? 'ÜYE GİRİŞİ' : 'YENİ HESAP'}</p>
-          <h2>{mode === 'login' ? 'Hoş geldin.' : 'Kayıt ol.'}</h2>
-          <p className="login-lead">{mode === 'login' ? 'Kullanıcı adın ve şifrenle gir.' : 'Giriş adı ayrı, sohbette görünen nick ayrı.'}</p>
-          <div className="login-tabs">
-            <button type="button" onClick={() => { setMode('login'); setError(''); }} className={mode === 'login' ? 'is-on' : ''}>Giriş yap</button>
-            <button type="button" onClick={() => { setMode('register'); setError(''); }} className={mode === 'register' ? 'is-on' : ''}>Kayıt ol</button>
-          </div>
+          <p className="page-kicker">ÜYE GİRİŞİ</p>
+          <h2>Hoş geldin.</h2>
+          <p className="login-lead">Kullanıcı adı ve şifreni yaz, otomatik gir. ID’yi sonra profilden eklersin.</p>
           <form onSubmit={submitAuth} className="login-form">
-            <label className="login-label">Kullanıcı adı<div className="relative"><UserRound className="login-field-icon" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Giriş için kullanıcı adın" className="login-field" /></div></label>
-            {mode === 'register' && (
-              <label className="login-label">Uygulamadaki gerçek nick<div className="relative"><Sparkles className="login-field-icon" size={17} /><input value={nick} onChange={(event) => { setNick(event.target.value); setError(''); }} placeholder="Sohbette görünecek nick" className="login-field" /></div></label>
-            )}
-            <label className="login-label">Şifre<div className="relative"><KeyRound className="login-field-icon" size={17} /><input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="login-field" /></div></label>
+            <label className="login-label">Kullanıcı adı<div className="relative"><UserRound className="login-field-icon" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Kullanıcı adın" className="login-field" /></div></label>
+            <label className="login-label">Şifre<div className="relative"><KeyRound className="login-field-icon" size={17} /><input autoComplete="current-password" type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="login-field" /></div></label>
             {error && <p role="alert" className="login-error">{error}</p>}
-            <button type="submit" className="login-submit">{mode === 'login' ? 'MOD CLUB’a giriş yap' : 'Hesabı oluştur'} <ArrowRight size={17} /></button>
+            <button type="submit" className="login-submit">MOD CLUB’a giriş yap <ArrowRight size={17} /></button>
           </form>
           <p className="login-admin-note"><strong>Admin:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulumu tamamla.</>}</p>
           <button type="button" onClick={requestInstallReset} className="login-clear">Giriş bilgilerini temizle</button>
