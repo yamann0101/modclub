@@ -30,6 +30,7 @@ import {
   type SessionUser,
   type YoutubeHit,
 } from '@/lib/club-api';
+import { RoomVoice } from '@/lib/room-voice';
 
 const SEATS = 8;
 const HEART_GAPS = [
@@ -105,19 +106,6 @@ function liveSeatEmoji(member: RoomMember | null, serverNow: number, receivedAt:
   return serverNow + (now - receivedAt) - member.emojiAt < EMOJI_MS ? member.emoji : '';
 }
 
-const ICE: RTCConfiguration = {
-  iceCandidatePoolSize: 8,
-  iceTransportPolicy: 'all',
-  iceServers: [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-  ],
-};
-
 function silentHoldSrc() {
   const seconds = 1;
   const rate = 8000;
@@ -165,15 +153,6 @@ function holdSpeakerRoute(el: HTMLAudioElement | null) {
   void el.play().catch(() => undefined);
 }
 
-function preferOpus(sdp = '') {
-  return sdp.replace(
-    /a=fmtp:(\d+) (.*)/g,
-    (line, id, rest) => (rest.includes('useinbandfec') && !rest.includes('maxaveragebitrate')
-      ? `a=fmtp:${id} ${rest};maxaveragebitrate=128000;stereo=0`
-      : line),
-  );
-}
-
 function localYoutubeId(value: string) {
   const text = value.trim();
   if (/^[a-zA-Z0-9_-]{11}$/.test(text)) return text;
@@ -219,19 +198,6 @@ function fireFontSize(len: number) {
   const n = Math.max(1, len);
   return Math.round(Math.max(13, Math.min(46, 318 / Math.sqrt(n * 0.72))));
 }
-
-const MIC_AUDIO = {
-  echoCancellation: true,
-  noiseSuppression: false,
-  autoGainControl: true,
-  channelCount: 1,
-  sampleRate: 48000,
-  googEchoCancellation: true,
-  googNoiseSuppression: false,
-  googAutoGainControl: true,
-  googHighpassFilter: false,
-  googAudioMirroring: false,
-} as MediaTrackConstraints;
 
 function playReactSound(kind: string) {
   try {
@@ -846,34 +812,14 @@ export function WatchRoomsPage({
   const heardReact = useRef(new Set<string>());
   const pipDrag = useRef<{ ox: number; oy: number; x: number; y: number; moved: boolean } | null>(null);
   const hudTimer = useRef(0);
-  const peers = useRef(new Map<string, RTCPeerConnection>());
-  const peerAt = useRef(new Map<string, number>());
-  const localStream = useRef<MediaStream | null>(null);
-  const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
-  const talkingRef = useRef(new Set<string>());
-  const lastSpeakPing = useRef(false);
-  const iceBag = useRef(new Map<string, RTCIceCandidateInit[]>());
-  const makingOffer = useRef(new Set<string>());
-  const audioCtx = useRef<AudioContext | null>(null);
-  const speakerOnRef = useRef(true);
-  const wantMicRef = useRef(false);
-  const revivingMic = useRef(false);
-  const pendingRevive = useRef(false);
-  const micBusyRef = useRef(false);
-  const micBusyTimer = useRef(0);
+  const voiceRef = useRef<RoomVoice | null>(null);
   const leftRef = useRef(false);
-  const reclaimAt = useRef(0);
   const hiddenAt = useRef(0);
   const resumeTimer = useRef(0);
-  const parkTimer = useRef(0);
-  const micUserAt = useRef(0);
   const hudPauseAt = useRef(0);
-  const levelGen = useRef(0);
-  const renegAt = useRef(new Map<string, number>());
   const chatBusy = useRef(false);
   const videoVolRef = useRef(70);
   const videoMutedRef = useRef(false);
-  const voiceNodes = useRef(new Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode; stream: MediaStream }>());
   videoVolRef.current = videoVol;
   videoMutedRef.current = videoMuted;
 
@@ -941,14 +887,14 @@ export function WatchRoomsPage({
           }
         }
         if (data.signals.length) {
-          await consumeSignals(data.room, data.signals);
+          await voiceRef.current?.handleSignals(data.signals);
           await ackWatchSignals(open.id, data.signals.map((item) => item.id));
         }
-        await syncVoice(data.room);
+        await voiceRef.current?.syncMembers(data.room.members.map((member) => member.username));
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
           leftRef.current = true;
-          teardownVoice();
+          killVoice();
           writeStayRoom(null);
           setMinimized(false);
           setOpen(null);
@@ -978,6 +924,8 @@ export function WatchRoomsPage({
         speakerHold.current = audio;
       }
       holdSpeakerRoute(speakerHold.current);
+      if (!voiceRef.current) bootVoice(open.id);
+      else voiceRef.current.unlock();
     }
     return () => document.body.classList.remove('room-live');
   }, [open, minimized]);
@@ -1236,7 +1184,7 @@ export function WatchRoomsPage({
     return () => window.clearInterval(timer);
   }, [open?.id]);
 
-  useEffect(() => () => teardownVoice(), []);
+  useEffect(() => () => killVoice(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -1276,26 +1224,22 @@ export function WatchRoomsPage({
     };
     const onHidden = () => {
       hiddenAt.current = Date.now();
-      window.clearTimeout(parkTimer.current);
-      // Don't stop the mic on short background hops — that locks the device and breaks open/close.
       keepAlive();
       keepFilmPlaying();
-      pumpRemoteAudio();
+      voiceRef.current?.unlock();
     };
     const resumeRoom = () => {
       if (leftRef.current || document.hidden) return;
-      window.clearTimeout(parkTimer.current);
       resetChrome();
       keepAlive();
       restoreCinema();
       holdSpeakerRoute(speakerHold.current);
       unlockAudio();
-      const stamped = hiddenAt.current;
       hiddenAt.current = 0;
-      const away = stamped ? Date.now() - stamped : 0;
       const room = roomRef.current;
-      if (room) void syncVoice(room);
-      pumpRemoteAudio();
+      if (room) {
+        void voiceRef.current?.syncMembers(room.members.map((member) => member.username));
+      }
       const player = playerRef.current;
       const reviveFilm = () => {
         if (!player || !playerReady.current || !room?.videoId) return;
@@ -1319,15 +1263,8 @@ export function WatchRoomsPage({
         holdSpeakerRoute(speakerHold.current);
         keepFilmSpeaker();
       }, 700);
-      if (!wantMicRef.current || micBusyRef.current) return;
-      window.setTimeout(() => {
-        if (document.hidden || !wantMicRef.current || micBusyRef.current) return;
-        if (away > 400 || !micLive()) void reviveMic(true);
-        keepFilmSpeaker();
-      }, 500);
     };
     const onVisible = () => {
-      window.clearTimeout(parkTimer.current);
       window.clearTimeout(resumeTimer.current);
       resumeTimer.current = window.setTimeout(resumeRoom, 280);
     };
@@ -1337,38 +1274,30 @@ export function WatchRoomsPage({
     };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onVisible);
-    const onDevices = () => {
-      if (document.hidden || !wantMicRef.current || micBusyRef.current) return;
-      void reviveMic(true);
-    };
-    navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
     const watchdog = window.setInterval(() => {
       if (leftRef.current) return;
       keepAlive();
-      pumpRemoteAudio();
+      voiceRef.current?.unlock();
       if (document.hidden) {
         keepFilmPlaying();
         return;
       }
       const room = roomRef.current;
-      if (room) void syncVoice(room);
-      if (!wantMicRef.current || micBusyRef.current) return;
-      if (!micLive()) void reviveMic(true);
-    }, 1200);
+      if (room) void voiceRef.current?.syncMembers(room.members.map((member) => member.username));
+      keepFilmSpeaker();
+    }, 2000);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onVisible);
-      navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices);
       window.clearInterval(watchdog);
       window.clearTimeout(resumeTimer.current);
-      window.clearTimeout(parkTimer.current);
     };
   }, [open?.id]);
 
   useEffect(() => {
-    if (!open?.you.muted || !wantMicRef.current) return;
-    setWantMic(false);
-    stopLocalMic();
+    if (!open?.you.muted || !micWanted) return;
+    void voiceRef.current?.setMic(false).catch(() => undefined);
+    setMicWanted(false);
     keepFilmSpeaker();
   }, [open?.you.muted]);
 
@@ -1383,12 +1312,7 @@ export function WatchRoomsPage({
   }, [open?.chats?.length]);
 
   useEffect(() => {
-    speakerOnRef.current = speakerOn;
-    remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOn;
-      audio.volume = 1;
-      if (speakerOn) void audio.play().catch(() => undefined);
-    });
+    voiceRef.current?.setSpeaker(speakerOn);
   }, [speakerOn]);
 
   function filmIsOn(player?: YtPlayer | null) {
@@ -1443,12 +1367,8 @@ export function WatchRoomsPage({
     }
     setOpen(room);
     if (remount) {
-      wantMicRef.current = false;
       setMicWanted(false);
-      pendingRevive.current = false;
-      clearMicBusy();
-      localStream.current?.getTracks().forEach((track) => track.stop());
-      localStream.current = null;
+      bootVoice(room.id);
     }
   }
 
@@ -1639,30 +1559,44 @@ export function WatchRoomsPage({
     }
   }
 
-  function markTalk(name: string, on: boolean) {
-    const bag = talkingRef.current;
-    if (on === bag.has(name)) return;
-    if (on) bag.add(name);
-    else bag.delete(name);
-    setTalking([...bag]);
-    if (playerRef.current && playerReady.current) applyLocalVolume(playerRef.current);
-    if (name === user.username && lastSpeakPing.current !== on && open) {
-      lastSpeakPing.current = on;
-      void pingWatchRoom(open.id, { speaking: on });
-    }
+  function killVoice() {
+    voiceRef.current?.destroy();
+    voiceRef.current = null;
+    setMicWanted(false);
+    setTalking([]);
   }
 
-  function pumpRemoteAudio() {
-    holdSpeakerRoute(speakerHold.current);
-    try { void audioCtx.current?.resume(); } catch { /* ignore */ }
-    remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOnRef.current;
-      audio.volume = 1;
-      const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
-      if (setSink) void setSink.call(audio, '').catch(() => undefined);
-      if (audio.paused || audio.ended) void audio.play().catch(() => undefined);
-      else void audio.play().catch(() => undefined);
+  function bootVoice(roomId: string) {
+    killVoice();
+    const voice = new RoomVoice({
+      selfName: user.username,
+      sendSignal: async (to, type, payload) => {
+        await sendWatchSignal(roomId, { to, type, payload });
+      },
+      onTalking: (names) => setTalking(names),
+      onSpeakingSelf: (on) => {
+        const room = roomRef.current;
+        if (!room || leftRef.current) return;
+        void pingWatchRoom(room.id, { speaking: on }).catch(() => undefined);
+      },
     });
+    voice.setSpeaker(speakerOn);
+    voiceRef.current = voice;
+    voice.unlock();
+    return voice;
+  }
+
+  function ensureVoice() {
+    const room = roomRef.current;
+    if (!room) return null;
+    if (!voiceRef.current) bootVoice(room.id);
+    return voiceRef.current;
+  }
+
+  function unlockAudio() {
+    holdSpeakerRoute(speakerHold.current);
+    ensureVoice()?.unlock();
+    keepFilmSpeaker();
   }
 
   function keepFilmSpeaker() {
@@ -1678,508 +1612,35 @@ export function WatchRoomsPage({
     }
   }
 
-  function setWantMic(on: boolean) {
-    wantMicRef.current = on;
-    setMicWanted(on);
-  }
-
-  function stopLocalMic() {
-    pendingRevive.current = false;
-    levelGen.current += 1;
-    markTalk(user.username, false);
-    localStream.current?.getTracks().forEach((track) => {
-      track.onended = null;
-      track.onmute = null;
-      track.stop();
-    });
-    localStream.current = null;
-  }
-
-  function unlockAudio() {
-    holdSpeakerRoute(speakerHold.current);
-    pumpRemoteAudio();
-    try {
-      if (audioCtx.current) void audioCtx.current.resume();
-    } catch {
-      /* no audio context */
-    }
-    remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOnRef.current;
-      audio.volume = 1;
-      void audio.play().catch(() => undefined);
-    });
-  }
-
-  function watchLevel(name: string, stream: MediaStream) {
-    if (name !== user.username) return;
-    const gen = ++levelGen.current;
-    try {
-      if (!audioCtx.current) audioCtx.current = new AudioContext();
-      const context = audioCtx.current;
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 512;
-      source.connect(analyser);
-      const buffer = new Uint8Array(analyser.frequencyBinCount);
-      const loop = () => {
-        if (gen !== levelGen.current) return;
-        analyser.getByteFrequencyData(buffer);
-        let sum = 0;
-        for (const value of buffer) sum += value;
-        markTalk(name, !document.hidden && wantMicRef.current && sum / buffer.length > 22);
-        requestAnimationFrame(loop);
-      };
-      void context.resume();
-      loop();
-    } catch {
-      /* analyser not available */
-    }
-  }
-
-  function micLive() {
-    return Boolean(localStream.current?.getAudioTracks().some((track) => (
-      track.readyState === 'live' && track.enabled
-    )));
-  }
-
-  function clearMicBusy() {
-    window.clearTimeout(micBusyTimer.current);
-    micBusyRef.current = false;
-  }
-
-  function armMicBusy(ms = 8000) {
-    micBusyRef.current = true;
-    window.clearTimeout(micBusyTimer.current);
-    micBusyTimer.current = window.setTimeout(() => {
-      micBusyRef.current = false;
-    }, ms);
-  }
-
-  async function tuneAudioSender(peer: RTCPeerConnection) {
-    const sender = peer.getSenders().find((item) => item.track?.kind === 'audio' || item.track === null);
-    if (!sender) return;
-    try {
-      const params = sender.getParameters();
-      if (!params.encodings?.length) params.encodings = [{}];
-      params.encodings[0].maxBitrate = 128_000;
-      await sender.setParameters(params);
-    } catch {
-      /* sender params locked */
-    }
-  }
-
-  async function acquireMic(userInitiated = false) {
-    if (!wantMicRef.current) throw new Error('parked');
-    if (!userInitiated && document.hidden) throw new Error('parked');
-    localStream.current?.getTracks().forEach((track) => {
-      track.onended = null;
-      track.onmute = null;
-      track.stop();
-    });
-    localStream.current = null;
-    holdSpeakerRoute(speakerHold.current);
-    const wait = (ms: number) => new Promise<MediaStream>((_, reject) => {
-      window.setTimeout(() => reject(new Error('timeout')), ms);
-    });
-    let stream: MediaStream;
-    try {
-      stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false }),
-        wait(6000),
-      ]);
-    } catch {
-      stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
-        wait(4000),
-      ]);
-    }
-    if (!wantMicRef.current) {
-      stream.getTracks().forEach((track) => track.stop());
-      throw new Error('parked');
-    }
-    localStream.current = stream;
-    const track = stream.getAudioTracks()[0];
-    if (track) {
-      try { await track.applyConstraints(MIC_AUDIO); } catch { /* device limits */ }
-      try { track.contentHint = 'speech'; } catch { /* ignore */ }
-      track.enabled = true;
-      holdSpeakerRoute(speakerHold.current);
-      track.onended = () => {
-        if (wantMicRef.current && !document.hidden && !micBusyRef.current) void reviveMic(true);
-      };
-    }
-    watchLevel(user.username, stream);
-    holdSpeakerRoute(speakerHold.current);
-    pumpRemoteAudio();
-    window.setTimeout(() => {
-      holdSpeakerRoute(speakerHold.current);
-      keepFilmSpeaker();
-      pumpRemoteAudio();
-    }, 120);
-  }
-
-  async function applyMicToPeers(_room: PublicRoom) {
-    for (const peer of peers.current.values()) {
-      await attachLocal(peer);
-      await tuneAudioSender(peer);
-    }
-  }
-
-  async function reviveMic(force = false) {
-    const room = roomRef.current;
-    if (document.hidden || !room || !wantMicRef.current || room.you.muted || micBusyRef.current) return;
-    if (revivingMic.current) {
-      pendingRevive.current = true;
-      return;
-    }
-    if (!force && micLive()) {
-      unlockAudio();
-      for (const peer of peers.current.values()) await attachLocal(peer);
-      return;
-    }
-    if (force && micLive() && Date.now() - reclaimAt.current < 250) return;
-    if (force) reclaimAt.current = Date.now();
-    revivingMic.current = true;
-    try {
-      await acquireMic(false);
-      if (document.hidden || !wantMicRef.current) {
-        stopLocalMic();
-        for (const peer of peers.current.values()) void attachLocal(peer);
-        return;
-      }
-      await syncVoice(room);
-      await applyMicToPeers(room);
-      if (!leftRef.current && !document.hidden && wantMicRef.current) {
-        const next = await pingWatchRoom(room.id, { micOn: true });
-        if (wantMicRef.current) setOpen(next.room);
-      }
-    } catch (err) {
-      if ((err as Error).message === 'parked') return;
-    } finally {
-      revivingMic.current = false;
-      if (pendingRevive.current && wantMicRef.current && !micBusyRef.current) {
-        pendingRevive.current = false;
-        void reviveMic(true);
-      } else {
-        pendingRevive.current = false;
-      }
-    }
-  }
-
-  function bindRemoteAudio(name: string, stream: MediaStream) {
-    let audio = remoteAudio.current.get(name);
-    if (!audio) {
-      audio = document.createElement('audio');
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.setAttribute('playsinline', 'true');
-      audio.setAttribute('webkit-playsinline', 'true');
-      audio.setAttribute('autoplay', '');
-      (audio as HTMLAudioElement & { disableRemotePlayback?: boolean }).disableRemotePlayback = true;
-      audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-      document.body.appendChild(audio);
-      remoteAudio.current.set(name, audio);
-    }
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = true;
-      track.onunmute = () => {
-        const el = remoteAudio.current.get(name);
-        if (!el) return;
-        if (el.srcObject !== stream) el.srcObject = stream;
-        el.muted = !speakerOnRef.current;
-        el.volume = 1;
-        void el.play().catch(() => undefined);
-      };
-    });
-    if (audio.srcObject !== stream) audio.srcObject = stream;
-    audio.muted = !speakerOnRef.current;
-    audio.volume = 1;
-    holdSpeakerRoute(speakerHold.current);
-    const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
-    if (setSink) void setSink.call(audio, '').catch(() => undefined);
-    void audio.play().catch(() => undefined);
-    window.setTimeout(() => {
-      const el = remoteAudio.current.get(name);
-      if (!el) return;
-      el.muted = !speakerOnRef.current;
-      el.volume = 1;
-      void el.play().catch(() => undefined);
-    }, 200);
-  }
-
-  async function attachLocal(peer: RTCPeerConnection) {
-    const stream = localStream.current;
-    const track = stream?.getAudioTracks().find((item) => item.readyState === 'live') || null;
-    const sender = peer.getSenders().find((item) => item.track?.kind === 'audio')
-      || peer.getSenders().find((item) => !item.track)
-      || peer.getTransceivers().find((item) => item.receiver.track.kind === 'audio' || item.sender.track?.kind === 'audio')?.sender;
-    if (sender) {
-      if (sender.track !== track) await sender.replaceTrack(track);
-    } else if (track && stream) {
-      peer.addTrack(track, stream);
-    }
-    await tuneAudioSender(peer);
-  }
-
-  async function flushIce(peer: RTCPeerConnection, name: string) {
-    const bag = iceBag.current.get(name) || [];
-    iceBag.current.delete(name);
-    for (const candidate of bag) {
-      try { await peer.addIceCandidate(candidate); } catch { /* stale */ }
-    }
-  }
-
-  async function renegotiate(room: PublicRoom, peerName: string, peer: RTCPeerConnection) {
-    if (peer.signalingState !== 'stable') return;
-    makingOffer.current.add(peerName);
-    try {
-      const offer = await peer.createOffer({ offerToReceiveAudio: true, voiceActivityDetection: true });
-      if (offer.sdp) offer.sdp = preferOpus(offer.sdp);
-      await peer.setLocalDescription(offer);
-      await sendWatchSignal(room.id, { to: peerName, type: 'offer', payload: offer });
-    } finally {
-      makingOffer.current.delete(peerName);
-    }
-  }
-
-  async function consumeSignals(room: PublicRoom, signals: { id: string; from: string; type: 'offer' | 'answer' | 'ice'; payload: unknown }[]) {
-    for (const signal of signals) {
-      const peer = await ensurePeer(room, signal.from, false);
-      try {
-        if (signal.type === 'offer') {
-          const polite = user.username.localeCompare(signal.from) > 0;
-          const collision = makingOffer.current.has(signal.from) || peer.signalingState !== 'stable';
-          if (collision && !polite) continue;
-          if (collision && polite) {
-            try { await peer.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit); } catch { /* safari */ }
-          }
-          await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
-          await flushIce(peer, signal.from);
-          await attachLocal(peer);
-          const answer = await peer.createAnswer();
-          if (answer.sdp) answer.sdp = preferOpus(answer.sdp);
-          await peer.setLocalDescription(answer);
-          await sendWatchSignal(room.id, { to: signal.from, type: 'answer', payload: answer });
-        } else if (signal.type === 'answer' && peer.signalingState === 'have-local-offer') {
-          await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
-          await flushIce(peer, signal.from);
-        } else if (signal.type === 'ice' && signal.payload) {
-          if (peer.remoteDescription) await peer.addIceCandidate(signal.payload as RTCIceCandidateInit);
-          else {
-            const bag = iceBag.current.get(signal.from) || [];
-            bag.push(signal.payload as RTCIceCandidateInit);
-            iceBag.current.set(signal.from, bag);
-          }
-        }
-      } catch {
-        /* stale signal */
-      }
-    }
-  }
-
-  async function ensurePeer(room: PublicRoom, peerName: string, initiate: boolean) {
-    const existing = peers.current.get(peerName);
-    if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') {
-      await attachLocal(existing);
-      return existing;
-    }
-    existing?.close();
-    const peer = new RTCPeerConnection(ICE);
-    peers.current.set(peerName, peer);
-    peerAt.current.set(peerName, Date.now());
-    peer.addTransceiver('audio', { direction: 'sendrecv' });
-    await attachLocal(peer);
-    peer.onicecandidate = (event) => {
-      if (event.candidate) void sendWatchSignal(room.id, { to: peerName, type: 'ice', payload: event.candidate.toJSON() });
-    };
-    peer.ontrack = (event) => {
-      const stream = event.streams[0] || new MediaStream([event.track]);
-      event.track.enabled = true;
-      bindRemoteAudio(peerName, stream);
-      pumpRemoteAudio();
-    };
-    peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'connected') pumpRemoteAudio();
-      if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
-        try { peer.restartIce(); } catch { /* ignore */ }
-        window.setTimeout(() => {
-          if (peers.current.get(peerName) !== peer) return;
-          const live = roomRef.current;
-          if (!live) return;
-          peers.current.delete(peerName);
-          peerAt.current.delete(peerName);
-          peer.close();
-          void ensurePeer(live, peerName, true);
-        }, 1200);
-      }
-    };
-    peer.oniceconnectionstatechange = () => {
-      if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') pumpRemoteAudio();
-      if (peer.iceConnectionState === 'disconnected') {
-        window.setTimeout(() => {
-          if (peers.current.get(peerName) !== peer) return;
-          if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
-            try { peer.restartIce(); } catch { /* ignore */ }
-          }
-        }, 900);
-      }
-    };
-    if (initiate) await renegotiate(room, peerName, peer);
-    return peer;
-  }
-
-  async function syncVoice(room: PublicRoom) {
-    const others = room.members.filter((member) => member.username !== user.username);
-    const names = new Set(others.map((member) => member.username));
-    for (const name of [...peers.current.keys()]) {
-      if (!names.has(name)) {
-        peers.current.get(name)?.close();
-        peers.current.delete(name);
-        peerAt.current.delete(name);
-        iceBag.current.delete(name);
-        const audio = remoteAudio.current.get(name);
-        if (audio) {
-          audio.pause();
-          audio.srcObject = null;
-          audio.remove();
-        }
-        remoteAudio.current.delete(name);
-        const node = voiceNodes.current.get(name);
-        if (node) {
-          try { node.source.disconnect(); node.gain.disconnect(); } catch { /* ignore */ }
-          voiceNodes.current.delete(name);
-        }
-      }
-    }
-    for (const member of others) {
-      const peer = peers.current.get(member.username);
-      const dead = !peer || peer.connectionState === 'failed' || peer.connectionState === 'closed';
-      if (dead) {
-        await ensurePeer(room, member.username, true);
-      } else {
-        await attachLocal(peer);
-        if (peer.iceConnectionState === 'failed') {
-          try { peer.restartIce(); } catch { /* ignore */ }
-        }
-        const born = peerAt.current.get(member.username) || 0;
-        const lastReneg = renegAt.current.get(member.username) || 0;
-        const stuck = peer.connectionState === 'failed'
-          || (peer.connectionState === 'disconnected' && Date.now() - born > 4000);
-        if (stuck && peer.signalingState === 'stable' && Date.now() - lastReneg > 5000) {
-          renegAt.current.set(member.username, Date.now());
-          await renegotiate(room, member.username, peer);
-        }
-      }
-    }
-    pumpRemoteAudio();
-  }
-
-  function teardownVoice() {
-    setWantMic(false);
-    pendingRevive.current = false;
-    clearMicBusy();
-    levelGen.current += 1;
-    localStream.current?.getTracks().forEach((track) => track.stop());
-    localStream.current = null;
-    peers.current.forEach((peer) => peer.close());
-    peers.current.clear();
-    peerAt.current.clear();
-    renegAt.current.clear();
-    voiceNodes.current.forEach((node) => {
-      try { node.source.disconnect(); node.gain.disconnect(); } catch { /* ignore */ }
-    });
-    voiceNodes.current.clear();
-    remoteAudio.current.forEach((audio) => {
-      audio.pause();
-      audio.srcObject = null;
-      audio.remove();
-    });
-    remoteAudio.current.clear();
-    iceBag.current.clear();
-    makingOffer.current.clear();
-    talkingRef.current.clear();
-    setTalking([]);
-    setPick(null);
-    const hold = speakerHold.current;
-    if (hold) {
-      hold.pause();
-      hold.remove();
-      speakerHold.current = null;
-    }
-  }
-
   async function toggleMic() {
-    if (!open || micBusyRef.current) return;
+    if (!open) return;
+    const voice = ensureVoice();
+    if (!voice || voice.isBusy) return;
     unlockAudio();
-    window.clearTimeout(parkTimer.current);
-    micUserAt.current = Date.now();
     if (open.you.muted) {
-      setWantMic(false);
-      stopLocalMic();
+      await voice.setMic(false).catch(() => undefined);
+      setMicWanted(false);
       setNotice('Yönetici mikrofonunu kapattı');
       return;
     }
-    // Open/close only by wantMic — never block close when track.muted flickers.
-    if (wantMicRef.current) {
-      armMicBusy(4000);
-      setWantMic(false);
-      pendingRevive.current = false;
-      stopLocalMic();
-      try {
-        for (const peer of peers.current.values()) await attachLocal(peer);
-        const next = await pingWatchRoom(open.id, { micOn: false, speaking: false });
-        if (!wantMicRef.current) setOpen(next.room);
-      } catch {
-        /* keep local off */
-      } finally {
-        clearMicBusy();
-        keepFilmSpeaker();
-        pumpRemoteAudio();
-      }
-      return;
-    }
-    armMicBusy(10000);
-    setWantMic(true);
     try {
-      await acquireMic(true);
-      if (!wantMicRef.current) {
-        stopLocalMic();
-        return;
-      }
-      await applyMicToPeers(open);
-      void syncVoice(open).catch(() => undefined);
-      if (!wantMicRef.current) {
-        stopLocalMic();
-        return;
-      }
-      const next = await pingWatchRoom(open.id, { micOn: true });
-      if (wantMicRef.current) setOpen(next.room);
+      const next = await voice.setMic(!voice.micOn);
+      setMicWanted(next);
+      const data = await pingWatchRoom(open.id, { micOn: next, speaking: false });
+      if (!leftRef.current) setOpen(data.room);
+      await voice.syncMembers(data.room.members.map((member) => member.username));
       keepFilmSpeaker();
-      pumpRemoteAudio();
-    } catch (err) {
-      if ((err as Error).message === 'parked') {
-        stopLocalMic();
-        setWantMic(false);
-        return;
-      }
-      setWantMic(false);
-      stopLocalMic();
+    } catch {
+      setMicWanted(false);
       setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
-    } finally {
-      clearMicBusy();
     }
   }
 
   function toggleSpeaker() {
     const next = !speakerOn;
     setSpeakerOn(next);
-    speakerOnRef.current = next;
+    ensureVoice()?.setSpeaker(next);
     unlockAudio();
-    remoteAudio.current.forEach((audio) => {
-      audio.muted = !next;
-      audio.volume = 1;
-      if (next) void audio.play().catch(() => undefined);
-    });
   }
 
   async function sitOn(seat: number) {
@@ -2266,7 +1727,7 @@ export function WatchRoomsPage({
         /* keep last cinema clock */
       }
     }
-    teardownVoice();
+    killVoice();
     await leaveWatchRoom(open.id).catch(() => undefined);
     try { playerRef.current?.destroy(); } catch { /* ignore */ }
     playerRef.current = null;
@@ -2368,7 +1829,7 @@ export function WatchRoomsPage({
       writeStayRoom(null);
       if (open?.id === id) {
         leftRef.current = true;
-        teardownVoice();
+        killVoice();
         try { playerRef.current?.destroy(); } catch { /* ignore */ }
         playerRef.current = null;
         playerReady.current = false;
