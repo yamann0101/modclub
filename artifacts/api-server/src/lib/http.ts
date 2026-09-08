@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { createSession, destroySession, sessionAccount, type ClubAccount } from "./club-data";
-import { hideUntilOf } from "./room-hide";
+import { hideUntilOf, seeUntilOf, fireUntilOf } from "./room-hide";
 
 export const SESSION_COOKIE = "mc_sid";
 
@@ -31,7 +31,9 @@ export async function clearLoginCookie(req: Request, res: Response) {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
-export function publicUser(account: ClubAccount, hideUntil = 0) {
+export function publicUser(account: ClubAccount, hideUntil = 0, seeUntil = 0, fireUntil = 0) {
+  const forever = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+  const admin = account.role === "ADMIN";
   return {
     username: account.username,
     nick: account.nick,
@@ -42,10 +44,17 @@ export function publicUser(account: ClubAccount, hideUntil = 0) {
     photo: account.photo || undefined,
     coins: account.coins ?? 0,
     vipUntil: account.vipUntil || undefined,
-    hideUntil: account.role === "ADMIN" ? Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 : hideUntil,
+    hideUntil: admin ? forever : hideUntil,
+    seeUntil: admin ? forever : seeUntil,
+    fireUntil: admin ? forever : fireUntil,
   };
 }
 
 export async function publicSession(account: ClubAccount) {
-  return publicUser(account, await hideUntilOf(account.username));
+  const [hideUntil, seeUntil, fireUntil] = await Promise.all([
+    hideUntilOf(account.username),
+    seeUntilOf(account.username),
+    fireUntilOf(account.username),
+  ]);
+  return publicUser(account, hideUntil, seeUntil, fireUntil);
 }

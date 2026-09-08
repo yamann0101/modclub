@@ -18,7 +18,7 @@ import { isSlotTheme, spinOlympus } from "../lib/olympus-slot";
 import { playRoulette } from "../lib/club-roulette";
 import { clearLoginCookie, currentAccount, publicSession, setLoginCookie } from "../lib/http";
 import { breakCp, publicCp, requestCp, respondCp } from "../lib/couples";
-import { grantHideRooms, grantSeeHidden } from "../lib/room-hide";
+import { grantHideRooms, grantSeeHidden, grantRoomPack } from "../lib/room-hide";
 
 const router: IRouter = Router();
 
@@ -206,6 +206,27 @@ router.post("/club/see-grant", async (req, res) => {
     return;
   }
   await grantSeeHidden(target.username, days);
+  res.json(await snapshot(actor.username));
+});
+
+router.post("/club/room-pack", async (req, res) => {
+  const actor = await currentAccount(req);
+  if (!actor || actor.role !== "ADMIN") {
+    res.status(403).json({ error: "admin" });
+    return;
+  }
+  const body = (req.body || {}) as { username?: string; days?: number };
+  const target = await findAccount(String(body.username || ""));
+  if (!target) {
+    res.status(404).json({ error: "missing" });
+    return;
+  }
+  const days = Number(body.days);
+  if (![0, 1, 7, 30].includes(days)) {
+    res.status(400).json({ error: "days" });
+    return;
+  }
+  await grantRoomPack(target.username, days);
   res.json(await snapshot(actor.username));
 });
 

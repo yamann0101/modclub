@@ -80,3 +80,46 @@ export async function grantSeeHidden(username: string, days: number) {
   await setDoc(SEE_DOC, grants);
   return grants;
 }
+
+const FIRE_DOC = "room_fire_grants";
+
+export async function readFireGrants() {
+  const raw = await getDoc<Record<string, number>>(FIRE_DOC, {});
+  const now = Date.now();
+  const live: Record<string, number> = {};
+  for (const [name, until] of Object.entries(raw || {})) {
+    if (typeof until === "number" && until > now) live[nickKey(name)] = until;
+  }
+  return live;
+}
+
+export async function fireUntilOf(username: string) {
+  const grants = await readFireGrants();
+  return grants[nickKey(username)] || 0;
+}
+
+export async function canLaunchFireworks(username: string, role?: string) {
+  if (role === "ADMIN") return true;
+  return (await fireUntilOf(username)) > Date.now();
+}
+
+export async function grantFirework(username: string, days: number) {
+  const grants = await readFireGrants();
+  const key = nickKey(username);
+  if (!key) throw new Error("missing");
+  if (days <= 0) delete grants[key];
+  else grants[key] = Date.now() + days * 24 * 60 * 60 * 1000;
+  await setDoc(FIRE_DOC, grants);
+  return grants;
+}
+
+export async function grantRoomPack(username: string, days: number) {
+  await grantHideRooms(username, days);
+  await grantSeeHidden(username, days);
+  await grantFirework(username, days);
+  return {
+    hide: await hideUntilOf(username),
+    see: await seeUntilOf(username),
+    fire: await fireUntilOf(username),
+  };
+}

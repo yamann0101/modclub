@@ -8,7 +8,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { fetchPublicSetup, saveServerSetup } from '@/lib/setup-client';
-import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, grantRoomHide, grantRoomSee, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
+import { adminWallet, buyVipPack, deleteClubUser, endGuessGame, fetchClub, fetchMe, grantRoomPack, loginUser, logoutUser, patchClub, patchClubUser, patchMe, registerUser, requestCp, startGuessGame, submitGuess, type PublicGuessGame, type PublicSlot, type SessionUser } from '@/lib/club-api';
 import { WatchRoomsPage } from '@/components/watch-rooms';
 import { CpAskOverlay, CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
@@ -776,6 +776,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [accounts, setAccounts] = useState<ClubAccount[]>([]);
   const [hideGrants, setHideGrants] = useState<Record<string, number>>({});
   const [seeGrants, setSeeGrants] = useState<Record<string, number>>({});
+  const [fireGrants, setFireGrants] = useState<Record<string, number>>({});
   const [timeouts, setTimeouts] = useState<ChatTimeout[]>([]);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [banners, setBanners] = useState<Banner[]>(slides);
@@ -907,6 +908,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setAccounts(data.accounts || []);
     setHideGrants(data.hideGrants || {});
     setSeeGrants(data.seeGrants || {});
+    setFireGrants(data.fireGrants || {});
     setAdminUsers((data.accounts || []).map((account) => ({
       id: account.username,
       username: account.username,
@@ -1075,8 +1077,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       if (node) node.scrollTop = node.scrollHeight;
     };
     const syncKeyboard = () => {
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       const viewport = window.visualViewport;
-      const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+      const inset = typing && viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
       setKeyboardInset(inset > 80 ? inset : 0);
       requestAnimationFrame(pinBottom);
     };
@@ -1093,6 +1096,24 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       window.removeEventListener('resize', syncKeyboard);
     };
   }, [chatOpen]);
+
+  useEffect(() => {
+    const thaw = () => {
+      if (document.hidden) return;
+      try { (document.activeElement as HTMLElement | null)?.blur(); } catch { /* ignore */ }
+      setKeyboardInset(0);
+      window.scrollTo(0, 0);
+    };
+    const onVisible = () => {
+      if (!document.hidden) window.setTimeout(thaw, 180);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', thaw);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', thaw);
+    };
+  }, []);
 
   useEffect(() => {
     if (chatOpen && chatScrollRef.current) {
@@ -1838,27 +1859,22 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                                 </button>
                               )}
                               {member.role === 'ADMIN' ? (
-                                <span className="rounded-full bg-[hsl(var(--secondary))] px-2 py-1 font-mono text-[.48rem] font-bold text-[hsl(var(--primary))]">Gizle sınırsız</span>
+                                <span className="rounded-full bg-[hsl(var(--secondary))] px-2 py-1 font-mono text-[.48rem] font-bold text-[hsl(var(--primary))]">Oda paketi sınırsız</span>
                               ) : (
                                 <div className="flex flex-wrap items-center gap-1">
                                   {(() => {
-                                    const until = hideGrants[member.username.toLowerCase()] || hideGrants[member.nick.toLowerCase()] || 0;
+                                    const until = Math.max(
+                                      hideGrants[member.username.toLowerCase()] || hideGrants[member.nick.toLowerCase()] || 0,
+                                      seeGrants[member.username.toLowerCase()] || seeGrants[member.nick.toLowerCase()] || 0,
+                                      fireGrants[member.username.toLowerCase()] || fireGrants[member.nick.toLowerCase()] || 0,
+                                    );
                                     const left = until > now ? Math.max(1, Math.ceil((until - now) / 86_400_000)) : 0;
-                                    return left ? <span className="rounded-full bg-[#4c1d95] px-2 py-1 font-mono text-[.48rem] font-bold text-[#f5d0fe]">{left}g gizle</span> : null;
+                                    return left ? <span className="rounded-full bg-[#4c1d95] px-2 py-1 font-mono text-[.48rem] font-bold text-[#f5d0fe]">{left}g paket</span> : null;
                                   })()}
-                                  <button type="button" onClick={() => { void grantRoomHide(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda gizleyebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Gizle 1g</button>
-                                  <button type="button" onClick={() => { void grantRoomHide(member.username, 7).then(applySnapshot); setNotice(`${member.nick} 1 hafta oda gizleyebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">1hf</button>
-                                  <button type="button" onClick={() => { void grantRoomHide(member.username, 30).then(applySnapshot); setNotice(`${member.nick} 1 ay oda gizleyebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">1ay</button>
-                                  <button type="button" onClick={() => { void grantRoomHide(member.username, 0).then(applySnapshot); setNotice(`${member.nick} oda gizleme alındı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Kaldır</button>
-                                  {(() => {
-                                    const until = seeGrants[member.username.toLowerCase()] || seeGrants[member.nick.toLowerCase()] || 0;
-                                    const left = until > now ? Math.max(1, Math.ceil((until - now) / 86_400_000)) : 0;
-                                    return left ? <span className="rounded-full bg-[#164e63] px-2 py-1 font-mono text-[.48rem] font-bold text-[#a5f3fc]">{left}g gizli gör</span> : null;
-                                  })()}
-                                  <button type="button" onClick={() => { void grantRoomSee(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün gizli oda görebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Gör 1g</button>
-                                  <button type="button" onClick={() => { void grantRoomSee(member.username, 7).then(applySnapshot); setNotice(`${member.nick} 1 hafta gizli oda görebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Gör 1hf</button>
-                                  <button type="button" onClick={() => { void grantRoomSee(member.username, 30).then(applySnapshot); setNotice(`${member.nick} 1 ay gizli oda görebilir`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Gör 1ay</button>
-                                  <button type="button" onClick={() => { void grantRoomSee(member.username, 0).then(applySnapshot); setNotice(`${member.nick} gizli oda görme alındı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Gör kaldır</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda paketi: gizli oda gör/gizle + havai fişek`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1g</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 7).then(applySnapshot); setNotice(`${member.nick} 1 hafta oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1hf</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 30).then(applySnapshot); setNotice(`${member.nick} 1 ay oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1ay</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 0).then(applySnapshot); setNotice(`${member.nick} oda paketi alındı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paketi al</button>
                                 </div>
                               )}
                               <button aria-label={`${member.name} kullanıcısını sil`} onClick={() => { void deleteClubUser(member.username).then(applySnapshot); }} className="grid size-8 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={15} /></button>

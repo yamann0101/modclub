@@ -17,7 +17,6 @@ import {
   pingWatchRoom,
   searchWatchYoutube,
   searchWatchRelated,
-  fetchWatchPlay,
   requestCp,
   sendWatchChat,
   sendWatchSignal,
@@ -273,117 +272,6 @@ type YtPlayer = {
   destroy: () => void;
 };
 
-function createFilmPlayer(box: HTMLElement, hooks: {
-  onReady: () => void;
-  onStateChange: (event: { data: number }) => void;
-  onError: () => void;
-}): YtPlayer {
-  const video = document.createElement('video');
-  video.playsInline = true;
-  video.setAttribute('playsinline', 'true');
-  video.setAttribute('webkit-playsinline', 'true');
-  video.preload = 'auto';
-  video.controls = false;
-  video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;display:block';
-  box.innerHTML = '';
-  box.appendChild(video);
-  let currentId = '';
-  let loadGen = 0;
-  let volume = 70;
-  let muted = true;
-  video.muted = true;
-
-  const stateOf = () => {
-    if (!currentId) return 5;
-    if (video.ended) return 0;
-    if (video.seeking || (video.readyState < 3 && !video.paused && !video.ended)) return 3;
-    if (video.paused) return 2;
-    return 1;
-  };
-
-  const emit = () => hooks.onStateChange({ data: stateOf() });
-
-  video.addEventListener('playing', emit);
-  video.addEventListener('pause', emit);
-  video.addEventListener('ended', emit);
-  video.addEventListener('waiting', emit);
-
-  async function attach(id: string, start = 0) {
-    const gen = ++loadGen;
-    currentId = id;
-    const data = await fetchWatchPlay(id);
-    if (gen !== loadGen) return;
-    const urls = (data.urls || []).map((url) => (
-      url.startsWith('/') ? url : `/api/rooms/stream?u=${encodeURIComponent(url)}`
-    ));
-    if (!urls.length) {
-      hooks.onError();
-      return;
-    }
-    for (const url of urls) {
-      if (gen !== loadGen) return;
-      const ok = await new Promise<boolean>((resolve) => {
-        const finish = (value: boolean) => {
-          video.removeEventListener('canplay', onOk);
-          video.removeEventListener('loadeddata', onOk);
-          video.removeEventListener('error', onErr);
-          window.clearTimeout(timer);
-          resolve(value);
-        };
-        const onOk = () => finish(true);
-        const onErr = () => finish(false);
-        video.addEventListener('canplay', onOk);
-        video.addEventListener('loadeddata', onOk);
-        video.addEventListener('error', onErr);
-        const timer = window.setTimeout(() => finish(video.readyState >= 2), 7000);
-        video.src = url;
-        video.load();
-      });
-      if (ok) {
-        if (start > 0) {
-          try { video.currentTime = start; } catch { /* ignore */ }
-        }
-        hooks.onReady();
-        emit();
-        return;
-      }
-    }
-    hooks.onError();
-  }
-
-  return {
-    loadVideoById: (id: string, start = 0) => { void attach(id, start); },
-    cueVideoById: (id: string, start = 0) => {
-      void attach(id, start).then(() => { video.pause(); });
-    },
-    playVideo: () => { void video.play().catch(() => undefined); },
-    pauseVideo: () => { video.pause(); },
-    seekTo: (seconds: number, _allow?: boolean) => {
-      try { video.currentTime = Math.max(0, seconds); } catch { /* ignore */ }
-    },
-    getCurrentTime: () => video.currentTime || 0,
-    getDuration: () => (Number.isFinite(video.duration) ? video.duration : 0),
-    getPlayerState: () => stateOf(),
-    getVideoData: () => ({ video_id: currentId }),
-    setVolume: (value: number) => {
-      volume = Math.max(0, Math.min(100, value));
-      video.volume = muted ? 0 : volume / 100;
-    },
-    getVolume: () => volume,
-    mute: () => { muted = true; video.muted = true; },
-    unMute: () => { muted = false; video.muted = false; video.volume = volume / 100; },
-    isMuted: () => muted || video.muted,
-    setPlaybackRate: (value: number) => { video.playbackRate = value; },
-    destroy: () => {
-      loadGen += 1;
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-      video.remove();
-    },
-  };
-}
-
 function fileToCover(file: File) {
   return new Promise<string>((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -424,6 +312,7 @@ function loadYoutube() {
     const finish = () => {
       if (done) return;
       done = true;
+      window.clearInterval(poll);
       resolve();
     };
     const prev = window.onYouTubeIframeAPIReady;
@@ -438,9 +327,10 @@ function loadYoutube() {
       script.onerror = finish;
       document.head.appendChild(script);
     }
-    window.setTimeout(() => {
+    const poll = window.setInterval(() => {
       if (window.YT?.Player) finish();
-    }, 900);
+    }, 200);
+    window.setTimeout(finish, 3500);
   });
 }
 
@@ -450,12 +340,15 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
   onError: () => void;
 }): YtPlayer {
   let inner: YtPlayer | null = null;
-  let mode: 'yt' | 'html5' | '' = '';
+  let mode: 'yt' | 'frame' | '' = '';
   let gen = 0;
   let volume = 70;
   let muted = true;
   let destroyed = false;
   let ytTry = 0;
+  const origin = (() => {
+    try { return window.location.origin; } catch { return ''; }
+  })();
 
   const applyVol = () => {
     if (!inner) return;
@@ -470,39 +363,63 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     box.innerHTML = '';
   };
 
-  const attachHtml5 = (id: string, start: number, token: number) => {
-    if (destroyed || token !== gen) return;
+  const embedSrc = (host: string, id: string, start: number) => {
+    const originQ = origin ? `&origin=${encodeURIComponent(origin)}&widget_referrer=${encodeURIComponent(origin)}` : '';
+    return `${host}/embed/${id}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&hl=tr&fs=0&iv_load_policy=3&controls=0&disablekb=1&start=${Math.max(0, Math.floor(start))}${originQ}`;
+  };
+
+  const attachFrame = (id: string, start: number, host: string, token: number) => {
+    const iframe = document.createElement('iframe');
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen';
+    iframe.setAttribute('allowfullscreen', 'true');
+    iframe.setAttribute('playsinline', 'true');
+    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#000';
+    iframe.src = embedSrc(host, id, start);
     clear();
-    mode = 'html5';
-    inner = createFilmPlayer(box, {
-      onReady: () => {
-        if (token !== gen) return;
-        applyVol();
+    mode = 'frame';
+    box.appendChild(iframe);
+    inner = {
+      loadVideoById: (next: string, at = 0) => {
+        iframe.src = embedSrc(host, next, at);
+      },
+      cueVideoById: (next: string, at = 0) => { inner?.loadVideoById(next, at); },
+      playVideo: () => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*'); },
+      pauseVideo: () => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*'); },
+      seekTo: (seconds: number, _allow?: boolean) => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*'); },
+      getCurrentTime: () => start,
+      getDuration: () => 0,
+      getPlayerState: () => 1,
+      getVideoData: () => ({ video_id: id }),
+      setVolume: () => undefined,
+      getVolume: () => volume,
+      mute: () => { muted = true; iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*'); },
+      unMute: () => { muted = false; iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*'); },
+      isMuted: () => muted,
+      setPlaybackRate: () => undefined,
+      destroy: () => { iframe.remove(); },
+    };
+    window.setTimeout(() => {
+      if (token === gen && !destroyed) {
+        try {
+          inner?.playVideo();
+          if (!muted) inner?.unMute();
+        } catch { /* autoplay */ }
         hooks.onReady();
-      },
-      onStateChange: (event) => {
-        if (token === gen) hooks.onStateChange(event);
-      },
-      onError: () => {
-        if (token === gen) hooks.onError();
-      },
-    });
-    inner.loadVideoById(id, start);
-    applyVol();
+        hooks.onStateChange({ data: 1 });
+      }
+    }, 400);
   };
 
   const attachYoutube = async (id: string, start: number, token: number, host = 'https://www.youtube.com') => {
     try {
       await loadYoutube();
     } catch {
-      if (host.includes('nocookie')) attachHtml5(id, start, token);
-      else void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
-      return;
+      /* iframe still plays in the viewer's country */
     }
     if (destroyed || token !== gen) return;
     if (!window.YT?.Player) {
-      if (host.includes('nocookie')) attachHtml5(id, start, token);
-      else void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
+      attachFrame(id, start, host, token);
       return;
     }
     clear();
@@ -512,20 +429,28 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     box.appendChild(holder);
     let fell = false;
     let ready = false;
-    const fallback = () => {
+    const failHard = () => {
       if (fell || token !== gen) return;
       fell = true;
       window.clearTimeout(timer);
+      hooks.onError();
+    };
+    const retryCookie = () => {
+      if (token !== gen || destroyed) return;
       if (ytTry < 1) {
         ytTry = 1;
-        void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
+        window.clearTimeout(timer);
+        const next = ++gen;
+        void attachYoutube(id, start, next, 'https://www.youtube-nocookie.com');
         return;
       }
-      attachHtml5(id, start, token);
+      failHard();
     };
     const timer = window.setTimeout(() => {
-      if (!ready) fallback();
-    }, 9000);
+      if (ready || fell || token !== gen) return;
+      fell = true;
+      attachFrame(id, start, 'https://www.youtube.com', token);
+    }, 4500);
     inner = new window.YT.Player(holder, {
       width: '100%',
       height: '100%',
@@ -533,6 +458,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
       videoId: id,
       playerVars: {
         autoplay: 1,
+        mute: 1,
         controls: 0,
         disablekb: 1,
         fs: 0,
@@ -543,6 +469,8 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
         cc_lang_pref: 'tr',
         start: Math.max(0, Math.floor(start)),
         iv_load_policy: 3,
+        origin,
+        widget_referrer: origin,
       },
       events: {
         onReady: () => {
@@ -551,6 +479,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
           window.clearTimeout(timer);
           applyVol();
           try {
+            inner?.unMute();
             inner?.seekTo(start, true);
             inner?.playVideo();
           } catch {
@@ -561,7 +490,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
         onStateChange: (event: { data: number }) => {
           if (token === gen && !fell) hooks.onStateChange(event);
         },
-        onError: fallback,
+        onError: () => retryCookie(),
       },
     });
   };
@@ -570,6 +499,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     if (mode === 'yt' && inner) {
       try {
         inner.loadVideoById(id, start);
+        try { inner.playVideo(); } catch { /* autoplay */ }
         return;
       } catch {
         /* remount */
@@ -629,24 +559,39 @@ function fireBits(at: number, count: number) {
 function RoomFireworks({ firework }: { firework: { text: string; kind?: string; ms?: number; at: number } }) {
   const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' ? firework.kind : 'burst';
   const ms = Math.min(30_000, Math.max(1_000, firework.ms || FIREWORK_MS));
-  const dur = `${ms / 1000}s`;
+  const burst = kind === 'burst' ? 1.8 : 2.15;
+  const waves = Math.min(28, Math.max(2, Math.round(ms / 380)));
+  const gap = Math.max(0.2, (ms / 1000 - 0.35) / Math.max(1, waves - 1));
+  const perWave = kind === 'burst' ? (waves > 16 ? 16 : 26) : (waves > 16 ? 10 : 16);
   const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖'] : ['✦'];
-  const bits = fireBits(firework.at, kind === 'burst' ? 88 : 56).map((bit, index) => ({
-    ...bit,
-    mark: marks[index % marks.length],
-    delay: Math.min(bit.delay, (ms / 1000) * 0.22),
-  }));
+  const bits: { key: string; x: number; y: number; delay: number; size: number; dx: number; dy: number; mark: string; tone: number }[] = [];
+  for (let w = 0; w < waves; w += 1) {
+    const wave = fireBits(firework.at + w * 131, perWave);
+    wave.forEach((bit, index) => {
+      bits.push({
+        key: `${w}-${bit.i}`,
+        x: bit.x,
+        y: bit.y,
+        delay: w * gap + (index % 6) * 0.04,
+        size: bit.size,
+        dx: bit.dx,
+        dy: bit.dy,
+        mark: marks[index % marks.length],
+        tone: bit.i % 6,
+      });
+    });
+  }
   return (
-    <div className={`room-fireworks is-${kind}`} style={{ ['--fire-ms' as string]: dur }} aria-hidden="true">
+    <div className={`room-fireworks is-${kind}`} aria-hidden="true">
       {kind === 'burst' && bits.map((bit) => (
         <i
-          key={bit.i}
-          className={`room-spark tone-${bit.i % 6}`}
+          key={bit.key}
+          className={`room-spark tone-${bit.tone}`}
           style={{
             left: `${bit.x}%`,
             top: `${bit.y}%`,
             animationDelay: `${bit.delay}s`,
-            animationDuration: dur,
+            animationDuration: `${burst}s`,
             ['--dx' as string]: `${bit.dx * 8}px`,
             ['--dy' as string]: `${bit.dy * 7}px`,
           }}
@@ -654,27 +599,27 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
       ))}
       {kind !== 'burst' && bits.map((bit) => (
         <span
-          key={bit.i}
+          key={bit.key}
           className="room-fire-drop"
           style={{
             left: `${bit.x}%`,
-            top: kind === 'fire' ? `${70 + (bit.y % 28)}%` : `${(bit.i % 18) - 8}%`,
+            top: kind === 'fire' ? `${70 + (bit.y % 28)}%` : `${(Number(bit.key.split('-')[1] || 0) % 18) - 8}%`,
             fontSize: `${bit.size + (kind === 'hearts' ? 6 : 4)}px`,
             animationDelay: `${bit.delay}s`,
-            animationDuration: dur,
+            animationDuration: `${burst}s`,
           }}
         >
           {bit.mark}
         </span>
       ))}
-      {kind === 'burst' && bits.slice(0, 18).map((bit) => (
+      {kind === 'burst' && bits.filter((_, index) => index % 8 === 0).map((bit) => (
         <span
-          key={`bloom-${bit.i}`}
+          key={`bloom-${bit.key}`}
           className="room-fire-bloom"
-          style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s`, animationDuration: dur }}
+          style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s`, animationDuration: `${burst}s` }}
         />
       ))}
-      {firework.text ? <strong className="room-fire-text" style={{ animationDuration: dur }}>{firework.text}</strong> : null}
+      {firework.text ? <strong className="room-fire-text">{firework.text}</strong> : null}
     </div>
   );
 }
@@ -747,6 +692,7 @@ export function WatchRoomsPage({
   const [kbInset, setKbInset] = useState(0);
   const [kbFrame, setKbFrame] = useState<{ top: number; height: number } | null>(null);
   const [hideUntil, setHideUntil] = useState(user.hideUntil || 0);
+  const [fireUntil, setFireUntil] = useState(user.fireUntil || 0);
   const [reactNow, setReactNow] = useState(0);
   const [focusField, setFocusField] = useState<'chat' | 'search' | null>(null);
   const [joinBanner, setJoinBanner] = useState('');
@@ -796,6 +742,8 @@ export function WatchRoomsPage({
   const pendingRevive = useRef(false);
   const leftRef = useRef(false);
   const reclaimAt = useRef(0);
+  const hiddenAt = useRef(0);
+  const resumeTimer = useRef(0);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
   const videoVolRef = useRef(70);
@@ -809,6 +757,7 @@ export function WatchRoomsPage({
       const data = await fetchRooms();
       setRooms(Array.isArray(data.rooms) ? data.rooms : []);
       if (typeof data.hideUntil === 'number') setHideUntil(data.hideUntil);
+      if (typeof data.fireUntil === 'number') setFireUntil(data.fireUntil);
     } catch {
       setNotice('Odalar alınamadı');
     }
@@ -906,8 +855,9 @@ export function WatchRoomsPage({
       return;
     }
     const syncKeyboard = () => {
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       const viewport = window.visualViewport;
-      if (!viewport) {
+      if (!typing || !viewport) {
         setKbInset(0);
         setKbFrame(null);
         return;
@@ -1013,7 +963,8 @@ export function WatchRoomsPage({
       videoId: open.videoId,
       at: Date.now(),
     };
-    setNeedStart(Boolean(open.videoId));
+    setNeedStart(false);
+    setEndCover(false);
     let cancelled = false;
     void (async () => {
       let box = boxRef.current;
@@ -1043,15 +994,24 @@ export function WatchRoomsPage({
           }
           try {
             applyLocalVolume(ready);
-            if (live.playing) ready.playVideo();
-            else ready.pauseVideo();
+            if (live.playing) {
+              ready.unMute();
+              ready.playVideo();
+            } else ready.pauseVideo();
           } catch {
             if (!filmUnlocked.current) setNeedStart(Boolean(live.videoId));
           }
+          window.setTimeout(() => {
+            if (cancelled || filmUnlocked.current) return;
+            if (roomRef.current?.videoId && roomRef.current.playing) setNeedStart(true);
+          }, 1600);
         },
         onError: () => {
-          setNotice('Bu video açılamadı. Başka bir video dene.');
-          setNeedStart(true);
+          const live = roomRef.current;
+          setNotice('Bu video açılamadı, sıradaki açılıyor.');
+          setEndCover(true);
+          if (live?.you.host) void playNextVideo();
+          else setNeedStart(true);
         },
         onStateChange: (event: { data: number }) => {
           const live = roomRef.current;
@@ -1134,31 +1094,61 @@ export function WatchRoomsPage({
       if (leftRef.current) return;
       void pingWatchRoom(open.id).catch(() => undefined);
     };
+    const resetChrome = () => {
+      setKbInset(0);
+      setKbFrame(null);
+      setFocusField(null);
+      setEndCover(false);
+      pipDrag.current = null;
+      try { chatInputRef.current?.blur(); } catch { /* ignore */ }
+      try { (document.activeElement as HTMLElement | null)?.blur(); } catch { /* ignore */ }
+      document.body.classList.remove('room-typing');
+      window.scrollTo(0, 0);
+    };
     const onHidden = () => {
+      hiddenAt.current = Date.now();
       keepAlive();
     };
-    const onVisible = () => {
+    const resumeRoom = () => {
+      if (leftRef.current || document.hidden) return;
+      resetChrome();
       keepAlive();
       forceSpeaker(wantMicRef.current);
       unlockAudio();
+      const stamped = hiddenAt.current;
+      hiddenAt.current = 0;
+      const away = stamped ? Date.now() - stamped : 0;
       const room = roomRef.current;
-      if (room) void syncVoice(room);
-      void reviveMic(true);
-      const player = playerRef.current;
-      if (!room || !player || !playerReady.current) return;
-      followCinema(room, player);
-      if (!room.videoId) return;
-      try {
-        if (room.playing) {
-          player.seekTo(cinemaTime(room, receivedAtRef.current), true);
-          player.playVideo();
-        } else {
-          player.seekTo(room.position, true);
-          player.pauseVideo();
+      if (away > 1800) {
+        try {
+          for (const peer of peers.current.values()) peer.close();
+        } catch { /* ignore */ }
+        peers.current.clear();
+        iceBag.current.clear();
+        setCinemaKey((value) => value + 1);
+        if (room) void syncVoice(room);
+      } else if (room) {
+        void syncVoice(room);
+        const player = playerRef.current;
+        if (player && playerReady.current && room.videoId) {
+          followCinema(room, player);
+          try {
+            if (room.playing) {
+              player.seekTo(cinemaTime(room, receivedAtRef.current), true);
+              player.playVideo();
+            }
+          } catch {
+            setCinemaKey((value) => value + 1);
+          }
+        } else if (room.videoId && away > 400) {
+          setCinemaKey((value) => value + 1);
         }
-      } catch {
-        if (room.playing) setNeedStart(true);
       }
+      if (wantMicRef.current && (away > 400 || !micLive())) void reviveMic(true);
+    };
+    const onVisible = () => {
+      window.clearTimeout(resumeTimer.current);
+      resumeTimer.current = window.setTimeout(resumeRoom, 280);
     };
     const onVisibility = () => {
       if (document.hidden) onHidden();
@@ -1187,6 +1177,7 @@ export function WatchRoomsPage({
       window.removeEventListener('focus', onVisible);
       navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices);
       window.clearInterval(watchdog);
+      window.clearTimeout(resumeTimer.current);
     };
   }, [open?.id]);
 
@@ -1340,6 +1331,9 @@ export function WatchRoomsPage({
       if (room.playing) {
         player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
         player.playVideo();
+        window.setTimeout(() => {
+          try { player.unMute(); applyLocalVolume(player); } catch { /* ignore */ }
+        }, 350);
       } else {
         player.cueVideoById(room.videoId, room.position);
         player.pauseVideo();
@@ -1501,11 +1495,20 @@ export function WatchRoomsPage({
     });
     localStream.current = null;
     forceSpeaker(true);
+    const wait = (ms: number) => new Promise<MediaStream>((_, reject) => {
+      window.setTimeout(() => reject(new Error('timeout')), ms);
+    });
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false });
+      stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO, video: false }),
+        wait(7000),
+      ]);
     } catch {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
+        wait(5000),
+      ]);
     }
     localStream.current = stream;
     const track = stream.getAudioTracks()[0];
@@ -2015,12 +2018,13 @@ export function WatchRoomsPage({
     if (playerRef.current && playerReady.current) {
       try {
         playerRef.current.loadVideoById(hit.id, 0);
+        playerRef.current.unMute();
         playerRef.current.playVideo();
+        setNeedStart(false);
       } catch {
-        if (!filmUnlocked.current) setNeedStart(true);
+        setCinemaKey((value) => value + 1);
       }
-    } else if (!filmUnlocked.current) {
-      setNeedStart(true);
+    } else {
       setCinemaKey((value) => value + 1);
     }
     setHits([]);
@@ -2148,6 +2152,7 @@ export function WatchRoomsPage({
 
   const ownsOpen = Boolean(open && (open.you.owner || open.owner === user.username || open.creator === user.username));
   const canHideRooms = user.role === 'ADMIN' || hideUntil > Date.now();
+  const canFire = Boolean(open && (open.you.host || user.role === 'ADMIN' || fireUntil > Date.now()));
   const mineId = rooms.find((room) => room.creator === user.username || room.owner === user.username)?.id;
 
   let roomPage: ReactNode = null;
@@ -2295,14 +2300,14 @@ export function WatchRoomsPage({
                 <span>CP</span>
               </button>
             )}
-            {iHost && (
+            {canFire && (
               <button type="button" className={`room-mic room-fire ${fireOpen ? 'is-on' : ''}`} onClick={() => setFireOpen((value) => !value)}>
                 <Sparkles size={14} />
                 <span>Fişek</span>
               </button>
             )}
           </div>
-          {fireOpen && iHost && (
+          {fireOpen && canFire && (
             <form
               className="room-fire-form"
               onSubmit={(event) => {

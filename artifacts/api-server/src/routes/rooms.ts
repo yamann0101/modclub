@@ -27,7 +27,7 @@ import {
   takeSignals,
 } from "../lib/watch-rooms";
 import { listCpPairs } from "../lib/couples";
-import { hideUntilOf } from "../lib/room-hide";
+import { hideUntilOf, seeUntilOf, fireUntilOf } from "../lib/room-hide";
 
 const router: IRouter = Router();
 
@@ -47,9 +47,13 @@ function fail(res: { status: (code: number) => { json: (body: unknown) => void }
 router.get("/rooms", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
+  const forever = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+  const admin = account.role === "ADMIN";
   res.json({
     rooms: await listRooms(account),
-    hideUntil: account.role === "ADMIN" ? Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 : await hideUntilOf(account.username),
+    hideUntil: admin ? forever : await hideUntilOf(account.username),
+    seeUntil: admin ? forever : await seeUntilOf(account.username),
+    fireUntil: admin ? forever : await fireUntilOf(account.username),
   });
 });
 
@@ -164,7 +168,7 @@ router.get("/rooms/:id", async (req, res) => {
   const raw = await readRoom(req.params.id);
   if (!raw) return fail(res, "missing");
   if (!raw.members.some((member) => member.username === account.username)) return fail(res, "member");
-  const room = await pingRoom(req.params.id, account.username);
+  const room = await pingRoom(req.params.id, account.username, undefined, account.role);
   const signals = takeSignals(room, account.username);
   res.json({ room: await packRoom(room, account.username), signals });
 });
@@ -220,7 +224,7 @@ router.post("/rooms/:id/ping", async (req, res) => {
         : undefined,
       kiss: body.kiss === false || typeof body.kiss === "string" ? body.kiss : undefined,
       kissAnswer: typeof body.kissAnswer === "boolean" ? body.kissAnswer : undefined,
-    });
+    }, account.role);
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "missing");

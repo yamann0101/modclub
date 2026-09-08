@@ -11,6 +11,8 @@ export type SessionUser = {
   coins?: number;
   vipUntil?: number;
   hideUntil?: number;
+  seeUntil?: number;
+  fireUntil?: number;
 };
 
 export type SlotCell = { id: string; t: 's' | 'x' | 'f'; s?: string; m?: number };
@@ -59,6 +61,7 @@ export type ClubSnapshot = {
   spin?: SlotSpin;
   hideGrants?: Record<string, number>;
   seeGrants?: Record<string, number>;
+  fireGrants?: Record<string, number>;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -151,6 +154,10 @@ export async function grantRoomHide(username: string, days: number) {
 
 export async function grantRoomSee(username: string, days: number) {
   return request<ClubSnapshot>('/api/club/see-grant', { method: 'POST', body: JSON.stringify({ username, days }) });
+}
+
+export async function grantRoomPack(username: string, days: number) {
+  return request<ClubSnapshot>('/api/club/room-pack', { method: 'POST', body: JSON.stringify({ username, days }) });
 }
 
 export async function patchClubUser(username: string, body: { role?: string; title?: string | null }) {
@@ -309,7 +316,7 @@ export type RoomSignal = {
 export type YoutubeHit = { id: string; title: string; thumb: string };
 
 export async function fetchRooms() {
-  return request<{ rooms: RoomCard[]; hideUntil?: number }>('/api/rooms');
+  return request<{ rooms: RoomCard[]; hideUntil?: number; seeUntil?: number; fireUntil?: number }>('/api/rooms');
 }
 
 export async function createWatchRoom(body: { title: string; cover: string; password?: string }) {

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { query } from "./pg";
-import { canHideRooms, canSeeHiddenRooms } from "./room-hide";
+import { canHideRooms, canSeeHiddenRooms, canLaunchFireworks } from "./room-hide";
 
 const SEATS = 8;
 const MAX_ROOMS = 24;
@@ -426,7 +426,7 @@ function fireworkFrom(patch: FireworkPatch, now: number) {
   return { text: String(payload.text || "").trim().slice(0, 48), kind, ms, at: now };
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean }, role?: string) {
   const latest = await readRoom(id);
   if (!latest) throw new Error("missing");
   if ((latest.left || []).includes(username)) throw new Error("member");
@@ -448,7 +448,8 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   if (typeof patch?.cpOn === "boolean" && (username === room.owner || username === (room.creator || room.owner))) {
     room.cpOn = patch.cpOn;
   }
-  if (patch?.firework !== undefined && isHost(room, username)) {
+  if (patch?.firework !== undefined) {
+    if (!(isHost(room, username) || await canLaunchFireworks(username, role))) throw new Error("perk");
     room.firework = fireworkFrom(patch.firework, now);
   }
   if (room.kiss) {
