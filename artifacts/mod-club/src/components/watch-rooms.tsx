@@ -786,6 +786,7 @@ export function WatchRoomsPage({
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [micWanted, setMicWanted] = useState(false);
   const [talking, setTalking] = useState<string[]>([]);
   const [videoVol, setVideoVol] = useState(70);
   const [videoMuted, setVideoMuted] = useState(false);
@@ -858,10 +859,12 @@ export function WatchRoomsPage({
   const wantMicRef = useRef(false);
   const revivingMic = useRef(false);
   const pendingRevive = useRef(false);
+  const micBusyRef = useRef(false);
   const leftRef = useRef(false);
   const reclaimAt = useRef(0);
   const hiddenAt = useRef(0);
   const resumeTimer = useRef(0);
+  const parkTimer = useRef(0);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
   const videoVolRef = useRef(70);
@@ -1262,12 +1265,16 @@ export function WatchRoomsPage({
     };
     const onHidden = () => {
       hiddenAt.current = Date.now();
-      parkMic(true);
+      window.clearTimeout(parkTimer.current);
+      parkTimer.current = window.setTimeout(() => {
+        if (document.hidden) parkMic(true);
+      }, 650);
       keepAlive();
       keepFilmPlaying();
     };
     const resumeRoom = () => {
       if (leftRef.current || document.hidden) return;
+      window.clearTimeout(parkTimer.current);
       resetChrome();
       keepAlive();
       restoreCinema();
@@ -1302,18 +1309,15 @@ export function WatchRoomsPage({
         holdSpeakerRoute(speakerHold.current);
         keepFilmSpeaker();
       }, 700);
-      const restoreMic = wantMicRef.current;
-      if (!restoreMic) {
-        parkMic(false);
-        return;
-      }
+      if (!wantMicRef.current || micBusyRef.current) return;
       window.setTimeout(() => {
-        if (document.hidden || !wantMicRef.current) return;
+        if (document.hidden || !wantMicRef.current || micBusyRef.current) return;
         if (away > 400 || !micLive()) void reviveMic(true);
         keepFilmSpeaker();
-      }, 900);
+      }, 500);
     };
     const onVisible = () => {
+      window.clearTimeout(parkTimer.current);
       window.clearTimeout(resumeTimer.current);
       resumeTimer.current = window.setTimeout(resumeRoom, 280);
     };
@@ -1325,9 +1329,8 @@ export function WatchRoomsPage({
     window.addEventListener('pagehide', onHidden);
     window.addEventListener('freeze', onHidden);
     window.addEventListener('pageshow', onVisible);
-    window.addEventListener('focus', onVisible);
     const onDevices = () => {
-      if (document.hidden || !wantMicRef.current) return;
+      if (document.hidden || !wantMicRef.current || micBusyRef.current) return;
       void reviveMic(true);
     };
     navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
@@ -1341,7 +1344,7 @@ export function WatchRoomsPage({
       }
       const room = roomRef.current;
       if (room) void syncVoice(room);
-      if (!wantMicRef.current) return;
+      if (!wantMicRef.current || micBusyRef.current) return;
       if (!micLive()) void reviveMic(true);
     }, 1200);
     return () => {
@@ -1349,12 +1352,19 @@ export function WatchRoomsPage({
       window.removeEventListener('pagehide', onHidden);
       window.removeEventListener('freeze', onHidden);
       window.removeEventListener('pageshow', onVisible);
-      window.removeEventListener('focus', onVisible);
       navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices);
       window.clearInterval(watchdog);
       window.clearTimeout(resumeTimer.current);
+      window.clearTimeout(parkTimer.current);
     };
   }, [open?.id]);
+
+  useEffect(() => {
+    if (!open?.you.muted || !wantMicRef.current) return;
+    setWantMic(false);
+    stopLocalMic();
+    keepFilmSpeaker();
+  }, [open?.you.muted]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -1397,6 +1407,9 @@ export function WatchRoomsPage({
     setOpen(room);
     if (remount) {
       wantMicRef.current = false;
+      setMicWanted(false);
+      pendingRevive.current = false;
+      micBusyRef.current = false;
       localStream.current?.getTracks().forEach((track) => track.stop());
       localStream.current = null;
       void pingWatchRoom(room.id, { micOn: false, speaking: false }).then((data) => {
@@ -1629,8 +1642,13 @@ export function WatchRoomsPage({
     }
   }
 
-  function parkMic(keepWant: boolean) {
-    if (!keepWant) wantMicRef.current = false;
+  function setWantMic(on: boolean) {
+    wantMicRef.current = on;
+    setMicWanted(on);
+  }
+
+  function stopLocalMic() {
+    pendingRevive.current = false;
     levelGen.current += 1;
     markTalk(user.username, false);
     localStream.current?.getTracks().forEach((track) => {
@@ -1639,9 +1657,14 @@ export function WatchRoomsPage({
       track.stop();
     });
     localStream.current = null;
+  }
+
+  function parkMic(keepWant: boolean) {
+    if (!keepWant) setWantMic(false);
+    stopLocalMic();
     const room = roomRef.current;
     if (room && !leftRef.current) {
-      void pingWatchRoom(room.id, { micOn: false, speaking: false }).then((data) => {
+      void pingWatchRoom(room.id, keepWant ? { speaking: false } : { micOn: false, speaking: false }).then((data) => {
         if (!leftRef.current && !wantMicRef.current) setOpen(data.room);
       }).catch(() => undefined);
       for (const peer of peers.current.values()) void attachLocal(peer);
@@ -1709,8 +1732,9 @@ export function WatchRoomsPage({
     }
   }
 
-  async function acquireMic() {
-    if (document.hidden || !wantMicRef.current) throw new Error('parked');
+  async function acquireMic(userInitiated = false) {
+    if (!wantMicRef.current) throw new Error('parked');
+    if (!userInitiated && document.hidden) throw new Error('parked');
     localStream.current?.getTracks().forEach((track) => {
       track.onended = null;
       track.onmute = null;
@@ -1732,6 +1756,10 @@ export function WatchRoomsPage({
         navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
         wait(5000),
       ]);
+    }
+    if (!wantMicRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('parked');
     }
     localStream.current = stream;
     const track = stream.getAudioTracks()[0];
@@ -1771,7 +1799,7 @@ export function WatchRoomsPage({
 
   async function reviveMic(force = false) {
     const room = roomRef.current;
-    if (document.hidden || !room || !wantMicRef.current || room.you.muted) return;
+    if (document.hidden || !room || !wantMicRef.current || room.you.muted || micBusyRef.current) return;
     if (revivingMic.current) {
       pendingRevive.current = true;
       return;
@@ -1785,25 +1813,28 @@ export function WatchRoomsPage({
     if (force) reclaimAt.current = Date.now();
     revivingMic.current = true;
     try {
-      await acquireMic();
+      await acquireMic(false);
       if (document.hidden || !wantMicRef.current) {
-        parkMic(Boolean(wantMicRef.current));
+        stopLocalMic();
+        for (const peer of peers.current.values()) void attachLocal(peer);
         return;
       }
       await syncVoice(room);
       await applyMicToPeers(room);
       if (!leftRef.current && !document.hidden && wantMicRef.current) {
         const next = await pingWatchRoom(room.id, { micOn: true });
-        setOpen(next.room);
+        if (wantMicRef.current) setOpen(next.room);
       }
     } catch (err) {
       if ((err as Error).message === 'parked') return;
-      setNotice('Mikrofon koptu. Mik aç-kapa yap.');
+      if (wantMicRef.current) setNotice('Mikrofon koptu. Mik aç-kapa yap.');
     } finally {
       revivingMic.current = false;
-      if (pendingRevive.current) {
+      if (pendingRevive.current && wantMicRef.current && !micBusyRef.current) {
         pendingRevive.current = false;
         void reviveMic(true);
+      } else {
+        pendingRevive.current = false;
       }
     }
   }
@@ -2005,7 +2036,9 @@ export function WatchRoomsPage({
   }
 
   function teardownVoice() {
-    wantMicRef.current = false;
+    setWantMic(false);
+    pendingRevive.current = false;
+    micBusyRef.current = false;
     levelGen.current += 1;
     localStream.current?.getTracks().forEach((track) => track.stop());
     localStream.current = null;
@@ -2036,36 +2069,53 @@ export function WatchRoomsPage({
   }
 
   async function toggleMic() {
-    if (!open) return;
+    if (!open || micBusyRef.current) return;
     unlockAudio();
     if (open.you.muted) {
+      setWantMic(false);
+      stopLocalMic();
       setNotice('Yönetici mikrofonunu kapattı');
       return;
     }
-    if (!open.you.micOn) {
+    if (!wantMicRef.current) {
+      micBusyRef.current = true;
+      setWantMic(true);
       try {
-        wantMicRef.current = true;
         await syncVoice(open);
-        await acquireMic();
+        await acquireMic(true);
+        if (!wantMicRef.current) {
+          stopLocalMic();
+          return;
+        }
         await applyMicToPeers(open);
+        if (!wantMicRef.current) {
+          stopLocalMic();
+          return;
+        }
         const next = await pingWatchRoom(open.id, { micOn: true });
-        setOpen(next.room);
+        if (wantMicRef.current) setOpen(next.room);
         keepFilmSpeaker();
         pumpRemoteAudio();
-      } catch {
-        wantMicRef.current = false;
+      } catch (err) {
+        if ((err as Error).message === 'parked') {
+          stopLocalMic();
+          setWantMic(false);
+          return;
+        }
+        setWantMic(false);
+        stopLocalMic();
         setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
+      } finally {
+        micBusyRef.current = false;
       }
       return;
     }
-    wantMicRef.current = false;
-    levelGen.current += 1;
-    localStream.current?.getTracks().forEach((track) => track.stop());
-    localStream.current = null;
-    markTalk(user.username, false);
+    setWantMic(false);
+    pendingRevive.current = false;
+    stopLocalMic();
     for (const peer of peers.current.values()) await attachLocal(peer);
     const next = await pingWatchRoom(open.id, { micOn: false, speaking: false });
-    setOpen(next.room);
+    if (!wantMicRef.current) setOpen(next.room);
     keepFilmSpeaker();
     pumpRemoteAudio();
   }
@@ -2650,9 +2700,9 @@ export function WatchRoomsPage({
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>
           <div className="room-dock">
-            <button type="button" className={`room-mic ${open.you.micOn ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
-              {open.you.micOn ? <Mic size={14} /> : <MicOff size={14} />}
-              <span>{open.you.muted ? 'Susturuldu' : open.you.micOn ? 'Mik' : 'Mik'}</span>
+            <button type="button" className={`room-mic ${micWanted ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
+              {micWanted ? <Mic size={14} /> : <MicOff size={14} />}
+              <span>{open.you.muted ? 'Susturuldu' : 'Mik'}</span>
             </button>
             <button type="button" className={`room-mic ${speakerOn ? 'is-on' : 'is-off'}`} onClick={toggleSpeaker}>
               {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
@@ -3046,8 +3096,8 @@ export function WatchRoomsPage({
         {minimized && (
           <div className="room-pip-bar">
             <button type="button" onClick={growRoom} aria-label="Odayı büyüt"><Maximize2 size={14} /></button>
-            <button type="button" className={open.you.micOn ? 'is-on' : ''} onClick={() => void toggleMic()} aria-label="Mikrofon">
-              {open.you.micOn ? <Mic size={14} /> : <MicOff size={14} />}
+            <button type="button" className={micWanted ? 'is-on' : ''} onClick={() => void toggleMic()} aria-label="Mikrofon">
+              {micWanted ? <Mic size={14} /> : <MicOff size={14} />}
             </button>
             <button type="button" className={speakerOn ? 'is-on' : ''} onClick={toggleSpeaker} aria-label="Oda sesi">
               {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
