@@ -19,7 +19,6 @@ import {
   searchWatchRelated,
   requestCp,
   sendWatchChat,
-  sendWatchSignal,
   setWatchHidden,
   setWatchHost,
   setWatchMedia,
@@ -887,10 +886,9 @@ export function WatchRoomsPage({
           }
         }
         if (data.signals.length) {
-          await voiceRef.current?.handleSignals(data.signals);
           await ackWatchSignals(open.id, data.signals.map((item) => item.id));
         }
-        await voiceRef.current?.syncMembers(data.room.members.map((member) => member.username));
+        void voiceRef.current?.connect(open.id).catch(() => undefined);
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
           leftRef.current = true;
@@ -1237,9 +1235,7 @@ export function WatchRoomsPage({
       unlockAudio();
       hiddenAt.current = 0;
       const room = roomRef.current;
-      if (room) {
-        void voiceRef.current?.syncMembers(room.members.map((member) => member.username));
-      }
+      if (room) void voiceRef.current?.connect(room.id).catch(() => undefined);
       const player = playerRef.current;
       const reviveFilm = () => {
         if (!player || !playerReady.current || !room?.videoId) return;
@@ -1283,7 +1279,7 @@ export function WatchRoomsPage({
         return;
       }
       const room = roomRef.current;
-      if (room) void voiceRef.current?.syncMembers(room.members.map((member) => member.username));
+      if (room) void voiceRef.current?.connect(room.id).catch(() => undefined);
       keepFilmSpeaker();
     }, 2000);
     return () => {
@@ -1570,9 +1566,7 @@ export function WatchRoomsPage({
     killVoice();
     const voice = new RoomVoice({
       selfName: user.username,
-      sendSignal: async (to, type, payload) => {
-        await sendWatchSignal(roomId, { to, type, payload });
-      },
+      selfNick: user.nick || user.username,
       onTalking: (names) => setTalking(names),
       onSpeakingSelf: (on) => {
         const room = roomRef.current;
@@ -1583,6 +1577,9 @@ export function WatchRoomsPage({
     voice.setSpeaker(speakerOn);
     voiceRef.current = voice;
     voice.unlock();
+    void voice.connect(roomId).catch(() => {
+      setNotice('Ses kanalına bağlanılamadı. Mik’e basınca tekrar dener.');
+    });
     return voice;
   }
 
@@ -1624,11 +1621,13 @@ export function WatchRoomsPage({
       return;
     }
     try {
+      if (!voice.micOn) {
+        await voice.connect(open.id);
+      }
       const next = await voice.setMic(!voice.micOn);
       setMicWanted(next);
       const data = await pingWatchRoom(open.id, { micOn: next, speaking: false });
       if (!leftRef.current) setOpen(data.room);
-      await voice.syncMembers(data.room.members.map((member) => member.username));
       keepFilmSpeaker();
     } catch {
       setMicWanted(false);
