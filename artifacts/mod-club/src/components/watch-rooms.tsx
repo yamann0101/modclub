@@ -888,7 +888,7 @@ export function WatchRoomsPage({
         if (data.signals.length) {
           await ackWatchSignals(open.id, data.signals.map((item) => item.id));
         }
-        void voiceRef.current?.connect(open.id).catch(() => undefined);
+        voiceRef.current?.unlock();
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
           leftRef.current = true;
@@ -1235,7 +1235,8 @@ export function WatchRoomsPage({
       unlockAudio();
       hiddenAt.current = 0;
       const room = roomRef.current;
-      if (room) void voiceRef.current?.connect(room.id).catch(() => undefined);
+      voiceRef.current?.unlock();
+      if (room && !voiceRef.current) bootVoice(room.id);
       const player = playerRef.current;
       const reviveFilm = () => {
         if (!player || !playerReady.current || !room?.videoId) return;
@@ -1278,8 +1279,7 @@ export function WatchRoomsPage({
         keepFilmPlaying();
         return;
       }
-      const room = roomRef.current;
-      if (room) void voiceRef.current?.connect(room.id).catch(() => undefined);
+      voiceRef.current?.unlock();
       keepFilmSpeaker();
     }, 2000);
     return () => {
@@ -1577,9 +1577,8 @@ export function WatchRoomsPage({
     voice.setSpeaker(speakerOn);
     voiceRef.current = voice;
     voice.unlock();
-    void voice.connect(roomId).catch(() => {
-      setNotice('Ses kanalına bağlanılamadı. Mik’e basınca tekrar dener.');
-    });
+    // Sessiz bağlan — hata gösterme; mik açılınca gerekirse tekrar dener
+    void voice.connect(roomId).catch(() => undefined);
     return voice;
   }
 
@@ -1621,9 +1620,6 @@ export function WatchRoomsPage({
       return;
     }
     try {
-      if (!voice.micOn) {
-        await voice.connect(open.id);
-      }
       const next = await voice.setMic(!voice.micOn);
       setMicWanted(next);
       const data = await pingWatchRoom(open.id, { micOn: next, speaking: false });
@@ -1631,7 +1627,7 @@ export function WatchRoomsPage({
       keepFilmSpeaker();
     } catch {
       setMicWanted(false);
-      setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
+      setNotice('Mikrofon açılamadı. Tarayıcıdan mik iznini ver, sonra tekrar bas.');
     }
   }
 

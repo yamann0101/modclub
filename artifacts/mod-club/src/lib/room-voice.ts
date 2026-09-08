@@ -1,52 +1,17 @@
-type JitsiTrack = {
-  getType: () => string;
-  isLocal: () => boolean;
-  isMuted: () => boolean;
-  mute: () => Promise<void> | void;
-  unmute: () => Promise<void> | void;
-  attach: (el: HTMLElement) => HTMLElement;
-  detach: (el?: HTMLElement) => void;
-  dispose: () => Promise<void> | void;
-  getParticipantId: () => string;
-  addEventListener: (event: string, handler: (...args: unknown[]) => void) => void;
-  removeEventListener: (event: string, handler: (...args: unknown[]) => void) => void;
+type JitsiApi = {
+  executeCommand: (command: string, ...args: unknown[]) => void;
+  isAudioMuted: () => Promise<boolean>;
+  dispose: () => void;
+  addListener: (event: string, listener: (...args: unknown[]) => void) => void;
+  removeListener: (event: string, listener: (...args: unknown[]) => void) => void;
+  getIFrame: () => HTMLIFrameElement;
 };
 
-type JitsiConference = {
-  join: (password?: string) => void;
-  leave: () => Promise<void> | void;
-  myUserId: () => string;
-  setDisplayName: (name: string) => void;
-  addTrack: (track: JitsiTrack) => Promise<void> | void;
-  removeTrack: (track: JitsiTrack) => Promise<void> | void;
-  on: (event: string, handler: (...args: unknown[]) => void) => void;
-  off?: (event: string, handler: (...args: unknown[]) => void) => void;
-};
-
-type JitsiConnection = {
-  connect: () => void;
-  disconnect: () => void;
-  initJitsiConference: (name: string, options: Record<string, unknown>) => JitsiConference;
-  addEventListener: (event: string, handler: (...args: unknown[]) => void) => void;
-  removeEventListener: (event: string, handler: (...args: unknown[]) => void) => void;
-};
-
-type JitsiMeetJSApi = {
-  init: (options?: Record<string, unknown>) => void;
-  setLogLevel: (level: unknown) => void;
-  createLocalTracks: (options: Record<string, unknown>) => Promise<JitsiTrack[]>;
-  JitsiConnection: new (appId: string | null, token: string | null, options: Record<string, unknown>) => JitsiConnection;
-  events: {
-    connection: Record<string, string>;
-    conference: Record<string, string>;
-    track: Record<string, string>;
-  };
-  logLevels: { ERROR: unknown };
-};
+type JitsiApiCtor = new (domain: string, options: Record<string, unknown>) => JitsiApi;
 
 declare global {
   interface Window {
-    JitsiMeetJS?: JitsiMeetJSApi;
+    JitsiMeetExternalAPI?: JitsiApiCtor;
   }
 }
 
@@ -83,36 +48,42 @@ function silentWav() {
 
 const HOLD_SRC = silentWav();
 
-let loader: Promise<JitsiMeetJSApi> | null = null;
+let loaders = new Map<string, Promise<JitsiApiCtor>>();
 
-function loadJitsi() {
-  if (window.JitsiMeetJS) return Promise.resolve(window.JitsiMeetJS);
-  if (loader) return loader;
-  loader = new Promise((resolve, reject) => {
+function loadExternalApi(domain: string) {
+  const src = `https://${domain}/external_api.js`;
+  const existing = (window as Window & { JitsiMeetExternalAPI?: JitsiApiCtor }).JitsiMeetExternalAPI;
+  // meet.jit.si script sets window.JitsiMeetExternalAPI; reuse if same page already loaded one
+  if (existing && loaders.has(domain)) return loaders.get(domain)!;
+  if (loaders.has(domain)) return loaders.get(domain)!;
+  const promise = new Promise<JitsiApiCtor>((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://meet.jit.si/libs/lib-jitsi-meet.min.js';
+    script.src = src;
     script.async = true;
     script.onload = () => {
-      if (!window.JitsiMeetJS) {
+      const api = window.JitsiMeetExternalAPI;
+      if (!api) {
         reject(new Error('jitsi_missing'));
         return;
       }
-      resolve(window.JitsiMeetJS);
+      resolve(api);
     };
     script.onerror = () => reject(new Error('jitsi_load'));
     document.head.appendChild(script);
   });
-  return loader;
+  loaders.set(domain, promise);
+  return promise;
 }
 
-function channelName(roomId: string) {
-  const clean = roomId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 48) || 'lobby';
+/** Her oda için ayrı kanal adı */
+export function channelName(roomId: string) {
+  const clean = String(roomId || 'lobby').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 48) || 'lobby';
   return `modclub${clean}`;
 }
 
 /**
- * Discord/TS3 tarzı tek ses kanalı.
- * Ücretsiz public Jitsi SFU (meet.jit.si) — API key yok.
+ * Discord/TS3 gibi: her oda = ayrı Jitsi ses kanalı (ücretsiz, keysız).
+ * External API (gizli iframe) — lib-jitsi-meet'ten daha sağlam.
  */
 export class RoomVoice {
   private selfName: string;
@@ -125,20 +96,18 @@ export class RoomVoice {
   private busy = false;
   private dead = false;
   private joined = false;
+  private roomKey = '';
+  private roomId = '';
   private hold: HTMLAudioElement | null = null;
-  private connection: JitsiConnection | null = null;
-  private conference: JitsiConference | null = null;
-  private localTrack: JitsiTrack | null = null;
-  private remotes = new Map<string, { track: JitsiTrack; audio: HTMLAudioElement }>();
-  private talking = new Set<string>();
+  private box: HTMLDivElement | null = null;
+  private api: JitsiApi | null = null;
   private lastSelfSpeak = false;
   private levelTimer = 0;
-  private roomKey = '';
-  private connectAt = 0;
+  private connectPromise: Promise<void> | null = null;
 
   constructor(opts: RoomVoiceOpts) {
     this.selfName = opts.selfName;
-    this.selfNick = opts.selfNick || opts.selfName;
+    this.selfNick = (opts.selfNick || opts.selfName).slice(0, 40);
     this.onTalking = opts.onTalking;
     this.onSpeakingSelf = opts.onSpeakingSelf;
     this.ensureHold();
@@ -159,129 +128,59 @@ export class RoomVoice {
   unlock() {
     this.ensureHold();
     this.playHold();
-    this.pumpRemotes();
+    this.applySpeaker();
   }
 
   setSpeaker(on: boolean) {
     this.speaker = on;
-    this.pumpRemotes();
+    this.applySpeaker();
   }
 
-  /** Odaya girince çağır: mik izni + ses kanalına bağlan */
   async connect(roomId: string) {
     if (this.dead) return;
+    this.roomId = roomId;
     const key = channelName(roomId);
-    if (this.joined && this.roomKey === key) {
+    if (this.joined && this.roomKey === key && this.api) {
       this.unlock();
       return;
     }
-    if (this.busy) return;
-    if (this.roomKey === key && Date.now() - this.connectAt < 8000) return;
-    this.connectAt = Date.now();
-    this.busy = true;
-    try {
-      await this.disconnectSoft();
-      this.roomKey = key;
-      this.unlock();
-      const JitsiMeetJS = await loadJitsi();
-      JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR);
-      JitsiMeetJS.init({
-        disableAudioLevels: false,
-        disableAEC: false,
-        disableNS: false,
-        disableAGC: false,
-      });
-
-      // Tarayıcıdan mik izni — odaya girerken bir kez
-      await this.ensureMicPermission(JitsiMeetJS);
-
-      await new Promise<void>((resolve, reject) => {
-        const connection = new JitsiMeetJS.JitsiConnection(null, null, {
-          hosts: {
-            domain: 'meet.jit.si',
-            muc: 'conference.meet.jit.si',
-          },
-          serviceUrl: 'wss://meet.jit.si/xmpp-websocket',
-          enableWebsocketResume: true,
-          clientNode: 'https://modclub.app',
-        });
-        this.connection = connection;
-
-        const onOk = () => {
-          connection.removeEventListener(JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED, onOk);
-          connection.removeEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onFail);
-          resolve();
-        };
-        const onFail = (err: unknown) => {
-          connection.removeEventListener(JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED, onOk);
-          connection.removeEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onFail);
-          reject(err || new Error('voice_connect'));
-        };
-        connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED, onOk);
-        connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onFail);
-        connection.connect();
-      });
-
-      if (this.dead || !this.connection) return;
-
-      const conference = this.connection.initJitsiConference(key, {
-        openBridgeChannel: true,
-        startSilent: false,
-        p2p: { enabled: false },
-        enableLayerSuspension: true,
-        channelLastN: 12,
-      });
-      this.conference = conference;
-      conference.setDisplayName(this.selfNick.slice(0, 40));
-
-      conference.on(JitsiMeetJS.events.conference.TRACK_ADDED, (track) => {
-        void this.onRemoteTrack(track as JitsiTrack);
-      });
-      conference.on(JitsiMeetJS.events.conference.TRACK_REMOVED, (track) => {
-        this.dropRemote(track as JitsiTrack);
-      });
-      conference.on(JitsiMeetJS.events.conference.USER_LEFT, (id) => {
-        this.dropRemoteByUser(String(id));
-      });
-      conference.on(JitsiMeetJS.events.conference.CONFERENCE_LEFT, () => {
-        this.joined = false;
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(() => reject(new Error('voice_join_timeout')), 20000);
-        conference.on(JitsiMeetJS.events.conference.CONFERENCE_JOINED, () => {
-          window.clearTimeout(timer);
-          resolve();
-        });
-        conference.on(JitsiMeetJS.events.conference.CONFERENCE_FAILED, (err) => {
-          window.clearTimeout(timer);
-          reject(err || new Error('voice_join'));
-        });
-        conference.join();
-      });
-
-      this.joined = true;
-      this.startLevels();
-      if (this.wantMic) await this.publishMic(true);
-      this.unlock();
-    } finally {
-      this.busy = false;
-    }
+    if (this.connectPromise) return this.connectPromise;
+    this.connectPromise = this.joinChannel(key).finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
   }
 
   async setMic(on: boolean) {
-    if (this.dead || this.busy) return this.wantMic;
+    if (this.dead) return this.wantMic;
+    if (this.busy) return this.wantMic;
     this.busy = true;
     try {
       this.wantMic = on;
       this.unlock();
-      if (!this.joined) {
-        return on;
-      }
-      await this.publishMic(on);
+      if (!this.roomId) throw new Error('no_room');
+      await this.connect(this.roomId);
+      if (!this.api || !this.joined) throw new Error('voice_offline');
+
+      // Mik izni / GUM — iframe içinde; önce unmute dene
+      let muted = true;
+      try { muted = await this.api.isAudioMuted(); } catch { muted = true; }
+      if (on && muted) this.api.executeCommand('toggleAudio');
+      if (!on && !muted) this.api.executeCommand('toggleAudio');
+
+      // Bir kez daha doğrula
+      window.setTimeout(() => {
+        void this.api?.isAudioMuted().then((now) => {
+          if (this.wantMic && now) this.api?.executeCommand('toggleAudio');
+          if (!this.wantMic && !now) this.api?.executeCommand('toggleAudio');
+        }).catch(() => undefined);
+      }, 400);
+
+      this.setTalk(this.selfName, on);
       return on;
     } catch {
       this.wantMic = false;
+      this.setTalk(this.selfName, false);
       throw new Error('mic_denied');
     } finally {
       this.busy = false;
@@ -292,126 +191,146 @@ export class RoomVoice {
     this.dead = true;
     this.wantMic = false;
     window.clearInterval(this.levelTimer);
-    void this.disconnectSoft();
+    try { this.api?.dispose(); } catch { /* ignore */ }
+    this.api = null;
+    this.joined = false;
+    if (this.box) {
+      this.box.remove();
+      this.box = null;
+    }
     if (this.hold) {
       this.hold.pause();
       this.hold.remove();
       this.hold = null;
     }
-    this.talking.clear();
     this.onTalking?.([]);
     this.setTalk(this.selfName, false);
   }
 
-  private async disconnectSoft() {
+  private async joinChannel(key: string) {
+    if (this.dead) return;
+    this.busy = true;
+    try {
+      this.teardownApi();
+      this.roomKey = key;
+      this.unlock();
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch {
+        /* mik izni sonra setMic ile istenir */
+      }
+
+      if (!this.box) {
+        this.box = document.createElement('div');
+        this.box.id = `modclub-voice-${key}`;
+        this.box.setAttribute('aria-hidden', 'true');
+        this.box.style.cssText = 'position:fixed;left:-9999px;top:0;width:320px;height:180px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;';
+        document.body.appendChild(this.box);
+      }
+
+      const openOn = async (domain: string) => {
+        const ExternalAPI = await loadExternalApi(domain);
+        if (this.box) this.box.innerHTML = '';
+        const api = new ExternalAPI(domain, {
+          roomName: key,
+          width: 320,
+          height: 180,
+          parentNode: this.box,
+          userInfo: { displayName: this.selfNick },
+          configOverwrite: {
+            startWithAudioMuted: true,
+            startWithVideoMuted: true,
+            prejoinConfig: { enabled: false },
+            prejoinPageEnabled: false,
+            disableDeepLinking: true,
+            enableWelcomePage: false,
+            requireDisplayName: false,
+            enableClosePage: false,
+            disableInviteFunctions: true,
+            toolbarButtons: [],
+            notifications: [],
+            hideConferenceSubject: true,
+            disableInitialGUM: false,
+            startAudioOnly: true,
+            p2p: { enabled: false },
+          },
+          interfaceConfigOverwrite: {
+            TOOLBAR_BUTTONS: [],
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_BRAND_WATERMARK: false,
+            SHOW_POWERED_BY: false,
+            DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+            MOBILE_APP_PROMO: false,
+          },
+        });
+        this.api = api;
+        await new Promise<void>((resolve, reject) => {
+          const timer = window.setTimeout(() => reject(new Error('voice_join_timeout')), 20000);
+          const onJoin = () => {
+            window.clearTimeout(timer);
+            api.removeListener('videoConferenceJoined', onJoin);
+            api.removeListener('conferenceFailed', onFail);
+            resolve();
+          };
+          const onFail = () => {
+            window.clearTimeout(timer);
+            api.removeListener('videoConferenceJoined', onJoin);
+            api.removeListener('conferenceFailed', onFail);
+            reject(new Error('voice_join'));
+          };
+          api.addListener('videoConferenceJoined', onJoin);
+          api.addListener('conferenceFailed', onFail);
+        });
+      };
+
+      try {
+        await openOn('meet.jit.si');
+      } catch {
+        this.teardownApi();
+        await openOn('8x8.vc');
+      }
+
+      if (this.dead) {
+        this.teardownApi();
+        return;
+      }
+      this.joined = true;
+      this.applySpeaker();
+      this.startLevels();
+      if (this.wantMic && this.api) {
+        try {
+          const muted = await this.api.isAudioMuted();
+          if (muted) this.api.executeCommand('toggleAudio');
+        } catch { /* ignore */ }
+      }
+      this.unlock();
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private teardownApi() {
     window.clearInterval(this.levelTimer);
-    try {
-      if (this.localTrack) {
-        try { await this.conference?.removeTrack(this.localTrack); } catch { /* ignore */ }
-        try { await this.localTrack.dispose(); } catch { /* ignore */ }
-        this.localTrack = null;
-      }
-    } catch { /* ignore */ }
-    for (const id of [...this.remotes.keys()]) this.dropRemoteByUser(id);
-    try { await this.conference?.leave(); } catch { /* ignore */ }
-    this.conference = null;
-    try { this.connection?.disconnect(); } catch { /* ignore */ }
-    this.connection = null;
+    try { this.api?.dispose(); } catch { /* ignore */ }
+    this.api = null;
     this.joined = false;
+    if (this.box) this.box.innerHTML = '';
   }
 
-  private async ensureMicPermission(JitsiMeetJS: JitsiMeetJSApi) {
-    try {
-      const tracks = await JitsiMeetJS.createLocalTracks({
-        devices: ['audio'],
-        firePermissionPromptIsShownEvent: true,
-      });
-      await Promise.all(tracks.map((track) => Promise.resolve(track.dispose())));
-    } catch {
-      // getUserMedia ile bir kez daha dene
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      stream.getTracks().forEach((track) => track.stop());
+  private applySpeaker() {
+    // iframe sesini mümkün olduğunca kıs / aç
+    const iframe = this.api?.getIFrame?.();
+    if (iframe) {
+      try {
+        iframe.allow = 'camera; microphone; autoplay; display-capture; clipboard-write';
+        // aynı origin değil; volume atanamaz — muted attribute dene
+        (iframe as HTMLIFrameElement & { muted?: boolean }).muted = !this.speaker;
+      } catch { /* ignore */ }
     }
-  }
-
-  private async publishMic(on: boolean) {
-    const JitsiMeetJS = await loadJitsi();
-    if (!this.conference) return;
-
-    if (!on) {
-      if (this.localTrack) {
-        try { await this.localTrack.mute(); } catch { /* ignore */ }
-        try { await this.conference.removeTrack(this.localTrack); } catch { /* ignore */ }
-        try { await this.localTrack.dispose(); } catch { /* ignore */ }
-        this.localTrack = null;
-      }
-      this.setTalk(this.selfName, false);
-      return;
-    }
-
-    if (this.localTrack) {
-      try { await this.localTrack.unmute(); } catch { /* ignore */ }
-      return;
-    }
-
-    const tracks = await JitsiMeetJS.createLocalTracks({
-      devices: ['audio'],
-      firePermissionPromptIsShownEvent: true,
-    });
-    const audio = tracks.find((track) => track.getType() === 'audio');
-    for (const track of tracks) {
-      if (track !== audio) await Promise.resolve(track.dispose());
-    }
-    if (!audio) throw new Error('mic_denied');
-    if (!this.wantMic || this.dead) {
-      await Promise.resolve(audio.dispose());
-      return;
-    }
-    this.localTrack = audio;
-    await this.conference.addTrack(audio);
-  }
-
-  private async onRemoteTrack(track: JitsiTrack) {
-    if (track.isLocal() || track.getType() !== 'audio') return;
-    const id = track.getParticipantId();
-    this.dropRemoteByUser(id);
-    const audio = document.createElement('audio');
-    audio.autoplay = true;
-    (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
-    audio.setAttribute('playsinline', 'true');
-    audio.setAttribute('autoplay', '');
-    audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.appendChild(audio);
-    track.attach(audio);
-    audio.muted = !this.speaker;
-    audio.volume = 1;
-    void audio.play().catch(() => undefined);
-    this.remotes.set(id, { track, audio });
-    this.pumpRemotes();
-  }
-
-  private dropRemote(track: JitsiTrack) {
-    if (track.getType() !== 'audio') return;
-    this.dropRemoteByUser(track.getParticipantId());
-  }
-
-  private dropRemoteByUser(id: string) {
-    const item = this.remotes.get(id);
-    if (!item) return;
-    try { item.track.detach(item.audio); } catch { /* ignore */ }
-    item.audio.pause();
-    item.audio.remove();
-    this.remotes.delete(id);
-    this.setTalk(id, false);
-  }
-
-  private pumpRemotes() {
+    // Yerel hold her zaman küçük sesle speaker rotasını açık tutar
     this.playHold();
-    this.remotes.forEach(({ audio }) => {
-      audio.muted = !this.speaker;
-      audio.volume = 1;
-      void audio.play().catch(() => undefined);
-    });
   }
 
   private ensureHold() {
@@ -439,14 +358,10 @@ export class RoomVoice {
   }
 
   private setTalk(name: string, on: boolean) {
-    const had = this.talking.has(name);
-    if (on === had) return;
-    if (on) this.talking.add(name);
-    else this.talking.delete(name);
-    this.onTalking?.([...this.talking]);
     if (name === this.selfName && this.lastSelfSpeak !== on) {
       this.lastSelfSpeak = on;
       this.onSpeakingSelf?.(on);
+      this.onTalking?.(on ? [name] : []);
     }
   }
 
@@ -454,7 +369,7 @@ export class RoomVoice {
     window.clearInterval(this.levelTimer);
     this.levelTimer = window.setInterval(() => {
       if (this.dead) return;
-      this.setTalk(this.selfName, Boolean(this.wantMic && this.localTrack && !this.localTrack.isMuted()));
-    }, 400);
+      this.setTalk(this.selfName, this.wantMic);
+    }, 500);
   }
 }
