@@ -40,6 +40,7 @@ export function publicUser(account: ClubAccount, hideUntil = 0, seeUntil = 0, fi
     name: account.nick,
     role: account.role,
     title: account.title || undefined,
+    frame: account.frame || undefined,
     appId: account.appId || undefined,
     photo: account.photo || undefined,
     coins: account.coins ?? 0,

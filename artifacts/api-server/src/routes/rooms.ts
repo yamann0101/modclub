@@ -28,12 +28,22 @@ import {
   patchRoomSettings,
 } from "../lib/watch-rooms";
 import { listCpPairs } from "../lib/couples";
-import { hideUntilOf, seeUntilOf, fireUntilOf } from "../lib/room-hide";
+import { hideUntilOf, seeUntilOf, fireUntilOf, readGlowGrants, readFireGrants, grantNickKey } from "../lib/room-hide";
 
 const router: IRouter = Router();
 
 async function packRoom(room: Parameters<typeof publicRoom>[0], username: string) {
-  return { ...publicRoom(room, username), pairs: await listCpPairs() };
+  const [glow, fire] = await Promise.all([readGlowGrants(), readFireGrants()]);
+  const now = Date.now();
+  const pub = publicRoom(room, username);
+  pub.members = pub.members.map((member) => {
+    const key = grantNickKey(member.username);
+    return {
+      ...member,
+      glow: member.role === "ADMIN" || (glow[key] || 0) > now || (fire[key] || 0) > now,
+    };
+  });
+  return { ...pub, pairs: await listCpPairs() };
 }
 
 function fail(res: { status: (code: number) => { json: (body: unknown) => void } }, code: string) {
@@ -72,6 +82,7 @@ router.post("/rooms", async (req, res) => {
       password: body.password ? String(body.password) : undefined,
       role: account.role,
       memberTitle: account.title || undefined,
+      memberFrame: account.frame || undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -171,7 +182,11 @@ router.get("/rooms/:id", async (req, res) => {
   const raw = await readRoom(req.params.id);
   if (!raw) return fail(res, "missing");
   if (!raw.members.some((member) => member.username === account.username)) return fail(res, "member");
-  const room = await pingRoom(req.params.id, account.username, undefined, account.role);
+  const room = await pingRoom(req.params.id, account.username, {
+    title: account.title || undefined,
+    frame: account.frame || undefined,
+    role: account.role,
+  }, account.role);
   const signals = takeSignals(room, account.username);
   res.json({ room: await packRoom(room, account.username), signals });
 });
@@ -188,6 +203,7 @@ router.post("/rooms/:id/join", async (req, res) => {
       password: String((req.body as { password?: string }).password || ""),
       role: account.role,
       title: account.title || undefined,
+      frame: account.frame || undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -229,6 +245,7 @@ router.post("/rooms/:id/ping", async (req, res) => {
       kiss: body.kiss === false || typeof body.kiss === "string" ? body.kiss : undefined,
       kissAnswer: typeof body.kissAnswer === "boolean" ? body.kissAnswer : undefined,
       title: account.title || undefined,
+      frame: account.frame || undefined,
       role: account.role,
     }, account.role);
     res.json({ room: await packRoom(room, account.username) });

@@ -1,7 +1,19 @@
-export const COSMETIC_TITLES = ['ELDER', 'ASSTN', 'PRENS', 'PRENSES', 'REHANIN_HATUNU'] as const;
+export const COSMETIC_TITLES = ['ELDER', 'ASSTN', 'PRENS', 'PRENSES'] as const;
 export type CosmeticTitle = typeof COSMETIC_TITLES[number];
 export function isCosmeticTitle(value?: string | null): value is CosmeticTitle {
   return Boolean(value && (COSMETIC_TITLES as readonly string[]).includes(value));
+}
+
+export const ROOM_FRAMES = ['PRENS', 'PRENSES', 'REHANIN_HATUNU'] as const;
+export type RoomFrame = typeof ROOM_FRAMES[number];
+export function isRoomFrame(value?: string | null): value is RoomFrame {
+  return Boolean(value && (ROOM_FRAMES as readonly string[]).includes(value));
+}
+export function frameLabel(frame?: string | null) {
+  if (frame === 'REHANIN_HATUNU') return 'Rehanın Hatunu';
+  if (frame === 'PRENSES') return 'Prenses';
+  if (frame === 'PRENS') return 'Prens';
+  return '';
 }
 
 export type ClubAccount = {
@@ -10,6 +22,7 @@ export type ClubAccount = {
   nick: string;
   role: 'ADMIN' | 'ÜYE' | 'MODERATOR';
   title?: CosmeticTitle | string | null;
+  frame?: RoomFrame | string | null;
   appId?: string | null;
   photo?: string | null;
   coins?: number;

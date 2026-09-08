@@ -163,13 +163,17 @@ router.patch("/club/users/:username", async (req, res) => {
     res.status(404).json({ error: "missing" });
     return;
   }
-  const body = req.body as { role?: string; title?: string | null };
+  const body = req.body as { role?: string; title?: string | null; frame?: string | null };
   const role = body.role === "MODERATOR" || body.role === "ÜYE" || body.role === "ADMIN" ? body.role : target.role;
-  const allowedTitles = new Set(["ELDER", "ASSTN", "PRENS", "PRENSES", "REHANIN_HATUNU"]);
+  const allowedTitles = new Set(["ELDER", "ASSTN", "PRENS", "PRENSES"]);
+  const allowedFrames = new Set(["PRENS", "PRENSES", "REHANIN_HATUNU"]);
   const title = body.title && allowedTitles.has(body.title)
     ? body.title
     : body.title === null || body.title === "" ? null : target.title;
-  await upsertAccount({ ...target, role, title });
+  const frame = body.frame && allowedFrames.has(body.frame)
+    ? body.frame
+    : body.frame === null || body.frame === "" ? null : target.frame;
+  await upsertAccount({ ...target, role, title, frame });
   res.json(await snapshot(actor.username));
 });
 

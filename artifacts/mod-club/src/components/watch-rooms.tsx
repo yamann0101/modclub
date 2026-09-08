@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Settings, Shield, SkipBack, SkipForward, Sofa, Sparkles, UserX, Volume2, VolumeX, X } from 'lucide-react';
-import { avatarFor } from '@/lib/club-store';
+import { avatarFor, frameLabel } from '@/lib/club-store';
 import {
   ackWatchSignals,
   claimWatchSeat,
@@ -776,6 +776,7 @@ export function WatchRoomsPage({
   const pipDrag = useRef<{ ox: number; oy: number; x: number; y: number; moved: boolean } | null>(null);
   const hudTimer = useRef(0);
   const peers = useRef(new Map<string, RTCPeerConnection>());
+  const peerAt = useRef(new Map<string, number>());
   const localStream = useRef<MediaStream | null>(null);
   const remoteAudio = useRef(new Map<string, HTMLAudioElement>());
   const talkingRef = useRef(new Set<string>());
@@ -1205,16 +1206,8 @@ export function WatchRoomsPage({
       hiddenAt.current = 0;
       const away = stamped ? Date.now() - stamped : 0;
       const room = roomRef.current;
-      if (away > 1800) {
-        try {
-          for (const peer of peers.current.values()) peer.close();
-        } catch { /* ignore */ }
-        peers.current.clear();
-        iceBag.current.clear();
-        if (room) void syncVoice(room);
-      } else if (room) {
-        void syncVoice(room);
-      }
+      if (room) void syncVoice(room);
+      pumpRemoteAudio();
       const player = playerRef.current;
       const reviveFilm = () => {
         if (!player || !playerReady.current || !room?.videoId) return;
@@ -1259,13 +1252,16 @@ export function WatchRoomsPage({
     const watchdog = window.setInterval(() => {
       if (leftRef.current) return;
       keepAlive();
+      pumpRemoteAudio();
       if (document.hidden) {
         keepFilmPlaying();
         return;
       }
+      const room = roomRef.current;
+      if (room) void syncVoice(room);
       if (!wantMicRef.current) return;
       if (!micLive()) void reviveMic(true);
-    }, 1800);
+    }, 1200);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHidden);
@@ -1316,9 +1312,13 @@ export function WatchRoomsPage({
       setCinemaKey((value) => value + 1);
     }
     setOpen(room);
-    if (room.you.micOn && !room.you.muted) {
-      wantMicRef.current = true;
-      void reviveMic(true);
+    if (remount) {
+      wantMicRef.current = false;
+      localStream.current?.getTracks().forEach((track) => track.stop());
+      localStream.current = null;
+      void pingWatchRoom(room.id, { micOn: false, speaking: false }).then((data) => {
+        if (!leftRef.current) setOpen(data.room);
+      }).catch(() => undefined);
     }
   }
 
@@ -1519,8 +1519,34 @@ export function WatchRoomsPage({
     }
   }
 
+  function pumpRemoteAudio() {
+    holdSpeakerRoute(speakerHold.current);
+    try { void audioCtx.current?.resume(); } catch { /* ignore */ }
+    remoteAudio.current.forEach((audio) => {
+      audio.muted = !speakerOnRef.current;
+      audio.volume = 1;
+      const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
+      if (setSink) void setSink.call(audio, '').catch(() => undefined);
+      void audio.play().catch(() => undefined);
+    });
+  }
+
+  function keepFilmSpeaker() {
+    holdSpeakerRoute(speakerHold.current);
+    const player = playerRef.current;
+    if (!player || !playerReady.current) return;
+    if (videoMutedRef.current || videoVolRef.current <= 0) return;
+    try {
+      player.unMute();
+      applyLocalVolume(player);
+    } catch {
+      /* player busy */
+    }
+  }
+
   function unlockAudio() {
     holdSpeakerRoute(speakerHold.current);
+    pumpRemoteAudio();
     try {
       if (audioCtx.current) void audioCtx.current.resume();
     } catch {
@@ -1617,8 +1643,16 @@ export function WatchRoomsPage({
     }
     watchLevel(user.username, stream.clone());
     holdSpeakerRoute(speakerHold.current);
-    window.setTimeout(() => holdSpeakerRoute(speakerHold.current), 120);
-    window.setTimeout(() => holdSpeakerRoute(speakerHold.current), 500);
+    window.setTimeout(() => {
+      holdSpeakerRoute(speakerHold.current);
+      keepFilmSpeaker();
+      pumpRemoteAudio();
+    }, 80);
+    window.setTimeout(() => {
+      holdSpeakerRoute(speakerHold.current);
+      keepFilmSpeaker();
+      pumpRemoteAudio();
+    }, 400);
   }
 
   async function applyMicToPeers(room: PublicRoom) {
@@ -1670,18 +1704,33 @@ export function WatchRoomsPage({
       audio.autoplay = true;
       audio.playsInline = true;
       audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('webkit-playsinline', 'true');
       audio.setAttribute('autoplay', '');
-      audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;';
+      (audio as HTMLAudioElement & { disableRemotePlayback?: boolean }).disableRemotePlayback = true;
+      audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
       document.body.appendChild(audio);
       remoteAudio.current.set(name, audio);
     }
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+      track.onunmute = () => {
+        if (audio) {
+          if (audio.srcObject !== stream) audio.srcObject = stream;
+          void audio.play().catch(() => undefined);
+        }
+      };
+      track.onmute = () => {
+        window.setTimeout(() => { void audio?.play().catch(() => undefined); }, 200);
+      };
+    });
     if (audio.srcObject !== stream) audio.srcObject = stream;
     audio.muted = !speakerOnRef.current;
     audio.volume = 1;
     holdSpeakerRoute(speakerHold.current);
     const setSink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
-    if (setSink) void setSink.call(audio, 'default').catch(() => undefined);
+    if (setSink) void setSink.call(audio, '').catch(() => undefined);
     void audio.play().catch(() => undefined);
+    window.setTimeout(() => { void audio?.play().catch(() => undefined); }, 250);
   }
 
   async function attachLocal(peer: RTCPeerConnection) {
@@ -1761,6 +1810,7 @@ export function WatchRoomsPage({
     existing?.close();
     const peer = new RTCPeerConnection(ICE);
     peers.current.set(peerName, peer);
+    peerAt.current.set(peerName, Date.now());
     peer.addTransceiver('audio', { direction: 'sendrecv' });
     await attachLocal(peer);
     peer.onicecandidate = (event) => {
@@ -1770,9 +1820,10 @@ export function WatchRoomsPage({
       const stream = event.streams[0] || new MediaStream([event.track]);
       event.track.enabled = true;
       bindRemoteAudio(peerName, stream);
-      unlockAudio();
+      pumpRemoteAudio();
     };
     peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'connected') pumpRemoteAudio();
       if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
         try { peer.restartIce(); } catch { /* ignore */ }
         window.setTimeout(() => {
@@ -1780,9 +1831,21 @@ export function WatchRoomsPage({
           const live = roomRef.current;
           if (!live) return;
           peers.current.delete(peerName);
+          peerAt.current.delete(peerName);
           peer.close();
-          void ensurePeer(live, peerName, user.username.localeCompare(peerName) < 0);
-        }, 800);
+          void ensurePeer(live, peerName, true);
+        }, 1200);
+      }
+    };
+    peer.oniceconnectionstatechange = () => {
+      if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') pumpRemoteAudio();
+      if (peer.iceConnectionState === 'disconnected') {
+        window.setTimeout(() => {
+          if (peers.current.get(peerName) !== peer) return;
+          if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
+            try { peer.restartIce(); } catch { /* ignore */ }
+          }
+        }, 900);
       }
     };
     if (initiate) await renegotiate(room, peerName, peer);
@@ -1796,6 +1859,7 @@ export function WatchRoomsPage({
       if (!names.has(name)) {
         peers.current.get(name)?.close();
         peers.current.delete(name);
+        peerAt.current.delete(name);
         iceBag.current.delete(name);
         const audio = remoteAudio.current.get(name);
         if (audio) {
@@ -1815,16 +1879,18 @@ export function WatchRoomsPage({
       const peer = peers.current.get(member.username);
       const dead = !peer || peer.connectionState === 'failed' || peer.connectionState === 'closed';
       if (dead) {
-        await ensurePeer(room, member.username, user.username.localeCompare(member.username) < 0);
+        await ensurePeer(room, member.username, true);
       } else {
         await attachLocal(peer);
+        if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
+          try { peer.restartIce(); } catch { /* ignore */ }
+        }
+        const born = peerAt.current.get(member.username) || 0;
+        const stuck = peer.connectionState !== 'connected' && Date.now() - born > 1800;
+        if (stuck && peer.signalingState === 'stable') await renegotiate(room, member.username, peer);
       }
     }
-    remoteAudio.current.forEach((audio) => {
-      audio.muted = !speakerOnRef.current;
-      audio.volume = 1;
-      void audio.play().catch(() => undefined);
-    });
+    pumpRemoteAudio();
   }
 
   function teardownVoice() {
@@ -1834,6 +1900,7 @@ export function WatchRoomsPage({
     localStream.current = null;
     peers.current.forEach((peer) => peer.close());
     peers.current.clear();
+    peerAt.current.clear();
     voiceNodes.current.forEach((node) => {
       try { node.source.disconnect(); node.gain.disconnect(); } catch { /* ignore */ }
     });
@@ -1872,7 +1939,8 @@ export function WatchRoomsPage({
         await applyMicToPeers(open);
         const next = await pingWatchRoom(open.id, { micOn: true });
         setOpen(next.room);
-        if (playerRef.current) applyLocalVolume(playerRef.current);
+        keepFilmSpeaker();
+        pumpRemoteAudio();
       } catch {
         wantMicRef.current = false;
         setNotice('Mikrofon izni gerekli. Tarayıcıdan sese izin ver.');
@@ -1887,7 +1955,8 @@ export function WatchRoomsPage({
     for (const peer of peers.current.values()) await attachLocal(peer);
     const next = await pingWatchRoom(open.id, { micOn: false, speaking: false });
     setOpen(next.room);
-    if (playerRef.current) applyLocalVolume(playerRef.current);
+    keepFilmSpeaker();
+    pumpRemoteAudio();
   }
 
   function toggleSpeaker() {
@@ -2622,14 +2691,17 @@ export function WatchRoomsPage({
                   : '';
                 const react = mineReact || liveSeatEmoji(member, open.serverNow, receivedAtRef.current, reactNow || Date.now());
                 const reactMark = SEAT_EMOJIS.find((item) => item.id === react)?.mark || '';
-                const frame = member?.title === 'PRENS' ? 'is-frame-prens'
-                  : member?.title === 'PRENSES' ? 'is-frame-prenses'
-                    : member?.title === 'REHANIN_HATUNU' ? 'is-frame-hatun'
+                const frameKey = member?.frame
+                  || (member?.title === 'PRENS' || member?.title === 'PRENSES' || member?.title === 'REHANIN_HATUNU' ? member.title : '');
+                const frame = frameKey === 'PRENS' ? 'is-frame-prens'
+                  : frameKey === 'PRENSES' ? 'is-frame-prenses'
+                    : frameKey === 'REHANIN_HATUNU' ? 'is-frame-hatun'
                       : '';
+                const worn = frameLabel(frameKey);
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${frame} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${kissPick && canPick ? 'is-kiss-target' : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${admin ? 'is-admin' : ''} ${frame} ${member?.glow ? 'is-glow' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${kissPick && canPick ? 'is-kiss-target' : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
                     onClick={() => {
                       if (!member) void sitOn(seat);
                       else if (kissPick && member.username !== user.username) void askKiss(member.username);
@@ -2639,7 +2711,7 @@ export function WatchRoomsPage({
                     }}
                   >
                     <div className="mic-ring">
-                      {owner && !react && <span className="mic-wings" aria-hidden="true" />}
+                      {worn && !react && <em className="mic-frame-title">{worn}</em>}
                       <div className={`mic-avatar ${react ? 'is-react' : ''} ${live && !react ? 'is-talking' : ''}`}>
                         {live && !react && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}
                         {react ? (
@@ -2675,7 +2747,7 @@ export function WatchRoomsPage({
                           : owner ? 'Yönetici' : admin ? 'Admin' : member?.muted ? 'Susturuldu' : live ? 'Konuşuyor' : member ? `Mik ${seat + 1}` : 'Otur'
                       }</span>
                     </div>
-                    <strong>{member ? member.nick : `Mik ${seat + 1}`}</strong>
+                    <strong className={member?.glow ? 'is-glow-name' : ''}>{member ? member.nick : `Mik ${seat + 1}`}</strong>
                     {pick === member?.username && canPick && member && (
                       <div className="mic-menu" onClick={(event) => event.stopPropagation()}>
                         {!arePair(open.pairs, user.username, member.username) && (

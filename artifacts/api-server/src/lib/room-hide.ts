@@ -113,13 +113,46 @@ export async function grantFirework(username: string, days: number) {
   return grants;
 }
 
+const GLOW_DOC = "room_glow_grants";
+
+export async function readGlowGrants() {
+  const raw = await getDoc<Record<string, number>>(GLOW_DOC, {});
+  const now = Date.now();
+  const live: Record<string, number> = {};
+  for (const [name, until] of Object.entries(raw || {})) {
+    if (typeof until === "number" && until > now) live[nickKey(name)] = until;
+  }
+  return live;
+}
+
+export async function glowUntilOf(username: string) {
+  const grants = await readGlowGrants();
+  return grants[nickKey(username)] || 0;
+}
+
+export async function grantGlowName(username: string, days: number) {
+  const grants = await readGlowGrants();
+  const key = nickKey(username);
+  if (!key) throw new Error("missing");
+  if (days <= 0) delete grants[key];
+  else grants[key] = Date.now() + days * 24 * 60 * 60 * 1000;
+  await setDoc(GLOW_DOC, grants);
+  return grants;
+}
+
+export function grantNickKey(value: string) {
+  return nickKey(value);
+}
+
 export async function grantRoomPack(username: string, days: number) {
   await grantHideRooms(username, days);
   await grantSeeHidden(username, days);
   await grantFirework(username, days);
+  await grantGlowName(username, days);
   return {
     hide: await hideUntilOf(username),
     see: await seeUntilOf(username),
     fire: await fireUntilOf(username),
+    glow: await glowUntilOf(username),
   };
 }

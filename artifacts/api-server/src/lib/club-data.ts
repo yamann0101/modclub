@@ -1,6 +1,6 @@
 import { query } from "./pg";
 import { publicSlot, readSlot } from "./olympus-slot";
-import { readHideGrants, readSeeGrants, readFireGrants } from "./room-hide";
+import { readHideGrants, readSeeGrants, readFireGrants, readGlowGrants } from "./room-hide";
 import { dispatchClubPush } from "./web-push";
 import { setWalletCoins } from "./economy";
 import { DAILY_PRIZES } from "./prize-art";
@@ -13,6 +13,7 @@ export type ClubAccount = {
   nick: string;
   role: ClubRole;
   title?: string | null;
+  frame?: string | null;
   appId?: string | null;
   photo?: string | null;
   coins?: number;
@@ -155,6 +156,8 @@ export async function ensureSchema() {
   `);
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`);
   await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS vip_until bigint`);
+  await query(`ALTER TABLE club_accounts ADD COLUMN IF NOT EXISTS frame text`);
+  await query(`UPDATE club_accounts SET frame = 'REHANIN_HATUNU', title = NULL WHERE title = 'REHANIN_HATUNU' AND (frame IS NULL OR frame = '')`);
   await query(`INSERT INTO club_docs (key, value) VALUES ('banners', $1::jsonb) ON CONFLICT (key) DO NOTHING`, [JSON.stringify(DEFAULT_BANNERS)]);
   for (const key of ["giveaways", "films", "apps", "chat", "timeouts", "notices", "events", "rooms_index", "home_news", "home_announcements", "home_events"]) {
     await query(`INSERT INTO club_docs (key, value) VALUES ($1, '[]'::jsonb) ON CONFLICT (key) DO NOTHING`, [key]);
@@ -187,17 +190,21 @@ function rowToAccount(row: {
   nick: string;
   role: string;
   title: string | null;
+  frame?: string | null;
   app_id: string | null;
   photo: string | null;
   coins?: number | null;
   vip_until?: number | string | null;
 }): ClubAccount {
+  const title = row.title === "REHANIN_HATUNU" ? null : row.title;
+  const frame = row.frame || (row.title === "REHANIN_HATUNU" ? "REHANIN_HATUNU" : null);
   return {
     username: row.username,
     password: row.password,
     nick: row.nick,
     role: row.role === "ADMIN" || row.role === "MODERATOR" ? row.role : "ÜYE",
-    title: row.title,
+    title,
+    frame,
     appId: row.app_id,
     photo: row.photo,
     coins: Math.max(0, Number(row.coins || 0)),
@@ -216,7 +223,7 @@ export async function listAccounts(): Promise<ClubAccount[]> {
     photo: string | null;
     coins: number | null;
     vip_until: number | string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts ORDER BY created_at ASC");
+  }>("SELECT username, password, nick, role, title, frame, app_id, photo, coins, vip_until FROM club_accounts ORDER BY created_at ASC");
   return result.rows.map(rowToAccount);
 }
 
@@ -231,7 +238,7 @@ export async function findAccount(username: string) {
     photo: string | null;
     coins: number | null;
     vip_until: number | string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(username) = lower($1)", [username.trim()]);
+  }>("SELECT username, password, nick, role, title, frame, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(username) = lower($1)", [username.trim()]);
   return result.rows[0] ? rowToAccount(result.rows[0]) : null;
 }
 
@@ -246,22 +253,23 @@ export async function findAccountByNick(nick: string) {
     photo: string | null;
     coins: number | null;
     vip_until: number | string | null;
-  }>("SELECT username, password, nick, role, title, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(nick) = lower($1)", [nick.trim()]);
+  }>("SELECT username, password, nick, role, title, frame, app_id, photo, coins, vip_until FROM club_accounts WHERE lower(nick) = lower($1)", [nick.trim()]);
   return result.rows[0] ? rowToAccount(result.rows[0]) : null;
 }
 
 export async function upsertAccount(account: ClubAccount) {
   await query(
-    `INSERT INTO club_accounts (username, password, nick, role, title, app_id, photo)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO club_accounts (username, password, nick, role, title, frame, app_id, photo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (username) DO UPDATE SET
        password = EXCLUDED.password,
        nick = EXCLUDED.nick,
        role = EXCLUDED.role,
        title = EXCLUDED.title,
+       frame = EXCLUDED.frame,
        app_id = EXCLUDED.app_id,
        photo = EXCLUDED.photo`,
-    [account.username.trim(), account.password, account.nick.trim(), account.role, account.title ?? null, account.appId ?? null, account.photo ?? null],
+    [account.username.trim(), account.password, account.nick.trim(), account.role, account.title ?? null, account.frame ?? null, account.appId ?? null, account.photo ?? null],
   );
 }
 
@@ -429,6 +437,7 @@ export async function snapshot(username?: string) {
   const hideGrants = me?.role === "ADMIN" ? await readHideGrants() : {};
   const seeGrants = me?.role === "ADMIN" ? await readSeeGrants() : {};
   const fireGrants = me?.role === "ADMIN" ? await readFireGrants() : {};
+  const glowGrants = me?.role === "ADMIN" ? await readGlowGrants() : {};
   return {
     installed: isInstalled(settings),
     settings: settings
@@ -457,6 +466,7 @@ export async function snapshot(username?: string) {
     hideGrants,
     seeGrants,
     fireGrants,
+    glowGrants,
   };
 }
 

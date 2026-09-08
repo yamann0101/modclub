@@ -14,7 +14,7 @@ import { CpAskOverlay, CpProfileCard } from '@/components/cp-profile';
 import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway, HomeAnnouncement, HomeEvent, HomeNews } from '@/lib/club-store';
+import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway, HomeAnnouncement, HomeEvent, HomeNews, RoomFrame } from '@/lib/club-store';
 import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, isCosmeticTitle, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
 import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, startNotifyPolling, syncClubPush, wasNotifyPrompted } from '@/lib/notifications';
 import { PRIZE_TEMPLATES } from '@/lib/prize-art';
@@ -566,7 +566,6 @@ function displayRankKind(role?: string, title?: CosmeticTitle | string) {
   if (title === 'ASSTN') return 'asstn' as const;
   if (title === 'PRENS') return 'prens' as const;
   if (title === 'PRENSES') return 'prenses' as const;
-  if (title === 'REHANIN_HATUNU') return 'hatun' as const;
   return null;
 }
 
@@ -919,6 +918,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [hideGrants, setHideGrants] = useState<Record<string, number>>({});
   const [seeGrants, setSeeGrants] = useState<Record<string, number>>({});
   const [fireGrants, setFireGrants] = useState<Record<string, number>>({});
+  const [glowGrants, setGlowGrants] = useState<Record<string, number>>({});
   const [timeouts, setTimeouts] = useState<ChatTimeout[]>([]);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [banners, setBanners] = useState<Banner[]>(slides);
@@ -1078,6 +1078,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setHideGrants(data.hideGrants || {});
     setSeeGrants(data.seeGrants || {});
     setFireGrants(data.fireGrants || {});
+    setGlowGrants(data.glowGrants || {});
     setAdminUsers((data.accounts || []).map((account) => ({
       id: account.username,
       username: account.username,
@@ -2095,7 +2096,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                     <div className="grid gap-2">
                       {adminUsers.map((member) => {
                         const account = accounts.find((item) => nickKey(item.username) === nickKey(member.username) || nickKey(item.nick) === nickKey(member.nick));
-                        const memberTitle = account?.title;
+                        const memberTitle = account?.title === 'REHANIN_HATUNU' ? '' : account?.title;
+                        const memberFrame = account?.frame || (account?.title === 'REHANIN_HATUNU' ? 'REHANIN_HATUNU' : '');
                         return (
                           <div key={member.id} className="admin-row">
                             <img src={member.photo} alt="" className="size-10 rounded-full object-cover" />
@@ -2110,12 +2112,17 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                               <button type="button" onClick={() => { void adminWallet(member.username, 'give', 100).then(applySnapshot); setNotice(`${member.nick} +100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">+100</button>
                               <button type="button" onClick={() => { void adminWallet(member.username, 'take', 100).then(applySnapshot); setNotice(`${member.nick} −100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">−100</button>
                               <button type="button" onClick={() => { void adminWallet(member.username, 'reset').then(applySnapshot); setNotice(`${member.nick} cüzdanı sıfırlandı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">Sıfırla</button>
-                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} artık ${next.replaceAll('_', ' ')}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[8.4rem] px-2 text-[.58rem] font-bold">
+                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} unvanı ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[8.4rem] px-2 text-[.58rem] font-bold">
                                 <option value="">Unvan yok</option>
                                 <option value="ELDER">ELDER</option>
                                 <option value="ASSTN">ASSTN</option>
                                 <option value="PRENS">PRENS</option>
                                 <option value="PRENSES">PRENSES</option>
+                              </select>
+                              <select value={memberFrame || ''} onChange={(event) => { const next = event.target.value as RoomFrame | ''; void patchClubUser(member.username, { frame: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} çerçevesi takıldı` : `${member.nick} çerçevesi alındı`); }} className="admin-field h-8 w-[9.2rem] px-2 text-[.58rem] font-bold">
+                                <option value="">Çerçeve yok</option>
+                                <option value="PRENS">Prens çerçevesi</option>
+                                <option value="PRENSES">Prenses çerçevesi</option>
                                 <option value="REHANIN_HATUNU">Rehanın Hatunu</option>
                               </select>
                               {member.role !== 'ADMIN' && (
@@ -2132,11 +2139,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                                       hideGrants[member.username.toLowerCase()] || hideGrants[member.nick.toLowerCase()] || 0,
                                       seeGrants[member.username.toLowerCase()] || seeGrants[member.nick.toLowerCase()] || 0,
                                       fireGrants[member.username.toLowerCase()] || fireGrants[member.nick.toLowerCase()] || 0,
+                                      glowGrants[member.username.toLowerCase()] || glowGrants[member.nick.toLowerCase()] || 0,
                                     );
                                     const left = until > now ? Math.max(1, Math.ceil((until - now) / 86_400_000)) : 0;
                                     return left ? <span className="rounded-full bg-[#4c1d95] px-2 py-1 font-mono text-[.48rem] font-bold text-[#f5d0fe]">{left}g paket</span> : null;
                                   })()}
-                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda paketi: gizli oda + VIP animasyonlu oda + havai fişek`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1g</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda paketi: gizli oda + VIP oda + fişek + renkli isim`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1g</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 7).then(applySnapshot); setNotice(`${member.nick} 1 hafta oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1hf</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 30).then(applySnapshot); setNotice(`${member.nick} 1 ay oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1ay</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 0).then(applySnapshot); setNotice(`${member.nick} oda paketi alındı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paketi al</button>

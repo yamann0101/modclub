@@ -6,6 +6,7 @@ export type SessionUser = {
   name: string;
   role: 'ADMIN' | 'ÜYE' | 'MODERATOR';
   title?: string;
+  frame?: string;
   appId?: string;
   photo?: string;
   coins?: number;
@@ -65,6 +66,7 @@ export type ClubSnapshot = {
   hideGrants?: Record<string, number>;
   seeGrants?: Record<string, number>;
   fireGrants?: Record<string, number>;
+  glowGrants?: Record<string, number>;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -163,7 +165,7 @@ export async function grantRoomPack(username: string, days: number) {
   return request<ClubSnapshot>('/api/club/room-pack', { method: 'POST', body: JSON.stringify({ username, days }) });
 }
 
-export async function patchClubUser(username: string, body: { role?: string; title?: string | null }) {
+export async function patchClubUser(username: string, body: { role?: string; title?: string | null; frame?: string | null }) {
   return request<ClubSnapshot>(`/api/club/users/${encodeURIComponent(username)}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -262,7 +264,9 @@ export type RoomMember = {
   emoji?: string;
   emojiAt?: number;
   title?: string;
+  frame?: string;
   role?: string;
+  glow?: boolean;
 };
 
 export type RoomChat = {

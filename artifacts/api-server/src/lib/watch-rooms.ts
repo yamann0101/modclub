@@ -27,7 +27,9 @@ export type RoomMember = {
   emoji?: string;
   emojiAt?: number;
   title?: string;
+  frame?: string;
   role?: string;
+  glow?: boolean;
 };
 
 export type RoomChat = {
@@ -344,6 +346,7 @@ export async function createRoom(input: {
   password?: string;
   role?: string;
   memberTitle?: string;
+  memberFrame?: string;
 }) {
   const title = input.title.trim().slice(0, 48);
   if (!title) throw new Error("title");
@@ -381,6 +384,7 @@ export async function createRoom(input: {
       speaking: false,
       lastSeen: now,
       title: input.memberTitle,
+      frame: input.memberFrame,
       role: input.role,
     }],
     hosts: [],
@@ -403,6 +407,7 @@ export async function joinRoom(input: {
   password?: string;
   role?: string;
   title?: string;
+  frame?: string;
 }) {
   const raw = await readRoom(input.id);
   if (!raw) throw new Error("missing");
@@ -418,7 +423,10 @@ export async function joinRoom(input: {
     existing.nick = input.nick;
     existing.photo = input.photo;
     existing.lastSeen = Date.now();
+    existing.micOn = false;
+    existing.speaking = false;
     existing.title = input.title;
+    existing.frame = input.frame;
     existing.role = input.role;
     await writeRoom(room);
     return room;
@@ -437,6 +445,7 @@ export async function joinRoom(input: {
     speaking: false,
     lastSeen: now,
     title: input.title,
+    frame: input.frame,
     role: input.role,
   });
   room.lastJoin = { nick: input.nick, username: input.username, at: now };
@@ -454,7 +463,7 @@ function fireworkFrom(patch: FireworkPatch, now: number) {
   return { text: String(payload.text || "").trim().slice(0, 48), kind, ms, at: now };
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean; title?: string; role?: string }, role?: string) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean; title?: string; frame?: string; role?: string }, role?: string) {
   const latest = await readRoom(id);
   if (!latest) throw new Error("missing");
   if ((latest.left || []).includes(username)) throw new Error("member");
@@ -464,6 +473,7 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   if (!member) throw new Error("member");
   member.lastSeen = now;
   if (patch?.title !== undefined) member.title = patch.title;
+  if (patch?.frame !== undefined) member.frame = patch.frame;
   if (patch?.role !== undefined) member.role = patch.role;
   if (typeof patch?.emoji === "string" && EMOJI_IDS.has(patch.emoji)) {
     member.emoji = patch.emoji;
