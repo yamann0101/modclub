@@ -10,9 +10,6 @@ router.get("/setup", async (req, res) => {
   res.json({
     installed: isInstalled(settings),
     clubName: settings?.clubName ?? "MOD CLUB",
-    adminName: settings?.adminName ?? "",
-    adminEmail: settings?.adminEmail ?? "",
-    adminUsername: settings?.adminUsername ?? "",
     theme: settings?.theme ?? "electric",
     me: me ? publicUser(me) : null,
   });

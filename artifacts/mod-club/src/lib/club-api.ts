@@ -92,9 +92,6 @@ export async function fetchPublicSetup() {
     return await request<{
       installed: boolean;
       clubName: string;
-      adminName: string;
-      adminEmail: string;
-      adminUsername: string;
       theme: string;
       me: SessionUser | null;
     }>('/api/setup');

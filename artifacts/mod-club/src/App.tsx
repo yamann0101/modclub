@@ -270,13 +270,7 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [adminHint, setAdminHint] = useState('');
-
-  useEffect(() => {
-    void fetchPublicSetup().then((data) => {
-      if (data?.adminUsername) setAdminHint(data.adminUsername);
-    });
-  }, []);
+  const [busy, setBusy] = useState(false);
 
   const requestInstallReset = () => {
     resetClubSession();
@@ -300,6 +294,7 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
       return;
     }
 
+    setBusy(true);
     try {
       const session = await loginUser(loginName, typedPassword);
       onLogin(session);
@@ -309,29 +304,46 @@ function LoginScreen({ onLogin, onReset }: { onLogin: (session: UserSession) => 
       else if (code === 'invalid') setError('Kullanıcı adı en az 3, şifre en az 4 karakter olmalı.');
       else if (code === 'not_installed') setError('Kulüp kurulumu henüz tamamlanmadı.');
       else setError('Sunucuya bağlanılamadı. Postgres ve Railway servisinin açık olduğundan emin ol.');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
     <div className="login-page grain">
-      <div className="login-glow login-glow-one" />
-      <div className="login-glow login-glow-two" />
+      <div className="login-sky" aria-hidden="true">
+        <div className="login-glow login-glow-one" />
+        <div className="login-glow login-glow-two" />
+        <div className="login-glow login-glow-three" />
+        <div className="login-orbit login-orbit-one" />
+        <div className="login-orbit login-orbit-two" />
+        <span className="login-spark login-spark-a" />
+        <span className="login-spark login-spark-b" />
+        <span className="login-spark login-spark-c" />
+        <span className="login-spark login-spark-d" />
+      </div>
       <div className="login-panel">
         <div className="login-top">
-          <ClubLogo size={56} className="club-logo-mark login-logo" />
+          <span className="login-top-mark">MOD CLUB</span>
           <div className="login-install"><PwaInstallChip /></div>
         </div>
         <div className="login-body">
-          <p className="page-kicker">ÜYE GİRİŞİ</p>
+          <div className="login-mark">
+            <span className="login-ring" />
+            <ClubLogo size={88} className="club-logo-mark login-logo" />
+          </div>
+          <p className="page-kicker login-kicker">ÜYE GİRİŞİ</p>
           <h2>Hoş geldin.</h2>
-          <p className="login-lead">Kullanıcı adı ve şifreni yaz, otomatik gir. ID’yi sonra profilden eklersin.</p>
+          <p className="login-lead">Kullanıcı adı ve şifrenle gir. İlk kez yazıyorsan hesabın otomatik açılır.</p>
           <form onSubmit={submitAuth} className="login-form">
             <label className="login-label">Kullanıcı adı<div className="relative"><UserRound className="login-field-icon" size={17} /><input autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setError(''); }} placeholder="Kullanıcı adın" className="login-field" /></div></label>
             <label className="login-label">Şifre<div className="relative"><KeyRound className="login-field-icon" size={17} /><input autoComplete="current-password" type="password" value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} placeholder="Şifren" className="login-field" /></div></label>
             {error && <p role="alert" className="login-error">{error}</p>}
-            <button type="submit" className="login-submit">MOD CLUB’a giriş yap <ArrowRight size={17} /></button>
+            <button type="submit" className={`login-submit ${busy ? 'is-busy' : ''}`} disabled={busy}>
+              <span className="login-submit-shine" aria-hidden="true" />
+              {busy ? 'Giriş yapılıyor…' : <>MOD CLUB’a giriş yap <ArrowRight size={17} /></>}
+            </button>
           </form>
-          <p className="login-admin-note"><strong>Admin:</strong> {adminHint ? <>kullanıcı adı <b>{adminHint}</b></> : <>önce kurulumu tamamla.</>}</p>
           <button type="button" onClick={requestInstallReset} className="login-clear">Giriş bilgilerini temizle</button>
         </div>
       </div>
