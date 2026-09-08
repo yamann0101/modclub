@@ -47,6 +47,9 @@ export type Giveaway = {
   kind?: 'manual' | 'daily';
   coins?: number;
   paid?: boolean;
+  cancelled?: boolean;
+  publishAt?: string;
+  schedule?: { days: number[]; hour: number; minute: number; durationMs?: number };
 };
 
 export type ContentCard = {
@@ -126,9 +129,12 @@ export const DEFAULT_BANNERS: Banner[] = [
 ];
 
 export function giveawayStatus(item: Giveaway, now = Date.now()) {
+  if (item.cancelled) return 'cancelled' as const;
   const announce = new Date(item.announceAt).getTime();
   if (Number.isNaN(announce)) return 'invalid' as const;
-  if (now >= announce) return 'announced' as const;
+  if (item.winner || now >= announce) return 'announced' as const;
+  const publish = item.publishAt ? new Date(item.publishAt).getTime() : 0;
+  if (publish && now < publish) return 'scheduled' as const;
   return 'open' as const;
 }
 

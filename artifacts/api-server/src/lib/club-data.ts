@@ -45,6 +45,9 @@ export type Giveaway = {
   kind?: "manual" | "daily";
   coins?: number;
   paid?: boolean;
+  cancelled?: boolean;
+  publishAt?: string;
+  schedule?: { days: number[]; hour: number; minute: number; durationMs?: number };
 };
 
 export type ContentCard = {
@@ -306,7 +309,7 @@ export function isInstalled(settings: ClubSettings | null) {
 
 function settleGiveaways(items: Giveaway[], now = Date.now()) {
   return items.map((item) => {
-    if (item.winner || !item.announceAt) return item;
+    if (item.cancelled || item.winner || !item.announceAt) return item;
     const announce = new Date(item.announceAt).getTime();
     if (Number.isNaN(announce) || now < announce) return item;
     if (item.participants.length === 0) return { ...item, winner: "Katılım yok" };
@@ -386,6 +389,81 @@ async function tickDailyGiveaways(items: Giveaway[]) {
   return [next, ...items].slice(0, 80);
 }
 
+function istanbulWeekday(ms: number) {
+  const label = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Istanbul", weekday: "short" }).format(new Date(ms));
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[label] ?? 0;
+}
+
+function scheduleDays(days?: number[]) {
+  const clean = [...new Set((days || []).map((day) => Math.max(0, Math.min(6, Math.round(day)))))];
+  return clean.length ? clean : [0, 1, 2, 3, 4, 5, 6];
+}
+
+function sameSchedule(left?: Giveaway["schedule"], right?: Giveaway["schedule"]) {
+  if (!left || !right) return false;
+  const a = scheduleDays(left.days).slice().sort().join(",");
+  const b = scheduleDays(right.days).slice().sort().join(",");
+  return a === b && left.hour === right.hour && left.minute === right.minute;
+}
+
+function liveScheduleStart(schedule: NonNullable<Giveaway["schedule"]>, durationMs: number, now: number) {
+  const days = scheduleDays(schedule.days);
+  for (let add = 0; add <= 8; add += 1) {
+    const probe = now - add * 24 * 60 * 60 * 1000;
+    const parts = istanbulParts(probe);
+    const stamp = istanbulMs(parts.y, parts.m, parts.d, schedule.hour, schedule.minute);
+    if (!days.includes(istanbulWeekday(stamp))) continue;
+    if (now >= stamp && now < stamp + durationMs) return stamp;
+  }
+  return 0;
+}
+
+async function tickScheduledGiveaways(items: Giveaway[]) {
+  const now = Date.now();
+  const extra: Giveaway[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item.schedule) continue;
+    const key = `${item.title}|${scheduleDays(item.schedule.days).slice().sort().join(",")}|${item.schedule.hour}:${item.schedule.minute}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const durationMs = Math.max(5 * 60_000, Number(item.schedule.durationMs) || 2 * 60 * 60 * 1000);
+    const live = [...items, ...extra].some((row) => (
+      sameSchedule(row.schedule, item.schedule)
+      && row.title === item.title
+      && !row.winner
+      && !row.cancelled
+      && Date.parse(row.announceAt) > now
+    ));
+    if (live) continue;
+    const start = liveScheduleStart(item.schedule, durationMs, now);
+    if (!start) continue;
+    const id = `sched-${item.schedule.hour}${String(item.schedule.minute).padStart(2, "0")}-${start}`;
+    if ([...items, ...extra].some((row) => row.id === id)) continue;
+    extra.push({
+      id,
+      title: item.title,
+      prizeText: item.prizeText,
+      prizeImage: item.prizeImage,
+      coins: item.coins,
+      kind: "manual",
+      participants: [],
+      schedule: { ...item.schedule, durationMs },
+      publishAt: new Date(start).toISOString(),
+      announceAt: new Date(start + durationMs).toISOString(),
+    });
+    await addEvent({
+      id: `giveaway-${id}`,
+      type: "giveaway",
+      title: "Yeni çekiliş",
+      body: `${item.title} yayınlandı. Ödül: ${item.prizeText || item.title}.`,
+      at: now,
+    });
+  }
+  return extra.length ? [...extra, ...items].slice(0, 80) : items;
+}
+
 export async function readGiveaways() {
   const items = await getDoc<Giveaway[]>("giveaways", []);
   const source = Array.isArray(items) ? items : [];
@@ -411,8 +489,9 @@ export async function readGiveaways() {
     paid.push(next);
   }
   const withDaily = await tickDailyGiveaways(paid);
-  if (JSON.stringify(source) !== JSON.stringify(withDaily)) await setDoc("giveaways", withDaily);
-  return withDaily;
+  const withSched = await tickScheduledGiveaways(withDaily);
+  if (JSON.stringify(source) !== JSON.stringify(withSched)) await setDoc("giveaways", withSched);
+  return withSched;
 }
 
 export async function snapshot(username?: string) {

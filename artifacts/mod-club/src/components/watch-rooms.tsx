@@ -1262,6 +1262,7 @@ export function WatchRoomsPage({
     };
     const onHidden = () => {
       hiddenAt.current = Date.now();
+      parkMic(true);
       keepAlive();
       keepFilmPlaying();
     };
@@ -1299,8 +1300,18 @@ export function WatchRoomsPage({
       window.setTimeout(reviveFilm, 1200);
       window.setTimeout(() => {
         holdSpeakerRoute(speakerHold.current);
+        keepFilmSpeaker();
       }, 700);
-      if (wantMicRef.current && (away > 400 || !micLive())) void reviveMic(true);
+      const restoreMic = wantMicRef.current;
+      if (!restoreMic) {
+        parkMic(false);
+        return;
+      }
+      window.setTimeout(() => {
+        if (document.hidden || !wantMicRef.current) return;
+        if (away > 400 || !micLive()) void reviveMic(true);
+        keepFilmSpeaker();
+      }, 900);
     };
     const onVisible = () => {
       window.clearTimeout(resumeTimer.current);
@@ -1316,7 +1327,8 @@ export function WatchRoomsPage({
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('focus', onVisible);
     const onDevices = () => {
-      if (wantMicRef.current) void reviveMic(true);
+      if (document.hidden || !wantMicRef.current) return;
+      void reviveMic(true);
     };
     navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
     const watchdog = window.setInterval(() => {
@@ -1463,9 +1475,7 @@ export function WatchRoomsPage({
     holdSpeakerRoute(speakerHold.current);
     const slider = videoVolRef.current;
     const wantMute = videoMutedRef.current || slider <= 0;
-    const meTalking = talkingRef.current.has(user.username);
-    const duck = meTalking ? 0.88 : 1;
-    const target = wantMute ? 0 : Math.max(1, Math.round(mapFilmVolume(slider) * duck));
+    const target = wantMute ? 0 : Math.max(1, Math.round(mapFilmVolume(slider)));
     try {
       const now = player.getVolume?.();
       const mutedNow = player.isMuted?.();
@@ -1619,6 +1629,26 @@ export function WatchRoomsPage({
     }
   }
 
+  function parkMic(keepWant: boolean) {
+    if (!keepWant) wantMicRef.current = false;
+    levelGen.current += 1;
+    markTalk(user.username, false);
+    localStream.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.onmute = null;
+      track.stop();
+    });
+    localStream.current = null;
+    const room = roomRef.current;
+    if (room && !leftRef.current) {
+      void pingWatchRoom(room.id, { micOn: false, speaking: false }).then((data) => {
+        if (!leftRef.current && !wantMicRef.current) setOpen(data.room);
+      }).catch(() => undefined);
+      for (const peer of peers.current.values()) void attachLocal(peer);
+    }
+    keepFilmSpeaker();
+  }
+
   function unlockAudio() {
     holdSpeakerRoute(speakerHold.current);
     pumpRemoteAudio();
@@ -1650,7 +1680,7 @@ export function WatchRoomsPage({
         analyser.getByteFrequencyData(buffer);
         let sum = 0;
         for (const value of buffer) sum += value;
-        markTalk(name, sum / buffer.length > 14);
+        markTalk(name, !document.hidden && wantMicRef.current && sum / buffer.length > 22);
         requestAnimationFrame(loop);
       };
       void context.resume();
@@ -1680,6 +1710,7 @@ export function WatchRoomsPage({
   }
 
   async function acquireMic() {
+    if (document.hidden || !wantMicRef.current) throw new Error('parked');
     localStream.current?.getTracks().forEach((track) => {
       track.onended = null;
       track.onmute = null;
@@ -1740,7 +1771,7 @@ export function WatchRoomsPage({
 
   async function reviveMic(force = false) {
     const room = roomRef.current;
-    if (!room || !wantMicRef.current || room.you.muted) return;
+    if (document.hidden || !room || !wantMicRef.current || room.you.muted) return;
     if (revivingMic.current) {
       pendingRevive.current = true;
       return;
@@ -1755,13 +1786,18 @@ export function WatchRoomsPage({
     revivingMic.current = true;
     try {
       await acquireMic();
+      if (document.hidden || !wantMicRef.current) {
+        parkMic(Boolean(wantMicRef.current));
+        return;
+      }
       await syncVoice(room);
       await applyMicToPeers(room);
-      if (!leftRef.current) {
+      if (!leftRef.current && !document.hidden && wantMicRef.current) {
         const next = await pingWatchRoom(room.id, { micOn: true });
         setOpen(next.room);
       }
-    } catch {
+    } catch (err) {
+      if ((err as Error).message === 'parked') return;
       setNotice('Mikrofon koptu. Mik aç-kapa yap.');
     } finally {
       revivingMic.current = false;

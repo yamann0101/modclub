@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Heart, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, Megaphone, MicOff, Moon, MoreVertical, Newspaper, Palette, Paperclip, PanelRightOpen, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Ban, Bell, CalendarDays, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Clock3, Coins, Crown, Dices, DoorOpen, Download, Film, Flame, Gem, Gift, Heart, Home as HomeIcon, KeyRound, LayoutDashboard, Link2, LockKeyhole, LogOut, Menu, MessageCircle, Megaphone, MicOff, Moon, MoreVertical, Newspaper, Palette, Paperclip, PanelRightOpen, Pencil, Plus, Reply, Search, Send, Server, Settings, Share2, Shield, ShieldCheck, Smile, Sparkles, Star, Store, Sun, Ticket, Timer, Trash2, Trees, Trophy, UserRound, Users, UsersRound, Volume2, VolumeX, Wand2, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ClubLogo, ClubWordmark } from '@/components/club-logo';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -22,6 +22,28 @@ import { PRIZE_TEMPLATES } from '@/lib/prize-art';
 const queryClient = new QueryClient();
 
 const slides = DEFAULT_BANNERS;
+const GIVE_DAYS = [
+  { id: 1, label: 'Pzt' },
+  { id: 2, label: 'Sal' },
+  { id: 3, label: 'Çar' },
+  { id: 4, label: 'Per' },
+  { id: 5, label: 'Cum' },
+  { id: 6, label: 'Cmt' },
+  { id: 0, label: 'Paz' },
+];
+
+function nextLocalSlot(days: number[], hour: number, minute: number, from = Date.now()) {
+  const want = days.length ? days : [0, 1, 2, 3, 4, 5, 6];
+  const cursor = new Date(from);
+  for (let i = 0; i < 10; i += 1) {
+    const slot = new Date(cursor);
+    slot.setDate(cursor.getDate() + i);
+    slot.setHours(hour, minute, 0, 0);
+    if (slot.getTime() < from - 45_000) continue;
+    if (want.includes(slot.getDay())) return slot.getTime();
+  }
+  return from + 24 * 60 * 60 * 1000;
+}
 
 function agoLabel(at: number) {
   const ms = Math.max(0, Date.now() - at);
@@ -966,6 +988,10 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [giveawayImage, setGiveawayImage] = useState('');
   const [giveawayCoins, setGiveawayCoins] = useState('');
   const [giveawayWhen, setGiveawayWhen] = useState('');
+  const [giveawayEditId, setGiveawayEditId] = useState<string | null>(null);
+  const [giveawayRepeat, setGiveawayRepeat] = useState(false);
+  const [giveawayDays, setGiveawayDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [giveawayClock, setGiveawayClock] = useState('18:00');
   const [filmTitle, setFilmTitle] = useState('');
   const [filmCopy, setFilmCopy] = useState('');
   const [filmImage, setFilmImage] = useState('');
@@ -1007,7 +1033,11 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const openGiveaways = giveaways
     .filter((item) => giveawayStatus(item, now) === 'open')
     .sort((a, b) => new Date(a.announceAt).getTime() - new Date(b.announceAt).getTime());
+  const scheduledGiveaways = giveaways
+    .filter((item) => giveawayStatus(item, now) === 'scheduled')
+    .sort((a, b) => new Date(a.publishAt || a.announceAt).getTime() - new Date(b.publishAt || b.announceAt).getTime());
   const liveGiveaway = openGiveaways[0];
+  const canJoinLive = Boolean(liveGiveaway && !liveGiveaway.participants.includes(nick));
 
   const currentSlide = banners[slide % banners.length] ?? slides[0];
   const upcomingEvents = homeEvents;
@@ -1573,6 +1603,17 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     void patchClub({ giveaways: items });
   };
 
+  const resetGiveawayForm = () => {
+    setGiveawayEditId(null);
+    setGiveawayTitle('');
+    setGiveawayPrize('');
+    setGiveawayImage('');
+    setGiveawayWhen('');
+    setGiveawayCoins('');
+    setGiveawayRepeat(false);
+    setGiveawayDays([0, 1, 2, 3, 4, 5, 6]);
+    setGiveawayClock('18:00');
+  };
 
   const joinGiveaway = (id: string) => {
     const target = giveaways.find((item) => item.id === id);
@@ -1588,41 +1629,98 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setNotice(`${nick} çekilişe katıldı`);
   };
 
+  const cancelGiveaway = (id: string) => {
+    persistGiveaways(giveaways.map((item) => item.id === id ? { ...item, cancelled: true } : item));
+    if (giveawayEditId === id) resetGiveawayForm();
+    setNotice('Çekiliş iptal edildi');
+  };
+
+  const startEditGiveaway = (item: Giveaway) => {
+    setGiveawayEditId(item.id);
+    setGiveawayTitle(item.title);
+    setGiveawayPrize(item.prizeText);
+    setGiveawayImage(item.prizeImage);
+    setGiveawayWhen(toLocalInput(item.announceAt));
+    setGiveawayCoins(item.coins ? String(item.coins) : '');
+    setGiveawayRepeat(Boolean(item.schedule));
+    setGiveawayDays(item.schedule?.days?.length ? item.schedule.days : [0, 1, 2, 3, 4, 5, 6]);
+    const hour = item.schedule?.hour;
+    const minute = item.schedule?.minute;
+    setGiveawayClock(typeof hour === 'number' ? `${String(hour).padStart(2, '0')}:${String(minute || 0).padStart(2, '0')}` : '18:00');
+    setAdminSection('Çekilişler');
+  };
+
   const addGiveaway = () => {
     const title = giveawayTitle.trim();
     const prizeText = giveawayPrize.trim();
+    const [clockHour, clockMinute] = giveawayClock.split(':').map((part) => Number(part));
+    const hour = Number.isFinite(clockHour) ? Math.max(0, Math.min(23, clockHour)) : 18;
+    const minute = Number.isFinite(clockMinute) ? Math.max(0, Math.min(59, clockMinute)) : 0;
     const announceAt = giveawayWhen ? new Date(giveawayWhen).toISOString() : '';
-    if (!title || !announceAt || Number.isNaN(new Date(announceAt).getTime())) {
+    if (!title) {
+      setNotice('Çekiliş adı gerekli');
+      return;
+    }
+    if (!giveawayRepeat && (!announceAt || Number.isNaN(new Date(announceAt).getTime()))) {
       setNotice('Çekiliş adı ve bitiş tarihi gerekli');
       return;
     }
-    if (new Date(announceAt).getTime() <= Date.now()) {
+    if (announceAt && new Date(announceAt).getTime() <= Date.now() && !giveawayEditId) {
       setNotice('Bitiş tarihi gelecekte olmalı.');
       return;
     }
-    persistGiveaways([...giveaways, {
-      id: `giveaway-${Date.now()}`,
+    const days = giveawayDays.length ? giveawayDays : [0, 1, 2, 3, 4, 5, 6];
+    const current = giveawayEditId ? giveaways.find((item) => item.id === giveawayEditId) : undefined;
+    const schedule = giveawayRepeat ? {
+      days,
+      hour,
+      minute,
+      durationMs: Math.max(5 * 60_000, (announceAt ? new Date(announceAt).getTime() : Date.now() + 2 * 60 * 60 * 1000) - Date.now()),
+    } : undefined;
+    let publishAt: string | undefined;
+    let endAt = announceAt;
+    if (schedule && !giveawayEditId) {
+      const start = nextLocalSlot(days, hour, minute);
+      const durationMs = schedule.durationMs || 2 * 60 * 60 * 1000;
+      publishAt = new Date(start).toISOString();
+      endAt = new Date(start + durationMs).toISOString();
+    } else if (giveawayEditId && current) {
+      publishAt = current.publishAt;
+      endAt = announceAt || current.announceAt;
+    }
+    if (!endAt || Number.isNaN(new Date(endAt).getTime())) {
+      setNotice('Çekiliş adı ve bitiş tarihi gerekli');
+      return;
+    }
+    const next: Giveaway = {
+      id: giveawayEditId || `giveaway-${Date.now()}`,
       title,
       prizeText,
       prizeImage: giveawayImage.trim(),
-      announceAt,
-      participants: [],
+      announceAt: endAt,
+      publishAt,
+      participants: giveawayEditId ? (giveaways.find((item) => item.id === giveawayEditId)?.participants || []) : [],
       kind: 'manual',
       coins: Math.max(0, Math.floor(Number(giveawayCoins) || 0)) || undefined,
-    }]);
-    setGiveawayTitle('');
-    setGiveawayPrize('');
-    setGiveawayImage('');
-    setGiveawayWhen('');
-    setGiveawayCoins('');
-    void publishClubEvent({
-      type: 'giveaway',
-      title: 'Yeni çekiliş',
-      body: `${title} başladı. Süre bitince kazanan otomatik açıklanır.`,
-    });
+      schedule,
+      cancelled: undefined,
+      winner: giveawayEditId ? giveaways.find((item) => item.id === giveawayEditId)?.winner : undefined,
+    };
+    if (giveawayEditId) {
+      persistGiveaways(giveaways.map((item) => item.id === giveawayEditId ? { ...item, ...next, id: item.id } : item));
+      setNotice('Çekiliş güncellendi');
+    } else {
+      persistGiveaways([...giveaways, next]);
+      void publishClubEvent({
+        type: 'giveaway',
+        title: 'Yeni çekiliş',
+        body: `${title} başladı. Süre bitince kazanan otomatik açıklanır.`,
+      });
+      setNotice(schedule ? 'Çekiliş kaydedildi. Seçilen gün ve saatte otomatik yayınlanır.' : 'Çekiliş yayınlandı. Üst barda bilet çıktı.');
+    }
+    resetGiveawayForm();
     setGiveawayTab('aktif');
     setGiveawayOpen(true);
-    setNotice('Çekiliş yayınlandı. Üst barda bilet çıktı.');
   };
 
   const addContentCard = (kind: 'film' | 'app') => {
@@ -1764,7 +1862,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               <span className={colorMode === 'light' ? 'is-on' : ''}><Sun size={13} strokeWidth={2.3} /></span>
               <span className={colorMode === 'dark' ? 'is-on' : ''}><Moon size={13} strokeWidth={2.3} /></span>
             </button>
-            {liveGiveaway && (
+            {canJoinLive && liveGiveaway && (
               <button
                 type="button"
                 data-testid="button-join-giveaway"
@@ -2211,7 +2309,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <h3 className="mt-1 font-display text-xl font-bold">Çekilişler</h3>
                     </div>
                     <form onSubmit={(event) => { event.preventDefault(); addGiveaway(); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
-                      <p className="sm:col-span-2 text-[.62rem] text-[hsl(var(--muted-foreground))]">Her gün 13:00 / 18:00 / 23:00 İstanbul saatinde Aslan (500k), Dragon (2M) ve Deniz kızı (10M) sırayla otomatik yayınlanır. Biri bitmeden diğeri çıkmaz.</p>
+                      <p className="sm:col-span-2 text-[.62rem] text-[hsl(var(--muted-foreground))]">İsim, ödül, resim ve miktarı düzenleyebilirsin. İptal çekilişi kapatır. Gün + saat işaretlersen o gün o saatte otomatik yayınlanır.</p>
                       <div className="giveaway-templates sm:col-span-2">
                         {PRIZE_TEMPLATES.map((prize) => (
                           <button
@@ -2230,7 +2328,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         ))}
                       </div>
                       <input value={giveawayTitle} onChange={(event) => setGiveawayTitle(event.target.value)} placeholder="Çekiliş adı" className="admin-field" />
-                      <input value={giveawayPrize} onChange={(event) => setGiveawayPrize(event.target.value)} placeholder="Ödül" className="admin-field" />
+                      <input value={giveawayPrize} onChange={(event) => setGiveawayPrize(event.target.value)} placeholder="Ödül / miktar" className="admin-field" />
                       <input value={giveawayImage} onChange={(event) => setGiveawayImage(event.target.value)} placeholder="Ödül resmi linki" className="admin-field" />
                       <label className="admin-field flex h-11 items-center gap-2 text-[.62rem] font-bold">
                         Resim yükle
@@ -2242,18 +2340,51 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       </label>
                       <input value={giveawayCoins} onChange={(event) => setGiveawayCoins(event.target.value)} placeholder="Coin (opsiyonel)" inputMode="numeric" className="admin-field" />
                       <input type="datetime-local" value={giveawayWhen} onChange={(event) => setGiveawayWhen(event.target.value)} className="admin-field" />
+                      <label className="sm:col-span-2 flex items-center gap-2 text-xs font-extrabold">
+                        <input type="checkbox" checked={giveawayRepeat} onChange={(event) => setGiveawayRepeat(event.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />
+                        Her gün / seçilen günlerde otomatik yayınla
+                      </label>
+                      {giveawayRepeat && (
+                        <div className="sm:col-span-2 grid gap-2">
+                          <div className="give-day-row">
+                            {GIVE_DAYS.map((day) => (
+                              <button
+                                key={day.id}
+                                type="button"
+                                className={giveawayDays.includes(day.id) ? 'is-on' : ''}
+                                onClick={() => setGiveawayDays((current) => {
+                                  const next = current.includes(day.id) ? current.filter((item) => item !== day.id) : [...current, day.id];
+                                  return next.length ? next : [day.id];
+                                })}
+                              >
+                                {day.label}
+                              </button>
+                            ))}
+                          </div>
+                          <label className="admin-field flex h-11 items-center gap-2 text-[.62rem] font-bold">
+                            Saat
+                            <input type="time" value={giveawayClock} onChange={(event) => setGiveawayClock(event.target.value || '18:00')} className="min-w-0 flex-1 bg-transparent text-sm font-extrabold" />
+                          </label>
+                          <p className="text-[.58rem] text-[hsl(var(--muted-foreground))]">Bitiş tarihi doluysa açık kalma süresi ondan hesaplanır. Boşsa 2 saat açık kalır.</p>
+                        </div>
+                      )}
                       {giveawayImage && <div className="giveaway-prize-box sm:col-span-2 rounded-xl"><img src={giveawayImage} alt="" /></div>}
-                      <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Çekiliş yayınla</button>
+                      <div className="sm:col-span-2 flex gap-2">
+                        <button type="submit" className="admin-btn flex-1">{giveawayEditId ? 'Çekilişi kaydet' : 'Çekiliş yayınla'}</button>
+                        {giveawayEditId && <button type="button" className="admin-btn" style={{ background: '#1f2937' }} onClick={resetGiveawayForm}>Vazgeç</button>}
+                      </div>
                     </form>
                     <div className="grid gap-2">
-                      {openGiveaways.length === 0 && <p className="rounded-xl bg-[hsl(var(--muted)/.45)] p-3 text-xs text-[hsl(var(--muted-foreground))]">Açık çekiliş yok. Yayınlayınca üst barda bilet çıkar.</p>}
-                      {openGiveaways.map((item) => (
+                      {openGiveaways.length === 0 && scheduledGiveaways.length === 0 && <p className="rounded-xl bg-[hsl(var(--muted)/.45)] p-3 text-xs text-[hsl(var(--muted-foreground))]">Açık çekiliş yok. Yayınlayınca üst barda bilet çıkar.</p>}
+                      {[...openGiveaways, ...scheduledGiveaways].map((item) => (
                         <div key={item.id} className="admin-row">
                           {item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-cover" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Gift size={18} /></div>}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-bold">{item.title}</p>
-                            <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül yok'} · {item.participants.length} katılım · {formatCountdown(new Date(item.announceAt).getTime(), now)}</p>
+                            <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül yok'} · {item.participants.length} katılım · {giveawayStatus(item, now) === 'scheduled' ? `yayın ${formatCountdown(new Date(item.publishAt || item.announceAt).getTime(), now)}` : formatCountdown(new Date(item.announceAt).getTime(), now)}{item.schedule ? ' · otomatik' : ''}</p>
                           </div>
+                          <button type="button" aria-label={`${item.title} çekilişini düzenle`} onClick={() => startEditGiveaway(item)} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--primary))]"><Pencil size={16} /></button>
+                          <button type="button" aria-label={`${item.title} çekilişini iptal et`} onClick={() => cancelGiveaway(item.id)} className="grid size-9 place-items-center rounded-lg text-amber-600"><Ban size={16} /></button>
                           <button aria-label={`${item.title} çekilişini sil`} onClick={() => persistGiveaways(giveaways.filter((current) => current.id !== item.id))} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
                         </div>
                       ))}
@@ -2459,9 +2590,12 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                         <span className="rounded-full bg-white px-2 py-1 font-mono text-[.5rem] font-bold text-[hsl(var(--primary))]">{item.participants.length} kişi</span>
                       </div>
                       <p className="mt-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">Kalan süre: {formatCountdown(announceAt, now)}</p>
-                      <button type="button" disabled={joined} onClick={() => joinGiveaway(item.id)} className={`giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide ${joined ? 'is-joined' : ''}`}>
-                        <Ticket size={15} />{joined ? 'Katıldın' : 'Çekilişe Katıl'}
-                      </button>
+                      {!joined && (
+                        <button type="button" onClick={() => joinGiveaway(item.id)} className="giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide">
+                          <Ticket size={15} />Çekilişe Katıl
+                        </button>
+                      )}
+                      {joined && <p className="mt-3 text-center text-[.68rem] font-extrabold text-[hsl(var(--primary))]">Katıldın</p>}
                     </div>
                   </article>
                 );
@@ -2522,25 +2656,19 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             <button type="submit" disabled={guessBusy} className="guess-btn-primary mt-3 disabled:opacity-50"><Dices size={15} /> Oyunu başlat</button>
           </form>
         )}
+        {canJoinLive && liveGiveaway && (
+          <button
+            type="button"
+            className="chat-giveaway-bar"
+            onClick={() => joinGiveaway(liveGiveaway.id)}
+          >
+            <Ticket size={14} />
+            <span className="chat-giveaway-bar-title">{liveGiveaway.title}</span>
+            <small>{formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</small>
+            <em>Katıl</em>
+          </button>
+        )}
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
-          {liveGiveaway && (
-            <article className="chat-giveaway-pin">
-              {liveGiveaway.prizeImage && <div className="giveaway-prize-box"><img src={liveGiveaway.prizeImage} alt="" /></div>}
-              <div className="chat-giveaway-body">
-                <p className="font-mono text-[.48rem] font-extrabold tracking-[.16em] text-amber-200">ÇEKİLİŞ</p>
-                <h3>{liveGiveaway.title}</h3>
-                <p>{liveGiveaway.prizeText || 'Ödül'} · {formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</p>
-                <button
-                  type="button"
-                  disabled={liveGiveaway.participants.includes(nick)}
-                  onClick={() => joinGiveaway(liveGiveaway.id)}
-                  className={`giveaway-join-btn mt-2.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide ${liveGiveaway.participants.includes(nick) ? 'is-joined' : ''}`}
-                >
-                  <Ticket size={15} />{liveGiveaway.participants.includes(nick) ? 'Katıldın' : 'Çekilişe katıl'}
-                </button>
-              </div>
-            </article>
-          )}
           <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
           <div className="space-y-3">
             {chatMessages.length === 0 ? <div className="flex min-h-full flex-col items-center justify-center py-10 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-white text-[hsl(var(--primary))] shadow-sm"><Trash2 size={22} /></div><p className="mt-3 text-xs font-bold">Sohbet geçmişi temizlendi</p><p className="mt-1 max-w-[15rem] text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Yeni bir mesaj göndererek sohbeti yeniden başlatabilirsin.</p></div> : chatMessages.map((message) => {
