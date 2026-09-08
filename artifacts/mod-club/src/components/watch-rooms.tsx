@@ -19,6 +19,7 @@ import {
   searchWatchRelated,
   requestCp,
   sendWatchChat,
+  sendWatchSignal,
   setWatchHidden,
   setWatchHost,
   setWatchMedia,
@@ -886,8 +887,10 @@ export function WatchRoomsPage({
           }
         }
         if (data.signals.length) {
+          await voiceRef.current?.handleSignals(data.signals);
           await ackWatchSignals(open.id, data.signals.map((item) => item.id));
         }
+        await voiceRef.current?.syncMembers(data.room.members.map((member) => member.username));
         voiceRef.current?.unlock();
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
@@ -1236,6 +1239,9 @@ export function WatchRoomsPage({
       hiddenAt.current = 0;
       const room = roomRef.current;
       voiceRef.current?.unlock();
+      if (room) {
+        void voiceRef.current?.syncMembers(room.members.map((member) => member.username));
+      }
       if (room && !voiceRef.current) bootVoice(room.id);
       const player = playerRef.current;
       const reviveFilm = () => {
@@ -1566,7 +1572,9 @@ export function WatchRoomsPage({
     killVoice();
     const voice = new RoomVoice({
       selfName: user.username,
-      selfNick: user.nick || user.username,
+      sendSignal: async (to, type, payload) => {
+        await sendWatchSignal(roomId, { to, type, payload });
+      },
       onTalking: (names) => setTalking(names),
       onSpeakingSelf: (on) => {
         const room = roomRef.current;
@@ -1577,8 +1585,16 @@ export function WatchRoomsPage({
     voice.setSpeaker(speakerOn);
     voiceRef.current = voice;
     voice.unlock();
-    // Sessiz bağlan — hata gösterme; mik açılınca gerekirse tekrar dener
-    void voice.connect(roomId).catch(() => undefined);
+    // Odaya giriş jestiyle bir kez mik izin ekranı
+    void voice.warmPermission().then((ok) => {
+      if (!ok && !leftRef.current) {
+        setNotice('Mikrofon izni gerekli. Tarayıcıdan İzin Ver’e bas, sonra Mik’i aç.');
+      }
+    });
+    const room = roomRef.current;
+    if (room) {
+      void voice.syncMembers(room.members.map((member) => member.username));
+    }
     return voice;
   }
 
@@ -1619,15 +1635,19 @@ export function WatchRoomsPage({
       setNotice('Yönetici mikrofonunu kapattı');
       return;
     }
+    const turningOn = !voice.micOn;
     try {
-      const next = await voice.setMic(!voice.micOn);
+      // Tıklama jestinde hemen mik aç — izin ekranı burada da çıkabilir
+      if (turningOn) await voice.warmPermission();
+      const next = await voice.setMic(turningOn);
       setMicWanted(next);
       const data = await pingWatchRoom(open.id, { micOn: next, speaking: false });
       if (!leftRef.current) setOpen(data.room);
+      await voice.syncMembers(data.room.members.map((member) => member.username));
       keepFilmSpeaker();
     } catch {
       setMicWanted(false);
-      setNotice('Mikrofon açılamadı. Tarayıcıdan mik iznini ver, sonra tekrar bas.');
+      setNotice('Mikrofon açılamadı. Adres çubuğundan mikrofona İzin Ver.');
     }
   }
 

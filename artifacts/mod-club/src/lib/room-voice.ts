@@ -1,26 +1,38 @@
-type JitsiApi = {
-  executeCommand: (command: string, ...args: unknown[]) => void;
-  isAudioMuted: () => Promise<boolean>;
-  dispose: () => void;
-  addListener: (event: string, listener: (...args: unknown[]) => void) => void;
-  removeListener: (event: string, listener: (...args: unknown[]) => void) => void;
-  getIFrame: () => HTMLIFrameElement;
+export type VoiceSignal = {
+  id: string;
+  from: string;
+  type: 'offer' | 'answer' | 'ice';
+  payload: unknown;
 };
 
-type JitsiApiCtor = new (domain: string, options: Record<string, unknown>) => JitsiApi;
-
-declare global {
-  interface Window {
-    JitsiMeetExternalAPI?: JitsiApiCtor;
-  }
-}
+type SendSignal = (to: string, type: VoiceSignal['type'], payload: unknown) => Promise<void>;
 
 type RoomVoiceOpts = {
   selfName: string;
-  selfNick?: string;
+  sendSignal: SendSignal;
   onTalking?: (names: string[]) => void;
   onSpeakingSelf?: (on: boolean) => void;
 };
+
+const ICE: RTCConfiguration = {
+  iceCandidatePoolSize: 4,
+  iceTransportPolicy: 'all',
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  ],
+};
+
+function preferOpus(sdp = '') {
+  return sdp.replace(
+    /a=fmtp:(\d+) (.*)/g,
+    (line, id, rest) => (rest.includes('useinbandfec') && !rest.includes('maxaveragebitrate')
+      ? `a=fmtp:${id} ${rest};maxaveragebitrate=128000;stereo=0`
+      : line),
+  );
+}
 
 function silentWav() {
   const rate = 8000;
@@ -48,66 +60,36 @@ function silentWav() {
 
 const HOLD_SRC = silentWav();
 
-let loaders = new Map<string, Promise<JitsiApiCtor>>();
-
-function loadExternalApi(domain: string) {
-  const src = `https://${domain}/external_api.js`;
-  const existing = (window as Window & { JitsiMeetExternalAPI?: JitsiApiCtor }).JitsiMeetExternalAPI;
-  // meet.jit.si script sets window.JitsiMeetExternalAPI; reuse if same page already loaded one
-  if (existing && loaders.has(domain)) return loaders.get(domain)!;
-  if (loaders.has(domain)) return loaders.get(domain)!;
-  const promise = new Promise<JitsiApiCtor>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.onload = () => {
-      const api = window.JitsiMeetExternalAPI;
-      if (!api) {
-        reject(new Error('jitsi_missing'));
-        return;
-      }
-      resolve(api);
-    };
-    script.onerror = () => reject(new Error('jitsi_load'));
-    document.head.appendChild(script);
-  });
-  loaders.set(domain, promise);
-  return promise;
-}
-
-/** Her oda için ayrı kanal adı */
-export function channelName(roomId: string) {
-  const clean = String(roomId || 'lobby').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 48) || 'lobby';
-  return `modclub${clean}`;
-}
-
 /**
- * Discord/TS3 gibi: her oda = ayrı Jitsi ses kanalı (ücretsiz, keysız).
- * External API (gizli iframe) — lib-jitsi-meet'ten daha sağlam.
+ * Oda sesi — hafif WebRTC.
+ * - Mik varsayılan kapalı
+ * - İzin odaya girişte bir kez istenir
+ * - Mik açma kullanıcı tıklamasında anında getUserMedia
  */
 export class RoomVoice {
   private selfName: string;
-  private selfNick: string;
+  private sendSignal: SendSignal;
   private onTalking?: (names: string[]) => void;
   private onSpeakingSelf?: (on: boolean) => void;
 
+  private peers = new Map<string, RTCPeerConnection>();
+  private makingOffer = new Set<string>();
+  private iceBag = new Map<string, RTCIceCandidateInit[]>();
+  private remotes = new Map<string, HTMLAudioElement>();
+  private local: MediaStream | null = null;
   private wantMic = false;
   private speaker = true;
   private busy = false;
   private dead = false;
-  private joined = false;
-  private roomKey = '';
-  private roomId = '';
+  private permitted = false;
   private hold: HTMLAudioElement | null = null;
-  private box: HTMLDivElement | null = null;
-  private api: JitsiApi | null = null;
+  private levelGen = 0;
+  private talking = new Set<string>();
   private lastSelfSpeak = false;
-  private levelTimer = 0;
-  private connectPromise: Promise<void> | null = null;
 
   constructor(opts: RoomVoiceOpts) {
     this.selfName = opts.selfName;
-    this.selfNick = (opts.selfNick || opts.selfName).slice(0, 40);
+    this.sendSignal = opts.sendSignal;
     this.onTalking = opts.onTalking;
     this.onSpeakingSelf = opts.onSpeakingSelf;
     this.ensureHold();
@@ -128,27 +110,41 @@ export class RoomVoice {
   unlock() {
     this.ensureHold();
     this.playHold();
-    this.applySpeaker();
+    this.pumpRemotes();
   }
 
   setSpeaker(on: boolean) {
     this.speaker = on;
-    this.applySpeaker();
+    this.pumpRemotes();
   }
 
-  async connect(roomId: string) {
-    if (this.dead) return;
-    this.roomId = roomId;
-    const key = channelName(roomId);
-    if (this.joined && this.roomKey === key && this.api) {
-      this.unlock();
-      return;
+  /** Odaya girince bir kez — tarayıcı izin ekranı */
+  async warmPermission() {
+    if (this.dead || this.permitted) return true;
+    this.unlock();
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (status.state === 'granted') {
+          this.permitted = true;
+          return true;
+        }
+        if (status.state === 'denied') return false;
+      }
+    } catch {
+      /* permissions API yok */
     }
-    if (this.connectPromise) return this.connectPromise;
-    this.connectPromise = this.joinChannel(key).finally(() => {
-      this.connectPromise = null;
-    });
-    return this.connectPromise;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      stream.getTracks().forEach((track) => track.stop());
+      this.permitted = true;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async setMic(on: boolean) {
@@ -158,28 +154,26 @@ export class RoomVoice {
     try {
       this.wantMic = on;
       this.unlock();
-      if (!this.roomId) throw new Error('no_room');
-      await this.connect(this.roomId);
-      if (!this.api || !this.joined) throw new Error('voice_offline');
-
-      // Mik izni / GUM — iframe içinde; önce unmute dene
-      let muted = true;
-      try { muted = await this.api.isAudioMuted(); } catch { muted = true; }
-      if (on && muted) this.api.executeCommand('toggleAudio');
-      if (!on && !muted) this.api.executeCommand('toggleAudio');
-
-      // Bir kez daha doğrula
-      window.setTimeout(() => {
-        void this.api?.isAudioMuted().then((now) => {
-          if (this.wantMic && now) this.api?.executeCommand('toggleAudio');
-          if (!this.wantMic && !now) this.api?.executeCommand('toggleAudio');
-        }).catch(() => undefined);
-      }, 400);
-
-      this.setTalk(this.selfName, on);
-      return on;
+      if (!on) {
+        this.stopLocal();
+        await this.pushLocal();
+        this.setTalk(this.selfName, false);
+        return false;
+      }
+      // Kullanıcı tıklaması hâlâ geçerli — hemen mik al
+      await this.openMic();
+      await this.pushLocal();
+      // Initiator olan peer'larda renegotiate
+      for (const [name, peer] of this.peers) {
+        if (this.selfName.localeCompare(name) < 0 && peer.signalingState === 'stable') {
+          await this.offer(name, peer);
+        }
+      }
+      return true;
     } catch {
       this.wantMic = false;
+      this.stopLocal();
+      await this.pushLocal().catch(() => undefined);
       this.setTalk(this.selfName, false);
       throw new Error('mic_denied');
     } finally {
@@ -187,150 +181,52 @@ export class RoomVoice {
     }
   }
 
+  async syncMembers(names: string[]) {
+    if (this.dead) return;
+    const live = new Set(names.filter((name) => name && name !== this.selfName));
+    for (const name of [...this.peers.keys()]) {
+      if (!live.has(name)) this.dropPeer(name);
+    }
+    for (const name of live) {
+      if (this.peers.has(name)) continue;
+      await this.createPeer(name, this.selfName.localeCompare(name) < 0);
+    }
+    this.pumpRemotes();
+  }
+
+  async handleSignals(signals: VoiceSignal[]) {
+    if (this.dead) return;
+    for (const signal of signals) {
+      try {
+        await this.consume(signal);
+      } catch {
+        /* stale */
+      }
+    }
+  }
+
   destroy() {
     this.dead = true;
     this.wantMic = false;
-    window.clearInterval(this.levelTimer);
-    try { this.api?.dispose(); } catch { /* ignore */ }
-    this.api = null;
-    this.joined = false;
-    if (this.box) {
-      this.box.remove();
-      this.box = null;
-    }
+    this.stopLocal();
+    for (const name of [...this.peers.keys()]) this.dropPeer(name);
+    this.peers.clear();
+    this.iceBag.clear();
+    this.makingOffer.clear();
+    this.remotes.forEach((audio) => {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
+    });
+    this.remotes.clear();
     if (this.hold) {
       this.hold.pause();
       this.hold.remove();
       this.hold = null;
     }
+    this.talking.clear();
     this.onTalking?.([]);
     this.setTalk(this.selfName, false);
-  }
-
-  private async joinChannel(key: string) {
-    if (this.dead) return;
-    this.busy = true;
-    try {
-      this.teardownApi();
-      this.roomKey = key;
-      this.unlock();
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        stream.getTracks().forEach((track) => track.stop());
-      } catch {
-        /* mik izni sonra setMic ile istenir */
-      }
-
-      if (!this.box) {
-        this.box = document.createElement('div');
-        this.box.id = `modclub-voice-${key}`;
-        this.box.setAttribute('aria-hidden', 'true');
-        this.box.style.cssText = 'position:fixed;left:-9999px;top:0;width:320px;height:180px;opacity:0;pointer-events:none;overflow:hidden;z-index:-1;';
-        document.body.appendChild(this.box);
-      }
-
-      const openOn = async (domain: string) => {
-        const ExternalAPI = await loadExternalApi(domain);
-        if (this.box) this.box.innerHTML = '';
-        const api = new ExternalAPI(domain, {
-          roomName: key,
-          width: 320,
-          height: 180,
-          parentNode: this.box,
-          userInfo: { displayName: this.selfNick },
-          configOverwrite: {
-            startWithAudioMuted: true,
-            startWithVideoMuted: true,
-            prejoinConfig: { enabled: false },
-            prejoinPageEnabled: false,
-            disableDeepLinking: true,
-            enableWelcomePage: false,
-            requireDisplayName: false,
-            enableClosePage: false,
-            disableInviteFunctions: true,
-            toolbarButtons: [],
-            notifications: [],
-            hideConferenceSubject: true,
-            disableInitialGUM: false,
-            startAudioOnly: true,
-            p2p: { enabled: false },
-          },
-          interfaceConfigOverwrite: {
-            TOOLBAR_BUTTONS: [],
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_BRAND_WATERMARK: false,
-            SHOW_POWERED_BY: false,
-            DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
-            MOBILE_APP_PROMO: false,
-          },
-        });
-        this.api = api;
-        await new Promise<void>((resolve, reject) => {
-          const timer = window.setTimeout(() => reject(new Error('voice_join_timeout')), 20000);
-          const onJoin = () => {
-            window.clearTimeout(timer);
-            api.removeListener('videoConferenceJoined', onJoin);
-            api.removeListener('conferenceFailed', onFail);
-            resolve();
-          };
-          const onFail = () => {
-            window.clearTimeout(timer);
-            api.removeListener('videoConferenceJoined', onJoin);
-            api.removeListener('conferenceFailed', onFail);
-            reject(new Error('voice_join'));
-          };
-          api.addListener('videoConferenceJoined', onJoin);
-          api.addListener('conferenceFailed', onFail);
-        });
-      };
-
-      try {
-        await openOn('meet.jit.si');
-      } catch {
-        this.teardownApi();
-        await openOn('8x8.vc');
-      }
-
-      if (this.dead) {
-        this.teardownApi();
-        return;
-      }
-      this.joined = true;
-      this.applySpeaker();
-      this.startLevels();
-      if (this.wantMic && this.api) {
-        try {
-          const muted = await this.api.isAudioMuted();
-          if (muted) this.api.executeCommand('toggleAudio');
-        } catch { /* ignore */ }
-      }
-      this.unlock();
-    } finally {
-      this.busy = false;
-    }
-  }
-
-  private teardownApi() {
-    window.clearInterval(this.levelTimer);
-    try { this.api?.dispose(); } catch { /* ignore */ }
-    this.api = null;
-    this.joined = false;
-    if (this.box) this.box.innerHTML = '';
-  }
-
-  private applySpeaker() {
-    // iframe sesini mümkün olduğunca kıs / aç
-    const iframe = this.api?.getIFrame?.();
-    if (iframe) {
-      try {
-        iframe.allow = 'camera; microphone; autoplay; display-capture; clipboard-write';
-        // aynı origin değil; volume atanamaz — muted attribute dene
-        (iframe as HTMLIFrameElement & { muted?: boolean }).muted = !this.speaker;
-      } catch { /* ignore */ }
-    }
-    // Yerel hold her zaman küçük sesle speaker rotasını açık tutar
-    this.playHold();
   }
 
   private ensureHold() {
@@ -357,19 +253,262 @@ export class RoomVoice {
     void this.hold.play().catch(() => undefined);
   }
 
-  private setTalk(name: string, on: boolean) {
-    if (name === this.selfName && this.lastSelfSpeak !== on) {
-      this.lastSelfSpeak = on;
-      this.onSpeakingSelf?.(on);
-      this.onTalking?.(on ? [name] : []);
+  private pumpRemotes() {
+    this.playHold();
+    this.remotes.forEach((audio) => {
+      audio.muted = !this.speaker;
+      audio.volume = 1;
+      void audio.play().catch(() => undefined);
+    });
+  }
+
+  private stopLocal() {
+    this.levelGen += 1;
+    this.local?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    this.local = null;
+  }
+
+  private async openMic() {
+    this.stopLocal();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+        video: false,
+      });
+    } catch {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+    if (!this.wantMic || this.dead) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('parked');
+    }
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.enabled = true;
+      try { track.contentHint = 'speech'; } catch { /* ignore */ }
+      track.onended = () => {
+        if (this.wantMic && !this.dead && !this.busy) {
+          void this.setMic(true).catch(() => undefined);
+        }
+      };
+    }
+    this.local = stream;
+    this.permitted = true;
+    this.watchLevel(stream);
+  }
+
+  private localTrack() {
+    return this.local?.getAudioTracks().find((track) => track.readyState === 'live') || null;
+  }
+
+  private async pushLocal() {
+    const track = this.localTrack();
+    for (const peer of this.peers.values()) {
+      await this.attach(peer, track);
     }
   }
 
-  private startLevels() {
-    window.clearInterval(this.levelTimer);
-    this.levelTimer = window.setInterval(() => {
-      if (this.dead) return;
-      this.setTalk(this.selfName, this.wantMic);
-    }, 500);
+  private async attach(peer: RTCPeerConnection, track: MediaStreamTrack | null) {
+    const sender = peer.getSenders().find((item) => item.track?.kind === 'audio')
+      || peer.getSenders().find((item) => !item.track)
+      || peer.getTransceivers().find((item) => item.receiver.track?.kind === 'audio')?.sender;
+    if (sender) {
+      if (sender.track !== track) await sender.replaceTrack(track);
+      return;
+    }
+    if (track && this.local) peer.addTrack(track, this.local);
+  }
+
+  private async createPeer(name: string, initiate: boolean) {
+    if (this.peers.has(name)) return;
+    const peer = new RTCPeerConnection(ICE);
+    this.peers.set(name, peer);
+    peer.addTransceiver('audio', { direction: 'sendrecv' });
+    await this.attach(peer, this.localTrack());
+
+    peer.onicecandidate = (event) => {
+      if (!event.candidate || this.dead) return;
+      void this.sendSignal(name, 'ice', event.candidate.toJSON()).catch(() => undefined);
+    };
+
+    peer.ontrack = (event) => {
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      event.track.enabled = true;
+      this.bindRemote(name, stream);
+    };
+
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === 'connected') this.pumpRemotes();
+      if (peer.connectionState === 'failed') {
+        window.setTimeout(() => {
+          if (this.dead || this.peers.get(name) !== peer) return;
+          this.dropPeer(name);
+          void this.createPeer(name, this.selfName.localeCompare(name) < 0);
+        }, 1000);
+      }
+    };
+
+    if (initiate) await this.offer(name, peer);
+  }
+
+  private dropPeer(name: string) {
+    const peer = this.peers.get(name);
+    if (peer) {
+      try { peer.close(); } catch { /* ignore */ }
+      this.peers.delete(name);
+    }
+    this.iceBag.delete(name);
+    this.makingOffer.delete(name);
+    const audio = this.remotes.get(name);
+    if (audio) {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
+      this.remotes.delete(name);
+    }
+  }
+
+  private bindRemote(name: string, stream: MediaStream) {
+    let audio = this.remotes.get(name);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.autoplay = true;
+      (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('autoplay', '');
+      audio.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+      document.body.appendChild(audio);
+      this.remotes.set(name, audio);
+    }
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+      track.onunmute = () => {
+        const el = this.remotes.get(name);
+        if (!el) return;
+        if (el.srcObject !== stream) el.srcObject = stream;
+        el.muted = !this.speaker;
+        void el.play().catch(() => undefined);
+      };
+    });
+    if (audio.srcObject !== stream) audio.srcObject = stream;
+    audio.muted = !this.speaker;
+    audio.volume = 1;
+    void audio.play().catch(() => undefined);
+  }
+
+  private async flushIce(name: string, peer: RTCPeerConnection) {
+    const bag = this.iceBag.get(name) || [];
+    this.iceBag.delete(name);
+    for (const candidate of bag) {
+      try { await peer.addIceCandidate(candidate); } catch { /* stale */ }
+    }
+  }
+
+  private async offer(name: string, peer: RTCPeerConnection) {
+    if (peer.signalingState !== 'stable' || this.makingOffer.has(name)) return;
+    this.makingOffer.add(name);
+    try {
+      const desc = await peer.createOffer({ offerToReceiveAudio: true });
+      if (desc.sdp) desc.sdp = preferOpus(desc.sdp);
+      await peer.setLocalDescription(desc);
+      await this.sendSignal(name, 'offer', desc);
+    } finally {
+      this.makingOffer.delete(name);
+    }
+  }
+
+  private async consume(signal: VoiceSignal) {
+    const name = signal.from;
+    let peer = this.peers.get(name);
+    if (!peer || peer.connectionState === 'closed' || peer.connectionState === 'failed') {
+      this.dropPeer(name);
+      await this.createPeer(name, false);
+      peer = this.peers.get(name);
+    }
+    if (!peer) return;
+
+    if (signal.type === 'offer') {
+      const polite = this.selfName.localeCompare(name) > 0;
+      const collision = this.makingOffer.has(name) || peer.signalingState !== 'stable';
+      if (collision && !polite) return;
+      if (collision && polite) {
+        try { await peer.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit); } catch { /* safari */ }
+      }
+      await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
+      await this.flushIce(name, peer);
+      await this.attach(peer, this.localTrack());
+      const answer = await peer.createAnswer();
+      if (answer.sdp) answer.sdp = preferOpus(answer.sdp);
+      await peer.setLocalDescription(answer);
+      await this.sendSignal(name, 'answer', answer);
+      return;
+    }
+
+    if (signal.type === 'answer' && peer.signalingState === 'have-local-offer') {
+      await peer.setRemoteDescription(signal.payload as RTCSessionDescriptionInit);
+      await this.flushIce(name, peer);
+      return;
+    }
+
+    if (signal.type === 'ice' && signal.payload) {
+      if (peer.remoteDescription) {
+        try { await peer.addIceCandidate(signal.payload as RTCIceCandidateInit); } catch { /* stale */ }
+      } else {
+        const bag = this.iceBag.get(name) || [];
+        bag.push(signal.payload as RTCIceCandidateInit);
+        this.iceBag.set(name, bag);
+      }
+    }
+  }
+
+  private setTalk(name: string, on: boolean) {
+    const had = this.talking.has(name);
+    if (on === had) return;
+    if (on) this.talking.add(name);
+    else this.talking.delete(name);
+    this.onTalking?.([...this.talking]);
+    if (name === this.selfName && this.lastSelfSpeak !== on) {
+      this.lastSelfSpeak = on;
+      this.onSpeakingSelf?.(on);
+    }
+  }
+
+  private watchLevel(stream: MediaStream) {
+    const gen = ++this.levelGen;
+    try {
+      const AudioEngine = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioEngine) return;
+      const ctx = new AudioEngine();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      const loop = () => {
+        if (gen !== this.levelGen || this.dead) {
+          try { source.disconnect(); } catch { /* ignore */ }
+          void ctx.close().catch(() => undefined);
+          return;
+        }
+        analyser.getByteFrequencyData(buffer);
+        let sum = 0;
+        for (const value of buffer) sum += value;
+        this.setTalk(this.selfName, this.wantMic && sum / buffer.length > 16);
+        requestAnimationFrame(loop);
+      };
+      void ctx.resume();
+      loop();
+    } catch {
+      /* analyser yok */
+    }
   }
 }
