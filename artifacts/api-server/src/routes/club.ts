@@ -162,7 +162,10 @@ router.patch("/club/users/:username", async (req, res) => {
   }
   const body = req.body as { role?: string; title?: string | null };
   const role = body.role === "MODERATOR" || body.role === "ÜYE" || body.role === "ADMIN" ? body.role : target.role;
-  const title = body.title === "ELDER" || body.title === "ASSTN" ? body.title : body.title === null || body.title === "" ? null : target.title;
+  const allowedTitles = new Set(["ELDER", "ASSTN", "PRENS", "PRENSES", "REHANIN_HATUNU"]);
+  const title = body.title && allowedTitles.has(body.title)
+    ? body.title
+    : body.title === null || body.title === "" ? null : target.title;
   await upsertAccount({ ...target, role, title });
   res.json(await snapshot(actor.username));
 });

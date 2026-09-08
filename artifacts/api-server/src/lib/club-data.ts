@@ -2,6 +2,8 @@ import { query } from "./pg";
 import { publicSlot, readSlot } from "./olympus-slot";
 import { readHideGrants, readSeeGrants, readFireGrants } from "./room-hide";
 import { dispatchClubPush } from "./web-push";
+import { setWalletCoins } from "./economy";
+import { DAILY_PRIZES } from "./prize-art";
 
 export type ClubRole = "ADMIN" | "ÜYE" | "MODERATOR";
 
@@ -39,6 +41,9 @@ export type Giveaway = {
   announceAt: string;
   participants: string[];
   winner?: string;
+  kind?: "manual" | "daily";
+  coins?: number;
+  paid?: boolean;
 };
 
 export type ContentCard = {
@@ -262,19 +267,113 @@ export function isInstalled(settings: ClubSettings | null) {
 
 function settleGiveaways(items: Giveaway[], now = Date.now()) {
   return items.map((item) => {
-    if (item.winner || !item.announceAt || item.participants.length === 0) return item;
+    if (item.winner || !item.announceAt) return item;
     const announce = new Date(item.announceAt).getTime();
     if (Number.isNaN(announce) || now < announce) return item;
+    if (item.participants.length === 0) return { ...item, winner: "Katılım yok" };
     const winner = item.participants[Math.floor(Math.random() * item.participants.length)];
     return { ...item, winner };
   });
 }
 
+function istanbulParts(now = Date.now()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(now));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return { y: get("year"), m: get("month"), d: get("day"), h: get("hour"), min: get("minute") };
+}
+
+function istanbulMs(y: number, m: number, d: number, h: number, min = 0) {
+  const stamp = Date.parse(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00+03:00`);
+  return Number.isNaN(stamp) ? Date.UTC(y, m - 1, d, h - 3, min) : stamp;
+}
+
+function nextDailySlot(now = Date.now()) {
+  const { y, m, d, h, min } = istanbulParts(now);
+  const slots = [
+    { hour: 13, prize: 0 },
+    { hour: 18, prize: 1 },
+    { hour: 23, prize: 2 },
+  ] as const;
+  for (const slot of slots) {
+    const endAt = istanbulMs(y, m, d, slot.hour, 0);
+    if (now < endAt || (h === slot.hour && min === 0 && now - endAt < 2000)) {
+      return { endAt, prize: slot.prize, key: `${y}-${m}-${d}-${slot.hour}` };
+    }
+  }
+  const tomorrow = new Date(istanbulMs(y, m, d, 12, 0) + 36 * 60 * 60 * 1000);
+  const next = istanbulParts(tomorrow.getTime());
+  return { endAt: istanbulMs(next.y, next.m, next.d, 13, 0), prize: 0, key: `${next.y}-${next.m}-${next.d}-13` };
+}
+
+async function payGiveawayWinner(item: Giveaway) {
+  if (!item.winner || item.winner === "Katılım yok" || item.paid || !item.coins) return item;
+  const account = (await findAccountByNick(item.winner)) || (await findAccount(item.winner));
+  if (account) await setWalletCoins(account.username, (account.coins || 0) + item.coins);
+  return { ...item, paid: true };
+}
+
+async function tickDailyGiveaways(items: Giveaway[]) {
+  const now = Date.now();
+  const openDaily = items.find((item) => item.kind === "daily" && !item.winner);
+  if (openDaily) return items;
+  const slot = nextDailySlot(now);
+  if (items.some((item) => item.id === `daily-${slot.key}`)) return items;
+  const prize = DAILY_PRIZES[slot.prize];
+  const next: Giveaway = {
+    id: `daily-${slot.key}`,
+    title: prize.title,
+    prizeText: prize.prizeText,
+    prizeImage: prize.image,
+    announceAt: new Date(slot.endAt).toISOString(),
+    participants: [],
+    kind: "daily",
+    coins: prize.coins,
+  };
+  await addEvent({
+    id: `giveaway-${next.id}`,
+    type: "giveaway",
+    title: "Yeni çekiliş",
+    body: `${prize.title} yayınlandı. Ödül: ${prize.prizeText}. Sonuç ${new Date(slot.endAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" })}’de.`,
+    at: now,
+  });
+  return [next, ...items].slice(0, 80);
+}
+
 export async function readGiveaways() {
   const items = await getDoc<Giveaway[]>("giveaways", []);
-  const settled = settleGiveaways(Array.isArray(items) ? items : []);
-  if (JSON.stringify(items) !== JSON.stringify(settled)) await setDoc("giveaways", settled);
-  return settled;
+  const source = Array.isArray(items) ? items : [];
+  let settled = settleGiveaways(source);
+  const paid: Giveaway[] = [];
+  for (const item of settled) {
+    const prev = source.find((row) => row.id === item.id);
+    let next = item;
+    if (item.winner && prev?.winner !== item.winner) {
+      next = await payGiveawayWinner(item);
+      await addEvent({
+        id: `winner-${item.id}-${item.winner}`,
+        type: "winner",
+        title: "Çekiliş sonucu",
+        body: item.winner === "Katılım yok"
+          ? `${item.title} bitti, katılım olmadı.`
+          : `${item.winner} kazandı: ${item.prizeText || item.title}`,
+        at: Date.now(),
+      });
+    } else if (item.winner && item.coins && !item.paid) {
+      next = await payGiveawayWinner(item);
+    }
+    paid.push(next);
+  }
+  const withDaily = await tickDailyGiveaways(paid);
+  if (JSON.stringify(source) !== JSON.stringify(withDaily)) await setDoc("giveaways", withDaily);
+  return withDaily;
 }
 
 export async function snapshot(username?: string) {

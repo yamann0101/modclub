@@ -25,7 +25,7 @@ self.addEventListener('push', (event) => {
       vibrate: [220, 80, 220, 80, 320],
       silent: false,
       renotify: true,
-      requireInteraction: data.type === 'admin',
+      requireInteraction: data.type === 'admin' || data.type === 'giveaway' || data.type === 'winner',
       tag: data.tag || `n-${Date.now()}`,
       data: { url: data.url || '/' },
     }),

@@ -244,6 +244,7 @@ export type RoomCard = {
   watching: number;
   videoTitle: string;
   hidden?: boolean;
+  skin?: 'king' | 'vip';
 };
 
 export type RoomMember = {
@@ -257,6 +258,8 @@ export type RoomMember = {
   lastSeen: number;
   emoji?: string;
   emojiAt?: number;
+  title?: string;
+  role?: string;
 };
 
 export type RoomChat = {
@@ -393,6 +396,10 @@ export async function setWatchHost(id: string, username: string, grant: boolean)
 
 export async function setWatchHidden(id: string, hidden: boolean) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/hide`, { method: 'POST', body: JSON.stringify({ hidden }) });
+}
+
+export async function setWatchSettings(id: string, body: { title?: string; cover?: string; password?: string | null }) {
+  return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/settings`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 export type CpPerson = { username: string; nick: string; photo?: string };

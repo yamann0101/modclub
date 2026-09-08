@@ -1,4 +1,8 @@
-export type CosmeticTitle = 'ELDER' | 'ASSTN';
+export const COSMETIC_TITLES = ['ELDER', 'ASSTN', 'PRENS', 'PRENSES', 'REHANIN_HATUNU'] as const;
+export type CosmeticTitle = typeof COSMETIC_TITLES[number];
+export function isCosmeticTitle(value?: string | null): value is CosmeticTitle {
+  return Boolean(value && (COSMETIC_TITLES as readonly string[]).includes(value));
+}
 
 export type ClubAccount = {
   username: string;
@@ -27,6 +31,9 @@ export type Giveaway = {
   announceAt: string;
   participants: string[];
   winner?: string;
+  kind?: 'manual' | 'daily';
+  coins?: number;
+  paid?: boolean;
 };
 
 export type ContentCard = {

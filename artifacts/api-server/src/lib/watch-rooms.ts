@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { query } from "./pg";
-import { canHideRooms, canSeeHiddenRooms, canLaunchFireworks } from "./room-hide";
+import { canHideRooms, canSeeHiddenRooms, canLaunchFireworks, readHideGrants } from "./room-hide";
+import { listAccounts } from "./club-data";
 
 const SEATS = 8;
 const MAX_ROOMS = 24;
@@ -25,6 +26,8 @@ export type RoomMember = {
   lastSeen: number;
   emoji?: string;
   emojiAt?: number;
+  title?: string;
+  role?: string;
 };
 
 export type RoomChat = {
@@ -93,6 +96,7 @@ export type PublicRoomCard = {
   watching: number;
   videoTitle: string;
   hidden?: boolean;
+  skin?: "king" | "vip";
 };
 
 export type PublicRoom = {
@@ -225,7 +229,7 @@ export async function readRoom(id: string) {
   return room && room.id ? room : null;
 }
 
-export function publicCard(room: RoomIndex): PublicRoomCard {
+export function publicCard(room: RoomIndex & { skin?: "king" | "vip" }): PublicRoomCard {
   return {
     id: room.id,
     title: room.title,
@@ -237,6 +241,7 @@ export function publicCard(room: RoomIndex): PublicRoomCard {
     watching: room.watching,
     videoTitle: room.videoTitle,
     hidden: Boolean(room.hidden),
+    skin: room.skin,
   };
 }
 
@@ -302,6 +307,19 @@ export async function listRooms(viewer: { username: string; role?: string }) {
   const live: RoomIndex[] = [];
   const cards: PublicRoomCard[] = [];
   const canSeeHidden = await canSeeHiddenRooms(viewer.username, viewer.role);
+  const accounts = await listAccounts();
+  const hideGrants = await readHideGrants();
+  const roleOf = new Map(accounts.map((item) => [item.username.toLowerCase(), item.role]));
+  const skinOf = (room: WatchRoom): "king" | "vip" | undefined => {
+    const ownerRole = roleOf.get(room.owner.toLowerCase()) || roleOf.get((room.creator || room.owner).toLowerCase());
+    if (ownerRole === "ADMIN") return "king";
+    const until = Math.max(
+      hideGrants[room.owner.toLowerCase()] || 0,
+      hideGrants[(room.creator || room.owner).toLowerCase()] || 0,
+    );
+    if (until > now) return "vip";
+    return undefined;
+  };
   for (const item of index) {
     const raw = await readRoom(item.id);
     if (!raw) continue;
@@ -310,9 +328,10 @@ export async function listRooms(viewer: { username: string; role?: string }) {
     live.push(toIndex(room));
     const mine = viewer.username === room.owner || viewer.username === (room.creator || room.owner);
     if (room.hidden && !canSeeHidden && !mine) continue;
-    cards.push(publicCard(toIndex(room)));
+    cards.push({ ...publicCard(toIndex(room)), skin: skinOf(room) });
   }
   await setDoc("rooms_index", live.slice(0, MAX_ROOMS));
+  cards.sort((a, b) => Number(b.skin === "king") - Number(a.skin === "king"));
   return cards;
 }
 
@@ -323,6 +342,8 @@ export async function createRoom(input: {
   title: string;
   cover: string;
   password?: string;
+  role?: string;
+  memberTitle?: string;
 }) {
   const title = input.title.trim().slice(0, 48);
   if (!title) throw new Error("title");
@@ -359,6 +380,8 @@ export async function createRoom(input: {
       micOn: false,
       speaking: false,
       lastSeen: now,
+      title: input.memberTitle,
+      role: input.role,
     }],
     hosts: [],
     chats: [],
@@ -379,6 +402,7 @@ export async function joinRoom(input: {
   photo?: string;
   password?: string;
   role?: string;
+  title?: string;
 }) {
   const raw = await readRoom(input.id);
   if (!raw) throw new Error("missing");
@@ -394,6 +418,8 @@ export async function joinRoom(input: {
     existing.nick = input.nick;
     existing.photo = input.photo;
     existing.lastSeen = Date.now();
+    existing.title = input.title;
+    existing.role = input.role;
     await writeRoom(room);
     return room;
   }
@@ -410,6 +436,8 @@ export async function joinRoom(input: {
     micOn: false,
     speaking: false,
     lastSeen: now,
+    title: input.title,
+    role: input.role,
   });
   room.lastJoin = { nick: input.nick, username: input.username, at: now };
   await writeRoom(room);
@@ -426,7 +454,7 @@ function fireworkFrom(patch: FireworkPatch, now: number) {
   return { text: String(payload.text || "").trim().slice(0, 48), kind, ms, at: now };
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean }, role?: string) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean; title?: string; role?: string }, role?: string) {
   const latest = await readRoom(id);
   if (!latest) throw new Error("missing");
   if ((latest.left || []).includes(username)) throw new Error("member");
@@ -435,6 +463,8 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   const member = room.members.find((item) => item.username === username);
   if (!member) throw new Error("member");
   member.lastSeen = now;
+  if (patch?.title !== undefined) member.title = patch.title;
+  if (patch?.role !== undefined) member.role = patch.role;
   if (typeof patch?.emoji === "string" && EMOJI_IDS.has(patch.emoji)) {
     member.emoji = patch.emoji;
     member.emojiAt = now;
@@ -538,6 +568,36 @@ export function isHost(room: WatchRoom, username: string) {
 
 export function canManage(room: WatchRoom, username: string, role?: string) {
   return isHost(room, username) || role === "ADMIN" || role === "MODERATOR";
+}
+
+export async function patchRoomSettings(input: {
+  id: string;
+  username: string;
+  role?: string;
+  title?: string;
+  cover?: string;
+  password?: string | null;
+}) {
+  const raw = await readRoom(input.id);
+  if (!raw) throw new Error("missing");
+  const room = prune(raw);
+  const owns = input.username === room.owner || input.username === (room.creator || room.owner) || input.role === "ADMIN";
+  if (!owns) throw new Error("owner");
+  if (typeof input.title === "string") {
+    const title = input.title.trim().slice(0, 48);
+    if (!title) throw new Error("title");
+    room.title = title;
+  }
+  if (typeof input.cover === "string") {
+    room.cover = input.cover.slice(0, 180_000);
+  }
+  if (input.password === null || input.password === "") {
+    room.password = undefined;
+  } else if (typeof input.password === "string" && input.password.trim()) {
+    room.password = hashPassword(input.password.trim());
+  }
+  await writeRoom(room);
+  return room;
 }
 
 export async function postChat(id: string, username: string, nick: string, text: string) {
@@ -708,7 +768,7 @@ export function parseYoutubeId(value: string) {
 }
 
 function collectVideos(node: unknown, out: { id: string; title: string; thumb: string }[], seen = new Set<string>()) {
-  if (!node || out.length >= 8) return;
+  if (!node || out.length >= 24) return;
   if (Array.isArray(node)) {
     for (const item of node) collectVideos(item, out, seen);
     return;
@@ -781,13 +841,13 @@ export async function relatedYoutube(videoId: string) {
   try {
     const android = await innertubePost("next", { videoId: id }, true);
     const next = android.filter((item) => item.id !== id);
-    if (next.length) return next.slice(0, 8);
+    if (next.length) return next.slice(0, 24);
   } catch {
     /* web next */
   }
   try {
     const web = await innertubePost("next", { videoId: id }, false);
-    return web.filter((item) => item.id !== id).slice(0, 8);
+    return web.filter((item) => item.id !== id).slice(0, 24);
   } catch {
     return [];
   }
@@ -809,7 +869,7 @@ async function searchPiped(q: string) {
           return id ? { id, title: String(row.title || "YouTube").slice(0, 120), thumb: row.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg` } : null;
         })
         .filter((row): row is { id: string; title: string; thumb: string } => Boolean(row))
-        .slice(0, 8);
+        .slice(0, 24);
       if (items.length) return items;
     } catch {
       /* next */

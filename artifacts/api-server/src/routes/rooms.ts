@@ -25,6 +25,7 @@ import {
   setHost,
   setMedia,
   takeSignals,
+  patchRoomSettings,
 } from "../lib/watch-rooms";
 import { listCpPairs } from "../lib/couples";
 import { hideUntilOf, seeUntilOf, fireUntilOf } from "../lib/room-hide";
@@ -69,6 +70,8 @@ router.post("/rooms", async (req, res) => {
       title: String(body.title || ""),
       cover: String(body.cover || ""),
       password: body.password ? String(body.password) : undefined,
+      role: account.role,
+      memberTitle: account.title || undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -184,6 +187,7 @@ router.post("/rooms/:id/join", async (req, res) => {
       photo: account.photo || undefined,
       password: String((req.body as { password?: string }).password || ""),
       role: account.role,
+      title: account.title || undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -224,6 +228,8 @@ router.post("/rooms/:id/ping", async (req, res) => {
         : undefined,
       kiss: body.kiss === false || typeof body.kiss === "string" ? body.kiss : undefined,
       kissAnswer: typeof body.kissAnswer === "boolean" ? body.kissAnswer : undefined,
+      title: account.title || undefined,
+      role: account.role,
     }, account.role);
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
@@ -316,6 +322,25 @@ router.post("/rooms/:id/hide", async (req, res) => {
   if (!account) return fail(res, "auth");
   try {
     const room = await setHidden(req.params.id, account.username, account.role, Boolean((req.body as { hidden?: boolean }).hidden));
+    res.json({ room: await packRoom(room, account.username) });
+  } catch (err) {
+    fail(res, err instanceof Error ? err.message : "owner");
+  }
+});
+
+router.post("/rooms/:id/settings", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const body = (req.body || {}) as { title?: string; cover?: string; password?: string | null };
+  try {
+    const room = await patchRoomSettings({
+      id: req.params.id,
+      username: account.username,
+      role: account.role,
+      title: typeof body.title === "string" ? body.title : undefined,
+      cover: typeof body.cover === "string" ? body.cover : undefined,
+      password: body.password === null || typeof body.password === "string" ? body.password : undefined,
+    });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
     fail(res, err instanceof Error ? err.message : "owner");

@@ -104,7 +104,7 @@ export async function dispatchClubPush(event: {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
-        { TTL: 120, urgency: event.type === "admin" ? "high" : "normal" },
+        { TTL: 120, urgency: event.type === "admin" || event.type === "giveaway" || event.type === "winner" ? "high" : "normal" },
       );
     } catch (err) {
       const status = Number((err as { statusCode?: number }).statusCode || 0);

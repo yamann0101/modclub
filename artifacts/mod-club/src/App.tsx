@@ -15,9 +15,9 @@ import { usePwaInstall } from '@/lib/pwa-install';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway } from '@/lib/club-store';
-import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
+import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, isCosmeticTitle, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
 import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, startNotifyPolling, syncClubPush, wasNotifyPrompted } from '@/lib/notifications';
-import { cn } from '@/lib/utils';
+import { PRIZE_TEMPLATES } from '@/lib/prize-art';
 
 const queryClient = new QueryClient();
 
@@ -152,7 +152,7 @@ function yetkiLabel(role?: string, title?: string, vip = false) {
   if (role === 'ADMIN') return title ? `Lider · ${title}` : 'Lider';
   if (role === 'MODERATOR') return title ? `Yetkili · ${title}` : 'Yetkili';
   if (vip) return title ? `VIP · ${title}` : 'VIP';
-  if (title === 'ELDER' || title === 'ASSTN') return title;
+  if (isCosmeticTitle(title)) return vip ? `VIP · ${title.replace('_', ' ')}` : title.replaceAll('_', ' ');
   return 'Üye';
 }
 
@@ -452,6 +452,9 @@ const RANK_STYLE = {
   admin: { tag: 'lider', Left: Crown, Right: Flame, NameL: Zap, NameR: Sparkles },
   elder: { tag: 'elder', Left: Gem, Right: Trees, NameL: Star, NameR: Sparkles },
   asstn: { tag: 'asstn', Left: Star, Right: Wand2, NameL: Sparkles, NameR: Zap },
+  prens: { tag: 'prens', Left: Crown, Right: Sparkles, NameL: Crown, NameR: Star },
+  prenses: { tag: 'prenses', Left: Heart, Right: Sparkles, NameL: Heart, NameR: Star },
+  hatun: { tag: 'hatun', Left: Heart, Right: Crown, NameL: Flame, NameR: Heart },
 } as const;
 
 const ADMIN_MUTE_OPTIONS = [
@@ -468,6 +471,9 @@ function displayRankKind(role?: string, title?: CosmeticTitle | string) {
   if (role === 'MODERATOR') return 'mod' as const;
   if (title === 'ELDER') return 'elder' as const;
   if (title === 'ASSTN') return 'asstn' as const;
+  if (title === 'PRENS') return 'prens' as const;
+  if (title === 'PRENSES') return 'prenses' as const;
+  if (title === 'REHANIN_HATUNU') return 'hatun' as const;
   return null;
 }
 
@@ -737,7 +743,7 @@ function finishedGiveaways(items: Giveaway[], now: number) {
     .sort((a, b) => new Date(b.announceAt).getTime() - new Date(a.announceAt).getTime());
 }
 
-function GiveawayResultList({ items, now, compact }: { items: Giveaway[]; now: number; compact?: boolean }) {
+function GiveawayResultList({ items, now, compact, onDelete }: { items: Giveaway[]; now: number; compact?: boolean; onDelete?: (id: string) => void }) {
   const groups = groupGiveawaysByDay(finishedGiveaways(items, now));
   if (!groups.length) {
     return <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Henüz açıklanmış çekiliş yok.</p>;
@@ -750,8 +756,12 @@ function GiveawayResultList({ items, now, compact }: { items: Giveaway[]; now: n
           <div className="grid gap-2">
             {list.map((item) => (
               <article key={item.id} className={compact ? 'admin-row' : 'overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.25)] p-4'}>
-                {item.prizeImage && !compact && <img src={item.prizeImage} alt="" className="mb-3 h-24 w-full rounded-xl object-cover" />}
-                {compact && (item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-cover" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Trophy size={18} /></div>)}
+                {item.prizeImage && !compact && (
+                  <div className="giveaway-prize-box mb-3 rounded-xl">
+                    <img src={item.prizeImage} alt="" />
+                  </div>
+                )}
+                {compact && (item.prizeImage ? <img src={item.prizeImage} alt="" className="size-12 rounded-xl object-contain bg-[#12081f]" /> : <div className="grid size-12 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Trophy size={18} /></div>)}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold">{item.title}</p>
                   <p className="mt-0.5 text-[.62rem] text-[hsl(var(--muted-foreground))]">
@@ -761,6 +771,9 @@ function GiveawayResultList({ items, now, compact }: { items: Giveaway[]; now: n
                     Kazanan: {item.winner || 'Katılım yok'}
                   </p>
                 </div>
+                {onDelete && (
+                  <button type="button" aria-label={`${item.title} çekilişini sil`} onClick={() => onDelete(item.id)} className="grid size-9 place-items-center rounded-lg text-[hsl(var(--destructive))]"><Trash2 size={16} /></button>
+                )}
               </article>
             ))}
           </div>
@@ -838,6 +851,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [giveawayTitle, setGiveawayTitle] = useState('');
   const [giveawayPrize, setGiveawayPrize] = useState('');
   const [giveawayImage, setGiveawayImage] = useState('');
+  const [giveawayCoins, setGiveawayCoins] = useState('');
   const [giveawayWhen, setGiveawayWhen] = useState('');
   const [filmTitle, setFilmTitle] = useState('');
   const [filmCopy, setFilmCopy] = useState('');
@@ -877,7 +891,9 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [chatProfile, setChatProfile] = useState<{ nick: string; photo: string; username?: string; role?: string; title?: string; appId?: string; vip?: boolean } | null>(null);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [notice, setNotice] = useState(`Hoş geldin, ${displayNick(session)}`);
-  const openGiveaways = giveaways.filter((item) => giveawayStatus(item, now) === 'open');
+  const openGiveaways = giveaways
+    .filter((item) => giveawayStatus(item, now) === 'open')
+    .sort((a, b) => new Date(a.announceAt).getTime() - new Date(b.announceAt).getTime());
   const liveGiveaway = openGiveaways[0];
 
   const currentSlide = banners[slide % banners.length] ?? slides[0];
@@ -1275,7 +1291,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
         time: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
         mine: true,
         role: user.role === 'ADMIN' ? 'ADMIN' : user.role === 'MODERATOR' ? 'MODERATOR' : undefined,
-        title: user.title === 'ELDER' || user.title === 'ASSTN' ? user.title : undefined,
+        title: isCosmeticTitle(user.title) ? user.title : undefined,
         replyTo: replyTo ? { author: replyTo.author, message: replyTo.message } : undefined,
         at: Date.now(),
       }];
@@ -1474,11 +1490,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
       prizeImage: giveawayImage.trim(),
       announceAt,
       participants: [],
+      kind: 'manual',
+      coins: Math.max(0, Math.floor(Number(giveawayCoins) || 0)) || undefined,
     }]);
     setGiveawayTitle('');
     setGiveawayPrize('');
     setGiveawayImage('');
     setGiveawayWhen('');
+    setGiveawayCoins('');
     void publishClubEvent({
       type: 'giveaway',
       title: 'Yeni çekiliş',
@@ -1542,7 +1561,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
               </label>
             )}
             <button data-testid="button-search" aria-label="Ara" onClick={() => setSearchOpen((open) => !open)} className="hidden size-11 place-items-center rounded-xl text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] sm:grid"><Search size={19} /></button>
-            <span className="wallet-chip"><Coins size={13} />{walletCoins}</span>
             <span className="shrink-0"><PwaInstallChip /></span>
             <button
               type="button"
@@ -1869,7 +1887,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <div>
                         <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">ÜYELER</p>
                         <h3 className="mt-1 font-display text-xl font-bold">Kullanıcılar</h3>
-                        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">ELDER / ASSTN görsel. Oda gizle günlük / haftalık / aylık verilir; admin sınırsızdır.</p>
+                        <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Çerçeve: ELDER, ASSTN, Prens, Prenses, Rehanın Hatunu. Oda paketi: gizli oda + VIP animasyonlu oda + havai fişek.</p>
                       </div>
                       <span className="rounded-full bg-[hsl(var(--secondary))] px-3 py-1 text-[.65rem] font-bold text-[hsl(var(--primary))]">{adminUsers.length}</span>
                     </div>
@@ -1891,10 +1909,13 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                               <button type="button" onClick={() => { void adminWallet(member.username, 'give', 100).then(applySnapshot); setNotice(`${member.nick} +100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">+100</button>
                               <button type="button" onClick={() => { void adminWallet(member.username, 'take', 100).then(applySnapshot); setNotice(`${member.nick} −100 coin`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">−100</button>
                               <button type="button" onClick={() => { void adminWallet(member.username, 'reset').then(applySnapshot); setNotice(`${member.nick} cüzdanı sıfırlandı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.55rem] font-bold">Sıfırla</button>
-                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} artık ${next}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[6.5rem] px-2 text-[.58rem] font-bold">
+                              <select value={memberTitle || ''} onChange={(event) => { const next = event.target.value as CosmeticTitle | ''; void patchClubUser(member.username, { title: next || null }).then(applySnapshot); setNotice(next ? `${member.nick} artık ${next.replaceAll('_', ' ')}` : `${member.nick} unvanı kaldırıldı`); }} className="admin-field h-8 w-[8.4rem] px-2 text-[.58rem] font-bold">
                                 <option value="">Unvan yok</option>
                                 <option value="ELDER">ELDER</option>
                                 <option value="ASSTN">ASSTN</option>
+                                <option value="PRENS">PRENS</option>
+                                <option value="PRENSES">PRENSES</option>
+                                <option value="REHANIN_HATUNU">Rehanın Hatunu</option>
                               </select>
                               {member.role !== 'ADMIN' && (
                                 <button onClick={() => { const role = member.role === 'ÜYE' ? 'MODERATOR' : 'ÜYE'; void patchClubUser(member.username, { role }).then(applySnapshot); }} className="rounded-lg border border-[hsl(var(--border))] px-2.5 py-1.5 text-[.58rem] font-bold text-[hsl(var(--foreground))]">
@@ -1914,7 +1935,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                                     const left = until > now ? Math.max(1, Math.ceil((until - now) / 86_400_000)) : 0;
                                     return left ? <span className="rounded-full bg-[#4c1d95] px-2 py-1 font-mono text-[.48rem] font-bold text-[#f5d0fe]">{left}g paket</span> : null;
                                   })()}
-                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda paketi: gizli oda gör/gizle + havai fişek`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1g</button>
+                                  <button type="button" onClick={() => { void grantRoomPack(member.username, 1).then(applySnapshot); setNotice(`${member.nick} 1 gün oda paketi: gizli oda + VIP animasyonlu oda + havai fişek`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1g</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 7).then(applySnapshot); setNotice(`${member.nick} 1 hafta oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1hf</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 30).then(applySnapshot); setNotice(`${member.nick} 1 ay oda paketi`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paket 1ay</button>
                                   <button type="button" onClick={() => { void grantRoomPack(member.username, 0).then(applySnapshot); setNotice(`${member.nick} oda paketi alındı`); }} className="rounded-lg border border-[hsl(var(--border))] px-2 py-1.5 text-[.52rem] font-bold">Paketi al</button>
@@ -1981,10 +2002,38 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <h3 className="mt-1 font-display text-xl font-bold">Çekilişler</h3>
                     </div>
                     <form onSubmit={(event) => { event.preventDefault(); addGiveaway(); }} className="mb-4 grid gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 sm:grid-cols-2">
+                      <p className="sm:col-span-2 text-[.62rem] text-[hsl(var(--muted-foreground))]">Her gün 13:00 / 18:00 / 23:00 İstanbul saatinde Aslan (500k), Dragon (2M) ve Deniz kızı (10M) sırayla otomatik yayınlanır. Biri bitmeden diğeri çıkmaz.</p>
+                      <div className="giveaway-templates sm:col-span-2">
+                        {PRIZE_TEMPLATES.map((prize) => (
+                          <button
+                            key={prize.id}
+                            type="button"
+                            onClick={() => {
+                              setGiveawayTitle(prize.title);
+                              setGiveawayPrize(prize.prizeText);
+                              setGiveawayImage(prize.image);
+                              setGiveawayCoins(prize.coins ? String(prize.coins) : '');
+                            }}
+                          >
+                            <img src={prize.image} alt="" />
+                            <span>{prize.title} · {prize.prizeText}</span>
+                          </button>
+                        ))}
+                      </div>
                       <input value={giveawayTitle} onChange={(event) => setGiveawayTitle(event.target.value)} placeholder="Çekiliş adı" className="admin-field" />
                       <input value={giveawayPrize} onChange={(event) => setGiveawayPrize(event.target.value)} placeholder="Ödül" className="admin-field" />
                       <input value={giveawayImage} onChange={(event) => setGiveawayImage(event.target.value)} placeholder="Ödül resmi linki" className="admin-field" />
+                      <label className="admin-field flex h-11 items-center gap-2 text-[.62rem] font-bold">
+                        Resim yükle
+                        <input type="file" accept="image/*" className="min-w-0 flex-1 text-[.55rem] font-normal" onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = '';
+                          if (file) void fileToBanner(file).then(setGiveawayImage).catch(() => setNotice('Ödül resmi yüklenemedi'));
+                        }} />
+                      </label>
+                      <input value={giveawayCoins} onChange={(event) => setGiveawayCoins(event.target.value)} placeholder="Coin (opsiyonel)" inputMode="numeric" className="admin-field" />
                       <input type="datetime-local" value={giveawayWhen} onChange={(event) => setGiveawayWhen(event.target.value)} className="admin-field" />
+                      {giveawayImage && <div className="giveaway-prize-box sm:col-span-2 rounded-xl"><img src={giveawayImage} alt="" /></div>}
                       <button type="submit" className="admin-btn sm:col-span-2"><Plus size={15} />Çekiliş yayınla</button>
                     </form>
                     <div className="grid gap-2">
@@ -2004,7 +2053,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <p className="font-mono text-[.55rem] font-bold tracking-[.14em] text-[hsl(var(--primary))]">SONUÇLAR</p>
                       <h4 className="mt-1 font-display text-lg font-bold">Gün gün kazananlar</h4>
                       <p className="mb-3 mt-1 text-xs text-[hsl(var(--muted-foreground))]">Süre bitince kazanan burada, çekiliş gününe göre durur.</p>
-                      <GiveawayResultList items={giveaways} now={now} compact />
+                      <GiveawayResultList items={giveaways} now={now} compact onDelete={(id) => persistGiveaways(giveaways.filter((current) => current.id !== id))} />
                     </div>
                   </div>
                 )}
@@ -2100,7 +2149,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
             <button type="button" onClick={() => setGiveawayTab('sonuclar')} className={`h-9 rounded-lg text-xs font-extrabold ${giveawayTab === 'sonuclar' ? 'bg-white text-[hsl(var(--primary))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`}>Sonuçlar</button>
           </div>
           {giveawayTab === 'sonuclar' ? (
-            <GiveawayResultList items={giveaways} now={now} />
+            <GiveawayResultList items={giveaways} now={now} onDelete={isAdmin ? (id) => persistGiveaways(giveaways.filter((current) => current.id !== id)) : undefined} />
           ) : openGiveaways.length === 0 ? (
             <p className="rounded-xl bg-[hsl(var(--muted)/.5)] p-4 text-sm text-[hsl(var(--muted-foreground))]">Şu anda açık çekiliş yok.</p>
           ) : (
@@ -2110,14 +2159,14 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                 const announceAt = new Date(item.announceAt).getTime();
                 return (
                   <article key={item.id} className="overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.25)]">
-                    {item.prizeImage && <img src={item.prizeImage} alt={item.title} className="h-32 w-full object-cover" />}
+                    {item.prizeImage && <div className="giveaway-prize-box"><img src={item.prizeImage} alt={item.title} /></div>}
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{item.prizeText || 'Ödül açıklaması yok'}</p></div>
                         <span className="rounded-full bg-white px-2 py-1 font-mono text-[.5rem] font-bold text-[hsl(var(--primary))]">{item.participants.length} kişi</span>
                       </div>
                       <p className="mt-3 text-[.62rem] font-semibold text-[hsl(var(--muted-foreground))]">Kalan süre: {formatCountdown(announceAt, now)}</p>
-                      <button type="button" disabled={joined} onClick={() => joinGiveaway(item.id)} className="giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide disabled:opacity-40">
+                      <button type="button" disabled={joined} onClick={() => joinGiveaway(item.id)} className={`giveaway-join-btn mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide ${joined ? 'is-joined' : ''}`}>
                         <Ticket size={15} />{joined ? 'Katıldın' : 'Çekilişe Katıl'}
                       </button>
                     </div>
@@ -2181,6 +2230,24 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           </form>
         )}
         <div ref={chatScrollRef} data-testid="chat-messages" className="chat-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          {liveGiveaway && (
+            <article className="chat-giveaway-pin">
+              {liveGiveaway.prizeImage && <div className="giveaway-prize-box"><img src={liveGiveaway.prizeImage} alt="" /></div>}
+              <div className="chat-giveaway-body">
+                <p className="font-mono text-[.48rem] font-extrabold tracking-[.16em] text-amber-200">ÇEKİLİŞ</p>
+                <h3>{liveGiveaway.title}</h3>
+                <p>{liveGiveaway.prizeText || 'Ödül'} · {formatCountdown(new Date(liveGiveaway.announceAt).getTime(), now)}</p>
+                <button
+                  type="button"
+                  disabled={liveGiveaway.participants.includes(nick)}
+                  onClick={() => joinGiveaway(liveGiveaway.id)}
+                  className={`giveaway-join-btn mt-2.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-xs font-extrabold tracking-wide ${liveGiveaway.participants.includes(nick) ? 'is-joined' : ''}`}
+                >
+                  <Ticket size={15} />{liveGiveaway.participants.includes(nick) ? 'Katıldın' : 'Çekilişe katıl'}
+                </button>
+              </div>
+            </article>
+          )}
           <div className="mb-4 flex justify-center"><span className="rounded-full bg-white/80 px-3 py-1 font-mono text-[.52rem] font-bold tracking-[.12em] text-[hsl(var(--muted-foreground))] shadow-sm">BUGÜN</span></div>
           <div className="space-y-3">
             {chatMessages.length === 0 ? <div className="flex min-h-full flex-col items-center justify-center py-10 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-white text-[hsl(var(--primary))] shadow-sm"><Trash2 size={22} /></div><p className="mt-3 text-xs font-bold">Sohbet geçmişi temizlendi</p><p className="mt-1 max-w-[15rem] text-[.65rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Yeni bir mesaj göndererek sohbeti yeniden başlatabilirsin.</p></div> : chatMessages.map((message) => {
@@ -2191,7 +2258,7 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
                       <Gift size={14} className="text-amber-300" />
                       <span className="font-mono text-[.5rem] font-extrabold tracking-[.16em] text-amber-200">ÇEKİLİŞ SONUCU</span>
                     </div>
-                    {message.prizeImage && <img src={message.prizeImage} alt="" className="h-24 w-full object-cover" />}
+                    {message.prizeImage && <div className="giveaway-prize-box"><img src={message.prizeImage} alt="" /></div>}
                     <div className="px-3 py-3">
                       <p className="text-[.58rem] font-bold uppercase tracking-[.12em] text-amber-200/90">Kazanan</p>
                       <p className="mt-0.5 font-display text-lg font-bold leading-none">{message.winner}</p>

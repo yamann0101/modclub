@@ -1,7 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { connectPostgres } from "./lib/pg";
-import { ensureSchema } from "./lib/club-data";
+import { ensureSchema, readGiveaways } from "./lib/club-data";
 
 const rawPort = process.env["PORT"] || process.env["HTTP_PORT"] || "8080";
 const port = Number(rawPort);
@@ -37,6 +37,11 @@ async function main() {
       process.exit(1);
     }
     logger.info({ host, port }, "Server listening");
+    const tickGifts = () => {
+      void readGiveaways().catch((giftErr) => logger.warn({ err: giftErr }, "Günlük çekiliş tiklenemedi"));
+    };
+    tickGifts();
+    setInterval(tickGifts, 20_000);
   });
 }
 

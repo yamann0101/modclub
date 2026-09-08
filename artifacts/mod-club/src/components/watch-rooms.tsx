@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Shield, SkipBack, SkipForward, Sofa, Sparkles, UserX, Volume2, VolumeX, X } from 'lucide-react';
+import { Crown, DoorOpen, Eye, EyeOff, Heart, Lock, Maximize2, Mic, MicOff, Minimize2, Pause, Play, Plus, Search, Settings, Shield, SkipBack, SkipForward, Sofa, Sparkles, UserX, Volume2, VolumeX, X } from 'lucide-react';
 import { avatarFor } from '@/lib/club-store';
 import {
   ackWatchSignals,
@@ -23,6 +23,7 @@ import {
   setWatchHidden,
   setWatchHost,
   setWatchMedia,
+  setWatchSettings,
   type PublicRoom,
   type RoomCard,
   type RoomMember,
@@ -381,22 +382,30 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     clear();
     mode = 'frame';
     box.appendChild(iframe);
+    const tell = (func: string, args: unknown[] = []) => {
+      iframe.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 1 }), '*');
+      iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+    };
+    iframe.addEventListener('load', () => tell('playVideo'));
     inner = {
       loadVideoById: (next: string, at = 0) => {
         iframe.src = embedSrc(host, next, at);
       },
       cueVideoById: (next: string, at = 0) => { inner?.loadVideoById(next, at); },
-      playVideo: () => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*'); },
-      pauseVideo: () => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*'); },
-      seekTo: (seconds: number, _allow?: boolean) => { iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*'); },
+      playVideo: () => { tell('playVideo'); },
+      pauseVideo: () => { tell('pauseVideo'); },
+      seekTo: (seconds: number, _allow?: boolean) => { tell('seekTo', [seconds, true]); },
       getCurrentTime: () => start,
       getDuration: () => 0,
       getPlayerState: () => 1,
       getVideoData: () => ({ video_id: id }),
-      setVolume: () => undefined,
+      setVolume: (value: number) => {
+        volume = Math.max(0, Math.min(100, value));
+        tell('setVolume', [volume]);
+      },
       getVolume: () => volume,
-      mute: () => { muted = true; iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*'); },
-      unMute: () => { muted = false; iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*'); },
+      mute: () => { muted = true; tell('mute'); },
+      unMute: () => { muted = false; tell('unMute'); },
       isMuted: () => muted,
       setPlaybackRate: () => undefined,
       destroy: () => { iframe.remove(); },
@@ -696,6 +705,11 @@ export function WatchRoomsPage({
   const [fireKind, setFireKind] = useState<FireKind>('burst');
   const [fireSec, setFireSec] = useState(5);
   const [kissPick, setKissPick] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCover, setEditCover] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [clearPassword, setClearPassword] = useState(false);
   const localReact = useRef<{ id: string; at: number } | null>(null);
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
@@ -717,6 +731,7 @@ export function WatchRoomsPage({
   const filmUnlocked = useRef(false);
   const nextQueue = useRef<YoutubeHit[]>([]);
   const nextBusy = useRef(false);
+  const relatedBusy = useRef(false);
   const heardReact = useRef(new Set<string>());
   const pipDrag = useRef<{ ox: number; oy: number; x: number; y: number; moved: boolean } | null>(null);
   const hudTimer = useRef(0);
@@ -1101,30 +1116,13 @@ export function WatchRoomsPage({
       const player = playerRef.current;
       const room = roomRef.current;
       if (!player || !room?.videoId || !room.playing) return;
-      try { player.playVideo(); } catch { /* os may still pause */ }
-    };
-    const parkCinema = async () => {
-      const box = boxRef.current;
-      const home = cinemaHomeRef.current;
-      const pipApi = (window as Window & { documentPictureInPicture?: { requestWindow: (opts?: { width?: number; height?: number }) => Promise<Window> } }).documentPictureInPicture;
-      if (!box || !home || !pipApi?.requestWindow || cinemaPip.current) return;
       try {
-        const win = await pipApi.requestWindow({ width: 360, height: 202 });
-        cinemaPip.current = win;
-        win.document.body.style.margin = '0';
-        win.document.body.style.background = '#000';
-        win.document.body.appendChild(box);
-        const restore = () => {
-          if (boxRef.current && cinemaHomeRef.current && !cinemaHomeRef.current.contains(boxRef.current)) {
-            cinemaHomeRef.current.appendChild(boxRef.current);
-          }
-          cinemaPip.current = null;
-        };
-        win.addEventListener('pagehide', restore);
-        win.addEventListener('unload', restore);
-      } catch {
-        /* no document pip */
-      }
+        player.playVideo();
+        if (!videoMutedRef.current && videoVolRef.current > 0) {
+          player.unMute();
+          applyLocalVolume(player);
+        }
+      } catch { /* os may still pause */ }
     };
     const restoreCinema = () => {
       const box = boxRef.current;
@@ -1137,14 +1135,13 @@ export function WatchRoomsPage({
       hiddenAt.current = Date.now();
       keepAlive();
       keepFilmPlaying();
-      void parkCinema();
     };
     const resumeRoom = () => {
       if (leftRef.current || document.hidden) return;
       resetChrome();
       keepAlive();
       restoreCinema();
-      forceSpeaker(wantMicRef.current);
+      forceSpeaker(false);
       unlockAudio();
       const stamped = hiddenAt.current;
       hiddenAt.current = 0;
@@ -1161,12 +1158,27 @@ export function WatchRoomsPage({
         void syncVoice(room);
       }
       const player = playerRef.current;
-      if (player && playerReady.current && room?.videoId && room.playing) {
-        followCinema(room, player);
-        try { player.playVideo(); } catch {
+      const reviveFilm = () => {
+        if (!player || !playerReady.current || !room?.videoId) return;
+        try {
+          if (room.playing) {
+            followCinema(room, player);
+            player.playVideo();
+          }
+          if (!videoMutedRef.current && videoVolRef.current > 0) {
+            player.unMute();
+            applyLocalVolume(player);
+          }
+        } catch {
           /* keep existing iframe */
         }
-      }
+      };
+      reviveFilm();
+      window.setTimeout(reviveFilm, 350);
+      window.setTimeout(reviveFilm, 1200);
+      window.setTimeout(() => {
+        if (wantMicRef.current) forceSpeaker(true);
+      }, 700);
       if (wantMicRef.current && (away > 400 || !micLive())) void reviveMic(true);
     };
     const onVisible = () => {
@@ -1327,7 +1339,7 @@ export function WatchRoomsPage({
   }
 
   function applyLocalVolume(player: YtPlayer) {
-    forceSpeaker(wantMicRef.current);
+    if (!wantMicRef.current) forceSpeaker(false);
     const slider = videoVolRef.current;
     const wantMute = videoMutedRef.current || slider <= 0;
     const meTalking = talkingRef.current.has(user.username);
@@ -2017,6 +2029,33 @@ export function WatchRoomsPage({
     }
   }
 
+  function mergeHits(extra: YoutubeHit[], base?: YoutubeHit[]) {
+    setHits((current) => {
+      const start = current.length ? current : (base || []);
+      const seen = new Set(start.map((item) => item.id));
+      const next = [...start];
+      for (const item of extra) {
+        if (!item.id || seen.has(item.id)) continue;
+        seen.add(item.id);
+        next.push(item);
+      }
+      return next.slice(0, 40);
+    });
+  }
+
+  async function loadMoreHits(seed?: string) {
+    const id = seed || hits[hits.length - 1]?.id || hits[0]?.id;
+    if (!id || relatedBusy.current) return;
+    relatedBusy.current = true;
+    try {
+      mergeHits((await searchWatchRelated(id)).items || []);
+    } catch {
+      /* ignore */
+    } finally {
+      relatedBusy.current = false;
+    }
+  }
+
   async function onSearch(event: FormEvent) {
     event.preventDefault();
     if (!query.trim()) return;
@@ -2025,6 +2064,7 @@ export function WatchRoomsPage({
       setHits([{ id: direct, title: 'YouTube video', thumb: `https://i.ytimg.com/vi/${direct}/hqdefault.jpg` }]);
       nextQueue.current = [];
       setNotice('');
+      void loadMoreHits(direct);
       return;
     }
     setBusy(true);
@@ -2033,6 +2073,16 @@ export function WatchRoomsPage({
       setHits(items);
       nextQueue.current = items;
       setNotice(items.length ? '' : 'Sonuç yok. YouTube linkini yapıştır.');
+      if (items[0]) {
+        relatedBusy.current = true;
+        try {
+          mergeHits((await searchWatchRelated(items[0].id)).items || [], items);
+        } catch {
+          /* ignore */
+        } finally {
+          relatedBusy.current = false;
+        }
+      }
     } catch {
       setNotice('Arama olmadı. YouTube linkini yapıştır.');
     } finally {
@@ -2064,8 +2114,8 @@ export function WatchRoomsPage({
     } else {
       setCinemaKey((value) => value + 1);
     }
-    setHits([]);
     setQuery('');
+    void loadMoreHits(hit.id);
     setEndCover(false);
   }
 
@@ -2193,6 +2243,7 @@ export function WatchRoomsPage({
   const mineId = rooms.find((room) => room.creator === user.username || room.owner === user.username)?.id;
 
   let roomPage: ReactNode = null;
+  let settingsModal: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
     const fireMs = Math.min(FIREWORK_MAX_MS, Math.max(1_000, open.firework?.ms || FIREWORK_MS));
@@ -2246,6 +2297,21 @@ export function WatchRoomsPage({
           <button type="button" className={`room-hide ${open.hidden ? 'is-on' : ''}`} onClick={() => void toggleHidden()}>
             {open.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
             {open.hidden ? 'Odayı göster' : 'Odayı gizle'}
+          </button>
+        )}
+        {ownsOpen && (
+          <button
+            type="button"
+            className="room-gear"
+            onClick={() => {
+              setEditTitle(open.title);
+              setEditCover(open.cover || '');
+              setEditPassword('');
+              setClearPassword(false);
+              setSettingsOpen(true);
+            }}
+          >
+            <Settings size={14} /> Ayarlar
           </button>
         )}
         <button type="button" className="room-mini" onClick={minimized ? growRoom : shrinkRoom} aria-label={minimized ? 'Odayı büyüt' : 'Odayı küçült'}>
@@ -2445,7 +2511,13 @@ export function WatchRoomsPage({
           )}
           {!iHost && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
           {hits.length > 0 && (
-            <div className="room-hits">
+            <div
+              className="room-hits"
+              onScroll={(event) => {
+                const box = event.currentTarget;
+                if (box.scrollTop + box.clientHeight >= box.scrollHeight - 48) void loadMoreHits();
+              }}
+            >
               <button type="button" className="room-hits-clear" onClick={() => { setHits([]); setQuery(''); }}>Vazgeç</button>
               {hits.map((hit) => (
                 <button key={hit.id} type="button" onClick={() => void playHit(hit)}>
@@ -2471,10 +2543,14 @@ export function WatchRoomsPage({
                   : '';
                 const react = mineReact || liveSeatEmoji(member, open.serverNow, receivedAtRef.current, reactNow || Date.now());
                 const reactMark = SEAT_EMOJIS.find((item) => item.id === react)?.mark || '';
+                const frame = member?.title === 'PRENS' ? 'is-frame-prens'
+                  : member?.title === 'PRENSES' ? 'is-frame-prenses'
+                    : member?.title === 'REHANIN_HATUNU' ? 'is-frame-hatun'
+                      : '';
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${kissPick && canPick ? 'is-kiss-target' : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${frame} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${kissPick && canPick ? 'is-kiss-target' : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
                     onClick={() => {
                       if (!member) void sitOn(seat);
                       else if (kissPick && member.username !== user.username) void askKiss(member.username);
@@ -2670,7 +2746,57 @@ export function WatchRoomsPage({
       </div>
     );
 
-    if (!(minimized && listed)) return roomPage;
+    settingsModal = settingsOpen ? (
+      <div className="room-modal">
+        <form
+          className="room-modal-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void (async () => {
+              setBusy(true);
+              try {
+                const next = await setWatchSettings(open.id, {
+                  title: editTitle.trim(),
+                  cover: editCover,
+                  password: clearPassword ? '' : (editPassword.trim() ? editPassword : undefined),
+                });
+                adopt(next.room);
+                setSettingsOpen(false);
+                setEditPassword('');
+                setClearPassword(false);
+                void refreshList();
+                setNotice('Oda ayarları kaydedildi');
+              } catch {
+                setNotice('Ayarlar kaydedilemedi');
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          <h2>Oda ayarları</h2>
+          <label>Başlık<input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={48} /></label>
+          <label>Oda resmi
+            <input type="file" accept="image/*" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void fileToCover(file).then(setEditCover).catch((err) => setNotice((err as Error).message));
+            }} />
+          </label>
+          {editCover && <img className="room-cover-preview" src={editCover} alt="" />}
+          <label>Yeni şifre (boş bırakırsan değişmez)<input type="password" value={editPassword} onChange={(event) => setEditPassword(event.target.value)} /></label>
+          <label className="flex items-center gap-2 text-xs font-bold">
+            <input type="checkbox" checked={clearPassword} onChange={(event) => setClearPassword(event.target.checked)} />
+            Şifreyi kaldır
+          </label>
+          <div className="room-modal-actions">
+            <button type="button" onClick={() => setSettingsOpen(false)}>Vazgeç</button>
+            <button type="submit" disabled={busy || !editTitle.trim()}>Kaydet</button>
+          </div>
+        </form>
+      </div>
+    ) : null;
+
+    if (!(minimized && listed)) return <>{roomPage}{settingsModal}</>;
   }
 
   if (!listed) return null;
@@ -2701,16 +2827,21 @@ export function WatchRoomsPage({
         </button>
       </div>
       <div className="room-grid">
-        {rooms.map((room) => (
-          <article key={room.id} className="room-card">
+        {rooms.map((room) => {
+          const king = room.skin === 'king';
+          const vip = room.skin === 'vip';
+          return (
+          <article key={room.id} className={`room-card ${king ? 'is-king' : ''} ${vip ? 'is-vip' : ''}`}>
             <div className="room-card-cover">
-              {room.cover ? <img src={room.cover} alt="" /> : <DoorOpen size={18} />}
+              {room.cover ? <img src={room.cover} alt="" /> : king ? <Crown size={22} /> : <DoorOpen size={18} />}
               {room.locked && <span><Lock size={11} /></span>}
               {room.hidden && <em className="room-card-hidden">GİZLİ</em>}
             </div>
             <div className="room-card-body">
               <div className="room-card-meta">
-                <h2>{room.title}</h2>
+                {king && <small className="room-card-official">OFFICIAL · KRALIN ODASI</small>}
+                {vip && !king && <small className="room-card-vip">VIP ODA</small>}
+                <h2>{king ? 'KRALIN ODASI' : room.title}</h2>
                 <small>{room.ownerNick} · {room.watching} kişi{room.videoTitle ? ` · ${room.videoTitle}` : ''}{room.hidden ? ' · gizli' : ''}</small>
               </div>
               <div className="room-card-actions">
@@ -2721,7 +2852,8 @@ export function WatchRoomsPage({
               </div>
             </div>
           </article>
-        ))}
+          );
+        })}
         {!rooms.length && <p className="room-empty">Henüz oda yok. İlk odayı sen aç.</p>}
       </div>
 
@@ -2762,5 +2894,5 @@ export function WatchRoomsPage({
     </div>
   );
 
-  return <>{listPage}{roomPage}</>;
+  return <>{listPage}{roomPage}{settingsModal}</>;
 }
