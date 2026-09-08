@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { Readable } from "node:stream";
 import { currentAccount } from "../lib/http";
 import {
   ackSignals,
@@ -104,6 +105,59 @@ router.post("/rooms/play", async (req, res) => {
   }
 });
 
+function allowedStreamUrl(value: string) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host.endsWith(".googlevideo.com")
+      || host === "googlevideo.com"
+      || host.endsWith(".youtube.com")
+      || host === "youtube.com"
+      || [
+        "pipedapi.kavin.rocks",
+        "pipedapi.adminforge.de",
+        "pipedapi.leptons.xyz",
+        "api.piped.private.coffee",
+        "inv.nadeko.net",
+        "invidious.nerdvpn.de",
+        "yewtu.be",
+        "iv.ggtyler.dev",
+        "invidious.materialio.us",
+      ].includes(host);
+  } catch {
+    return false;
+  }
+}
+
+router.get("/rooms/stream", async (req, res) => {
+  const account = await currentAccount(req);
+  if (!account) return fail(res, "auth");
+  const target = String(req.query.u || "");
+  if (!allowedStreamUrl(target)) return fail(res, "url");
+  try {
+    const headers: Record<string, string> = {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+    };
+    if (req.headers.range) headers.range = String(req.headers.range);
+    const up = await fetch(target, { headers, redirect: "follow" });
+    res.status(up.status);
+    const type = up.headers.get("content-type");
+    if (type) res.setHeader("content-type", type);
+    const range = up.headers.get("content-range");
+    if (range) res.setHeader("content-range", range);
+    const length = up.headers.get("content-length");
+    if (length) res.setHeader("content-length", length);
+    const accept = up.headers.get("accept-ranges");
+    res.setHeader("accept-ranges", accept || "bytes");
+    if (!up.body) {
+      res.end();
+      return;
+    }
+    Readable.fromWeb(up.body as never).pipe(res);
+  } catch {
+    res.status(502).json({ error: "stream" });
+  }
+});
+
 router.get("/rooms/:id", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
@@ -155,7 +209,7 @@ router.post("/rooms/:id/ping", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   try {
-    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string } };
+    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string; ms?: number }; kiss?: string | false; kissAnswer?: boolean };
     const room = await pingRoom(req.params.id, account.username, {
       micOn: typeof body.micOn === "boolean" ? body.micOn : undefined,
       speaking: typeof body.speaking === "boolean" ? body.speaking : undefined,
@@ -164,6 +218,8 @@ router.post("/rooms/:id/ping", async (req, res) => {
       firework: body.firework === false || typeof body.firework === "string" || (body.firework && typeof body.firework === "object")
         ? body.firework
         : undefined,
+      kiss: body.kiss === false || typeof body.kiss === "string" ? body.kiss : undefined,
+      kissAnswer: typeof body.kissAnswer === "boolean" ? body.kissAnswer : undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {

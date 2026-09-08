@@ -9,7 +9,10 @@ const MAX_SIGNALS = 200;
 const EMOJI_MS = 3_000;
 const EMOJI_IDS = new Set(["kiss-r", "kiss-l", "laugh", "cry", "angry"]);
 const FIREWORK_MS = 5_000;
+const FIREWORK_MAX_MS = 30_000;
 const FIRE_KINDS = new Set(["burst", "roses", "fire", "hearts"]);
+const KISS_ASK_MS = 25_000;
+const KISS_LIVE_MS = 5_000;
 
 export type RoomMember = {
   username: string;
@@ -65,7 +68,17 @@ export type WatchRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; kind: string; at: number };
+  firework?: { text: string; kind: string; ms: number; at: number };
+  kiss?: {
+    from: string;
+    to: string;
+    fromNick: string;
+    toNick: string;
+    fromPhoto?: string;
+    toPhoto?: string;
+    status: "ask" | "live";
+    at: number;
+  };
   left?: string[];
 };
 
@@ -104,7 +117,17 @@ export type PublicRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; kind: string; at: number };
+  firework?: { text: string; kind: string; ms: number; at: number };
+  kiss?: {
+    from: string;
+    to: string;
+    fromNick: string;
+    toNick: string;
+    fromPhoto?: string;
+    toPhoto?: string;
+    status: "ask" | "live";
+    at: number;
+  };
   you: { username: string; owner: boolean; host: boolean; drive: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -220,6 +243,14 @@ export function publicCard(room: RoomIndex): PublicRoomCard {
 export function publicRoom(room: WatchRoom, username: string): PublicRoom {
   const you = room.members.find((member) => member.username === username);
   const now = Date.now();
+  const fireMs = Math.min(FIREWORK_MAX_MS, Math.max(1_000, room.firework?.ms || FIREWORK_MS));
+  const kiss = room.kiss;
+  const kissLive = Boolean(
+    kiss && (
+      (kiss.status === "ask" && now - kiss.at < KISS_ASK_MS)
+      || (kiss.status === "live" && now - kiss.at < KISS_LIVE_MS + 400)
+    ),
+  );
   return {
     id: room.id,
     title: room.title,
@@ -251,7 +282,8 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     cpOn: Boolean(room.cpOn),
     hidden: Boolean(room.hidden),
     lastJoin: room.lastJoin && now - room.lastJoin.at < 8_000 ? room.lastJoin : undefined,
-    firework: room.firework && now - room.firework.at < FIREWORK_MS + 1_200 ? room.firework : undefined,
+    firework: room.firework && now - room.firework.at < fireMs + 1_200 ? { ...room.firework, ms: fireMs } : undefined,
+    kiss: kissLive ? kiss : undefined,
     you: {
       username,
       owner: room.owner === username,
@@ -384,16 +416,17 @@ export async function joinRoom(input: {
   return room;
 }
 
-export type FireworkPatch = string | false | { text?: string; kind?: string };
+export type FireworkPatch = string | false | { text?: string; kind?: string; ms?: number };
 
 function fireworkFrom(patch: FireworkPatch, now: number) {
   if (patch === false) return undefined;
-  const payload = typeof patch === "string" ? { text: patch, kind: "burst" } : patch;
+  const payload = typeof patch === "string" ? { text: patch, kind: "burst", ms: FIREWORK_MS } : patch;
   const kind = FIRE_KINDS.has(String(payload.kind || "")) ? String(payload.kind) : "burst";
-  return { text: String(payload.text || "").trim().slice(0, 48), kind, at: now };
+  const ms = Math.min(FIREWORK_MAX_MS, Math.max(1_000, Number(payload.ms) || FIREWORK_MS));
+  return { text: String(payload.text || "").trim().slice(0, 48), kind, ms, at: now };
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch }) {
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch; kiss?: string | false; kissAnswer?: boolean }) {
   const latest = await readRoom(id);
   if (!latest) throw new Error("missing");
   if ((latest.left || []).includes(username)) throw new Error("member");
@@ -417,6 +450,36 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
   }
   if (patch?.firework !== undefined && isHost(room, username)) {
     room.firework = fireworkFrom(patch.firework, now);
+  }
+  if (room.kiss) {
+    const age = now - room.kiss.at;
+    if ((room.kiss.status === "ask" && age > KISS_ASK_MS) || (room.kiss.status === "live" && age > KISS_LIVE_MS + 800)) {
+      room.kiss = undefined;
+    }
+  }
+  if (patch?.kiss === false) {
+    if (room.kiss && (room.kiss.from === username || room.kiss.to === username)) room.kiss = undefined;
+  } else if (typeof patch?.kiss === "string") {
+    const target = room.members.find((item) => item.username === patch.kiss);
+    if (!target) throw new Error("member");
+    if (target.username === username) throw new Error("self");
+    room.kiss = {
+      from: username,
+      to: target.username,
+      fromNick: member.nick,
+      toNick: target.nick,
+      fromPhoto: member.photo,
+      toPhoto: target.photo,
+      status: "ask",
+      at: now,
+    };
+  }
+  if (typeof patch?.kissAnswer === "boolean" && room.kiss?.status === "ask" && room.kiss.to === username) {
+    if (patch.kissAnswer) {
+      room.kiss = { ...room.kiss, status: "live", at: now };
+    } else {
+      room.kiss = undefined;
+    }
   }
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
@@ -808,11 +871,57 @@ function pushUrl(bag: string[], url?: string) {
   if (value.startsWith("http") && !bag.includes(value)) bag.push(value);
 }
 
+async function innertubePlay(id: string) {
+  const urls: string[] = [];
+  let title = "";
+  for (const android of [true, false]) {
+    try {
+      const response = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": android
+            ? "com.google.android.youtube/19.47.53 (Linux; U; Android 14; TR) gzip"
+            : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+          "x-youtube-client-name": android ? "3" : "1",
+          "x-youtube-client-version": android ? "19.47.53" : "2.20260326.01.00",
+        },
+        body: JSON.stringify({
+          ...innertubeBody({ videoId: id }, android),
+          videoId: id,
+          contentCheckOk: true,
+          racyCheckOk: true,
+        }),
+        signal: AbortSignal.timeout(7000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as {
+        videoDetails?: { title?: string };
+        streamingData?: { formats?: { url?: string }[]; adaptiveFormats?: { url?: string }[] };
+      };
+      if (data.videoDetails?.title) title = String(data.videoDetails.title).slice(0, 120);
+      for (const row of data.streamingData?.formats || []) pushUrl(urls, row.url);
+      if (urls.length) break;
+    } catch {
+      /* next client */
+    }
+  }
+  return { urls, title };
+}
+
 export async function resolveYoutubePlay(videoId: string) {
   const id = parseYoutubeId(videoId);
   if (!id) return { urls: [] as string[], title: "" };
   const urls: string[] = [];
   let title = "";
+
+  try {
+    const inner = await innertubePlay(id);
+    if (inner.title) title = inner.title;
+    for (const url of inner.urls) pushUrl(urls, url);
+  } catch {
+    /* next */
+  }
 
   for (const host of PLAY_INVIDIOUS) {
     pushUrl(urls, `${host}/latest_version?id=${id}&itag=22`);

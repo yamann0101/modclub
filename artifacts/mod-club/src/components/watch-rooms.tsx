@@ -313,7 +313,9 @@ function createFilmPlayer(box: HTMLElement, hooks: {
     currentId = id;
     const data = await fetchWatchPlay(id);
     if (gen !== loadGen) return;
-    const urls = data.urls || [];
+    const urls = (data.urls || []).map((url) => (
+      url.startsWith('/') ? url : `/api/rooms/stream?u=${encodeURIComponent(url)}`
+    ));
     if (!urls.length) {
       hooks.onError();
       return;
@@ -453,6 +455,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
   let volume = 70;
   let muted = true;
   let destroyed = false;
+  let ytTry = 0;
 
   const applyVol = () => {
     if (!inner) return;
@@ -488,34 +491,45 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     applyVol();
   };
 
-  const attachYoutube = async (id: string, start: number, token: number) => {
+  const attachYoutube = async (id: string, start: number, token: number, host = 'https://www.youtube.com') => {
     try {
       await loadYoutube();
     } catch {
-      attachHtml5(id, start, token);
+      if (host.includes('nocookie')) attachHtml5(id, start, token);
+      else void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
       return;
     }
     if (destroyed || token !== gen) return;
     if (!window.YT?.Player) {
-      attachHtml5(id, start, token);
+      if (host.includes('nocookie')) attachHtml5(id, start, token);
+      else void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
       return;
     }
     clear();
     mode = 'yt';
-    const host = document.createElement('div');
-    host.style.cssText = 'width:100%;height:100%';
-    box.appendChild(host);
+    const holder = document.createElement('div');
+    holder.style.cssText = 'width:100%;height:100%';
+    box.appendChild(holder);
     let fell = false;
+    let ready = false;
     const fallback = () => {
       if (fell || token !== gen) return;
       fell = true;
       window.clearTimeout(timer);
+      if (ytTry < 1) {
+        ytTry = 1;
+        void attachYoutube(id, start, token, 'https://www.youtube-nocookie.com');
+        return;
+      }
       attachHtml5(id, start, token);
     };
-    const timer = window.setTimeout(fallback, 4500);
-    inner = new window.YT.Player(host, {
+    const timer = window.setTimeout(() => {
+      if (!ready) fallback();
+    }, 9000);
+    inner = new window.YT.Player(holder, {
       width: '100%',
       height: '100%',
+      host,
       videoId: id,
       playerVars: {
         autoplay: 1,
@@ -525,13 +539,15 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
         modestbranding: 1,
         rel: 0,
         playsinline: 1,
-        origin: window.location.origin,
+        hl: 'tr',
+        cc_lang_pref: 'tr',
         start: Math.max(0, Math.floor(start)),
         iv_load_policy: 3,
       },
       events: {
         onReady: () => {
           if (token !== gen || fell) return;
+          ready = true;
           window.clearTimeout(timer);
           applyVol();
           try {
@@ -559,6 +575,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
         /* remount */
       }
     }
+    ytTry = 0;
     const token = ++gen;
     void attachYoutube(id, start, token);
   };
@@ -609,15 +626,18 @@ function fireBits(at: number, count: number) {
   return bits;
 }
 
-function RoomFireworks({ firework }: { firework: { text: string; kind?: string; at: number } }) {
+function RoomFireworks({ firework }: { firework: { text: string; kind?: string; ms?: number; at: number } }) {
   const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' ? firework.kind : 'burst';
+  const ms = Math.min(30_000, Math.max(1_000, firework.ms || FIREWORK_MS));
+  const dur = `${ms / 1000}s`;
   const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖'] : ['✦'];
   const bits = fireBits(firework.at, kind === 'burst' ? 88 : 56).map((bit, index) => ({
     ...bit,
     mark: marks[index % marks.length],
+    delay: Math.min(bit.delay, (ms / 1000) * 0.22),
   }));
   return (
-    <div className={`room-fireworks is-${kind}`} aria-hidden="true">
+    <div className={`room-fireworks is-${kind}`} style={{ ['--fire-ms' as string]: dur }} aria-hidden="true">
       {kind === 'burst' && bits.map((bit) => (
         <i
           key={bit.i}
@@ -626,6 +646,7 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
             left: `${bit.x}%`,
             top: `${bit.y}%`,
             animationDelay: `${bit.delay}s`,
+            animationDuration: dur,
             ['--dx' as string]: `${bit.dx * 8}px`,
             ['--dy' as string]: `${bit.dy * 7}px`,
           }}
@@ -640,7 +661,7 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
             top: kind === 'fire' ? `${70 + (bit.y % 28)}%` : `${(bit.i % 18) - 8}%`,
             fontSize: `${bit.size + (kind === 'hearts' ? 6 : 4)}px`,
             animationDelay: `${bit.delay}s`,
-            animationDuration: `${4.4 + (bit.i % 6) * 0.12}s`,
+            animationDuration: dur,
           }}
         >
           {bit.mark}
@@ -650,10 +671,36 @@ function RoomFireworks({ firework }: { firework: { text: string; kind?: string; 
         <span
           key={`bloom-${bit.i}`}
           className="room-fire-bloom"
-          style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s` }}
+          style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s`, animationDuration: dur }}
         />
       ))}
-      {firework.text ? <strong className="room-fire-text">{firework.text}</strong> : null}
+      {firework.text ? <strong className="room-fire-text" style={{ animationDuration: dur }}>{firework.text}</strong> : null}
+    </div>
+  );
+}
+
+function RoomKissShow({ kiss }: { kiss: { fromNick: string; toNick: string; fromPhoto?: string; toPhoto?: string } }) {
+  return (
+    <div className="room-kiss-show" aria-hidden="true">
+      <div className="room-kiss-pair">
+        <div className="room-kiss-face is-left">
+          <img src={avatarFor(kiss.fromNick, kiss.fromPhoto)} alt="" />
+          <span className="room-kiss-eye" />
+          <span className="room-kiss-brow" />
+          <span className="room-kiss-mouth" />
+        </div>
+        <div className="room-kiss-face is-right">
+          <img src={avatarFor(kiss.toNick, kiss.toPhoto)} alt="" />
+          <span className="room-kiss-eye" />
+          <span className="room-kiss-brow" />
+          <span className="room-kiss-mouth" />
+        </div>
+        <span className="room-kiss-spark" />
+      </div>
+      <div className="room-kiss-hearts">
+        {Array.from({ length: 10 }, (_, index) => <i key={index} />)}
+      </div>
+      <strong>{kiss.fromNick} 💋 {kiss.toNick}</strong>
     </div>
   );
 }
@@ -711,6 +758,8 @@ export function WatchRoomsPage({
   const [fireOpen, setFireOpen] = useState(false);
   const [fireText, setFireText] = useState('');
   const [fireKind, setFireKind] = useState<FireKind>('burst');
+  const [fireSec, setFireSec] = useState(5);
+  const [kissPick, setKissPick] = useState(false);
   const localReact = useRef<{ id: string; at: number } | null>(null);
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
@@ -939,6 +988,11 @@ export function WatchRoomsPage({
       if (member.username !== user.username) playReactSound(member.emoji);
     }
   }, [open?.members, open?.serverNow]);
+
+  useEffect(() => {
+    if (open?.kiss?.status !== 'live' || !open.kiss.at) return;
+    playReactSound('kiss-r');
+  }, [open?.kiss?.status, open?.kiss?.at]);
 
   useEffect(() => {
     if (!open) {
@@ -1854,7 +1908,7 @@ export function WatchRoomsPage({
   async function launchFirework() {
     if (!open) return;
     try {
-      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind } })).room);
+      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind, ms: Math.round(fireSec * 1000) } })).room);
       setFireOpen(false);
       setFireText('');
     } catch {
@@ -2028,6 +2082,28 @@ export function WatchRoomsPage({
     }
   }
 
+  async function askKiss(username: string) {
+    if (!open) return;
+    setPick(null);
+    setKissPick(false);
+    try {
+      adopt((await pingWatchRoom(open.id, { kiss: username })).room);
+      setNotice('Öpücük isteği gitti');
+    } catch (err) {
+      const code = (err as Error).message;
+      setNotice(code === 'self' ? 'Kendine öpücük olmaz' : 'Öpücük gitmedi');
+    }
+  }
+
+  async function answerKiss(accept: boolean) {
+    if (!open) return;
+    try {
+      adopt((await pingWatchRoom(open.id, { kissAnswer: accept })).room);
+    } catch {
+      setNotice('Cevap gitmedi');
+    }
+  }
+
   async function sendSeatEmoji(id: string) {
     if (!open) return;
     if (open.you.seat < 0) {
@@ -2077,7 +2153,10 @@ export function WatchRoomsPage({
   let roomPage: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
-    const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < FIREWORK_MS + 400);
+    const fireMs = Math.min(30_000, Math.max(1_000, open.firework?.ms || FIREWORK_MS));
+    const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < fireMs + 400);
+    const kissAsk = open.kiss?.status === 'ask' && open.kiss.to === user.username;
+    const kissLive = open.kiss?.status === 'live' && open.serverNow + (Date.now() - receivedAtRef.current) - open.kiss.at < 5400;
     roomPage = (
       <div
         className={`page-view room-page ${minimized ? 'is-pip' : ''} ${!minimized && kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
@@ -2093,6 +2172,18 @@ export function WatchRoomsPage({
       >
         {fireLive && open.firework && (
           <RoomFireworks key={open.firework.at} firework={open.firework} />
+        )}
+        {kissLive && open.kiss && (
+          <RoomKissShow key={`${open.kiss.from}-${open.kiss.at}`} kiss={open.kiss} />
+        )}
+        {kissAsk && open.kiss && (
+          <div className="room-kiss-ask">
+            <p><strong>{open.kiss.fromNick}</strong> sana öpücük istiyor</p>
+            <div>
+              <button type="button" onClick={() => void answerKiss(true)}>Kabul et</button>
+              <button type="button" onClick={() => void answerKiss(false)}>Reddet</button>
+            </div>
+          </div>
         )}
         {joinBanner && (
           <div className="room-join-banner" key={joinStamp}>
@@ -2238,6 +2329,16 @@ export function WatchRoomsPage({
                   maxLength={48}
                   placeholder="Yazı (isteğe bağlı, alta devam eder)"
                 />
+                <label className="room-fire-sec">
+                  <span>Sn</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={fireSec}
+                    onChange={(event) => setFireSec(Math.min(30, Math.max(1, Number(event.target.value) || 5)))}
+                  />
+                </label>
                 <button type="submit">Patlat</button>
                 <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
               </div>
@@ -2273,21 +2374,23 @@ export function WatchRoomsPage({
                 autoComplete="off"
               />
               <button type="submit" disabled={busy}>Ara</button>
-              <button type="button" onClick={() => {
-                const time = playerRef.current?.getCurrentTime() || open.position;
-                const nextPlaying = !open.playing;
-                if (nextPlaying) playerRef.current?.playVideo();
-                else playerRef.current?.pauseVideo();
-                lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
-                void setWatchMedia(open.id, { playing: nextPlaying, position: time, claim: true }).then((data) => {
-                  lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
-                  adopt(data.room);
-                });
-              }}>
-                {open.playing ? <Pause size={15} /> : <Play size={15} />}
-              </button>
-              <button type="button" onClick={() => void seekBy(-10)}><SkipBack size={15} /></button>
-              <button type="button" onClick={() => void seekBy(10)}><SkipForward size={15} /></button>
+              <div className="room-search-tools">
+                <button type="button" onClick={() => {
+                  const time = playerRef.current?.getCurrentTime() || open.position;
+                  const nextPlaying = !open.playing;
+                  if (nextPlaying) playerRef.current?.playVideo();
+                  else playerRef.current?.pauseVideo();
+                  lastPushRef.current = { playing: nextPlaying, position: time, videoId: open.videoId, at: Date.now() };
+                  void setWatchMedia(open.id, { playing: nextPlaying, position: time, claim: true }).then((data) => {
+                    lastRevRef.current = data.room.mediaRev ?? lastRevRef.current;
+                    adopt(data.room);
+                  });
+                }}>
+                  {open.playing ? <Pause size={15} /> : <Play size={15} />}
+                </button>
+                <button type="button" onClick={() => void seekBy(-10)}><SkipBack size={15} /></button>
+                <button type="button" onClick={() => void seekBy(10)}><SkipForward size={15} /></button>
+              </div>
             </form>
           )}
           {!iHost && <p className="room-follow">{open.videoTitle ? `Şu an: ${open.videoTitle}` : 'Yönetici video seçince senin ekranda da açılır.'}</p>}
@@ -2321,9 +2424,10 @@ export function WatchRoomsPage({
                 return (
                   <article
                     key={seat}
-                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
+                    className={`mic-slot tone-${seat} ${member ? 'is-taken' : 'is-empty'} ${owner ? 'is-host' : admin ? 'is-admin' : ''} ${live ? 'is-talk' : ''} ${canPick ? 'is-manage' : ''} ${react ? `is-react react-${react}` : ''} ${kissPick && canPick ? 'is-kiss-target' : ''} ${member && arePair(open.pairs, member.username, seats[seat + 1]?.username) ? 'is-couple-left' : ''} ${member && arePair(open.pairs, member.username, seats[seat - 1]?.username) ? 'is-couple-right' : ''}`}
                     onClick={() => {
                       if (!member) void sitOn(seat);
+                      else if (kissPick && member.username !== user.username) void askKiss(member.username);
                       else if (canPick && (canManage || !arePair(open.pairs, user.username, member.username))) {
                         setPick((value) => value === member.username ? null : member.username);
                       }
@@ -2374,6 +2478,9 @@ export function WatchRoomsPage({
                             <Heart size={13} /> Sevgili isteği
                           </button>
                         )}
+                        <button type="button" onClick={() => void askKiss(member.username)}>
+                          💋 Öpücük iste
+                        </button>
                         {canManage && (
                           <>
                             <button type="button" onClick={() => { void muteWatchMember(open.id, member.username, !member.muted); setPick(null); }}>
@@ -2428,6 +2535,12 @@ export function WatchRoomsPage({
               </div>
             )}
           </div>
+        </div>
+        <div className="room-kiss-bar">
+          <button type="button" className={`room-kiss-btn ${kissPick ? 'is-on' : ''}`} onClick={() => setKissPick((value) => !value)}>
+            💋 Öp
+          </button>
+          {kissPick && <span>Öpmek için birine dokun</span>}
         </div>
         <div className="room-emoji-pack">
           {SEAT_EMOJIS.map((item) => (

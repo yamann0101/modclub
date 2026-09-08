@@ -282,7 +282,17 @@ export type PublicRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; kind?: string; at: number };
+  firework?: { text: string; kind?: string; ms?: number; at: number };
+  kiss?: {
+    from: string;
+    to: string;
+    fromNick: string;
+    toNick: string;
+    fromPhoto?: string;
+    toPhoto?: string;
+    status: 'ask' | 'live';
+    at: number;
+  };
   pairs?: [string, string][];
   you: { username: string; owner: boolean; host?: boolean; drive?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
@@ -322,7 +332,7 @@ export async function fetchWatchRoom(id: string) {
   return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
 }
 
-export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string } } = {}) {
+export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string; ms?: number }; kiss?: string | false; kissAnswer?: boolean } = {}) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify(body) });
 }
 
