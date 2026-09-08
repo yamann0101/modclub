@@ -1,13 +1,15 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { query } from "./pg";
-import { canHideRooms } from "./room-hide";
+import { canHideRooms, canSeeHiddenRooms } from "./room-hide";
 
 const SEATS = 8;
 const MAX_ROOMS = 24;
-const STALE_MS = 180_000;
+const STALE_MS = 900_000;
 const MAX_SIGNALS = 200;
 const EMOJI_MS = 3_000;
 const EMOJI_IDS = new Set(["kiss-r", "kiss-l", "laugh", "cry", "angry"]);
+const FIREWORK_MS = 5_000;
+const FIRE_KINDS = new Set(["burst", "roses", "fire", "hearts"]);
 
 export type RoomMember = {
   username: string;
@@ -63,7 +65,8 @@ export type WatchRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; at: number };
+  firework?: { text: string; kind: string; at: number };
+  left?: string[];
 };
 
 export type PublicRoomCard = {
@@ -101,6 +104,7 @@ export type PublicRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
+  firework?: { text: string; kind: string; at: number };
   you: { username: string; owner: boolean; host: boolean; drive: boolean; muted: boolean; micOn: boolean; seat: number };
 };
 
@@ -154,13 +158,14 @@ function checkPassword(stored: string, password: string) {
 
 function prune(room: WatchRoom, now = Date.now()): WatchRoom {
   const creator = room.creator || room.owner;
+  const blocked = new Set(room.left || []);
   const members = room.members.filter((member) => (
-    now - member.lastSeen < STALE_MS || member.username === creator
+    !blocked.has(member.username) && now - member.lastSeen < STALE_MS
   ));
   const owner = creator;
   const ownerNick = members.find((member) => member.username === owner)?.nick || room.ownerNick;
   const signals = room.signals.filter((item) => now - item.at < 20_000).slice(-MAX_SIGNALS);
-  return { ...room, members, owner, ownerNick, creator, hosts: room.hosts || [], chats: room.chats || [], signals };
+  return { ...room, members, owner, ownerNick, creator, hosts: room.hosts || [], chats: room.chats || [], signals, left: room.left || [] };
 }
 
 function toIndex(room: WatchRoom): RoomIndex {
@@ -246,7 +251,7 @@ export function publicRoom(room: WatchRoom, username: string): PublicRoom {
     cpOn: Boolean(room.cpOn),
     hidden: Boolean(room.hidden),
     lastJoin: room.lastJoin && now - room.lastJoin.at < 8_000 ? room.lastJoin : undefined,
-    firework: room.firework && now - room.firework.at < 8_000 ? room.firework : undefined,
+    firework: room.firework && now - room.firework.at < FIREWORK_MS + 1_200 ? room.firework : undefined,
     you: {
       username,
       owner: room.owner === username,
@@ -264,6 +269,7 @@ export async function listRooms(viewer: { username: string; role?: string }) {
   const index = await getDoc<RoomIndex[]>("rooms_index", []);
   const live: RoomIndex[] = [];
   const cards: PublicRoomCard[] = [];
+  const canSeeHidden = await canSeeHiddenRooms(viewer.username, viewer.role);
   for (const item of index) {
     const raw = await readRoom(item.id);
     if (!raw) continue;
@@ -271,7 +277,7 @@ export async function listRooms(viewer: { username: string; role?: string }) {
     if (room.members.length !== raw.members.length || room.owner !== raw.owner) await writeRoom(room);
     live.push(toIndex(room));
     const mine = viewer.username === room.owner || viewer.username === (room.creator || room.owner);
-    if (room.hidden && viewer.role !== "ADMIN" && !mine) continue;
+    if (room.hidden && !canSeeHidden && !mine) continue;
     cards.push(publicCard(toIndex(room)));
   }
   await setDoc("rooms_index", live.slice(0, MAX_ROOMS));
@@ -344,7 +350,9 @@ export async function joinRoom(input: {
 }) {
   const raw = await readRoom(input.id);
   if (!raw) throw new Error("missing");
+  raw.left = (raw.left || []).filter((name) => name !== input.username);
   const room = prune(raw);
+  room.left = (room.left || []).filter((name) => name !== input.username);
   if (room.banned.includes(input.username)) throw new Error("banned");
   const owns = input.username === room.owner || input.username === (room.creator || room.owner);
   const adminBypass = input.role === "ADMIN";
@@ -376,13 +384,23 @@ export async function joinRoom(input: {
   return room;
 }
 
-export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false }) {
-  const raw = await readRoom(id);
-  if (!raw) throw new Error("missing");
-  const room = prune(raw);
+export type FireworkPatch = string | false | { text?: string; kind?: string };
+
+function fireworkFrom(patch: FireworkPatch, now: number) {
+  if (patch === false) return undefined;
+  const payload = typeof patch === "string" ? { text: patch, kind: "burst" } : patch;
+  const kind = FIRE_KINDS.has(String(payload.kind || "")) ? String(payload.kind) : "burst";
+  return { text: String(payload.text || "").trim().slice(0, 48), kind, at: now };
+}
+
+export async function pingRoom(id: string, username: string, patch?: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: FireworkPatch }) {
+  const latest = await readRoom(id);
+  if (!latest) throw new Error("missing");
+  if ((latest.left || []).includes(username)) throw new Error("member");
+  const now = Date.now();
+  const room = prune(latest, now);
   const member = room.members.find((item) => item.username === username);
   if (!member) throw new Error("member");
-  const now = Date.now();
   member.lastSeen = now;
   if (typeof patch?.emoji === "string" && EMOJI_IDS.has(patch.emoji)) {
     member.emoji = patch.emoji;
@@ -398,10 +416,7 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
     room.cpOn = patch.cpOn;
   }
   if (patch?.firework !== undefined && isHost(room, username)) {
-    if (patch.firework === false) room.firework = undefined;
-    else {
-      room.firework = { text: String(patch.firework).trim().slice(0, 24), at: now };
-    }
+    room.firework = fireworkFrom(patch.firework, now);
   }
   if (typeof patch?.micOn === "boolean" && !member.muted) member.micOn = patch.micOn;
   if (typeof patch?.speaking === "boolean") member.speaking = patch.speaking && member.micOn && !member.muted;
@@ -410,6 +425,10 @@ export async function pingRoom(id: string, username: string, patch?: { micOn?: b
     member.speaking = false;
   }
   if (!member.micOn) member.speaking = false;
+  const confirm = await readRoom(id);
+  if (!confirm || (confirm.left || []).includes(username)) throw new Error("member");
+  if (!confirm.members.some((item) => item.username === username)) throw new Error("member");
+  room.left = confirm.left || [];
   await writeRoom(room);
   return room;
 }
@@ -443,6 +462,7 @@ export async function leaveRoom(id: string, username: string) {
   const room = prune(raw);
   room.members = room.members.filter((member) => member.username !== username);
   room.signals = room.signals.filter((item) => item.from !== username && item.to !== username);
+  room.left = [...new Set([...(room.left || []), username])];
   room.owner = room.creator || room.owner;
   await writeRoom(room);
   return room;

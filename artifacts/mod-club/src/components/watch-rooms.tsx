@@ -52,6 +52,14 @@ const SEAT_EMOJIS = [
   { id: 'angry', mark: '😡', label: 'Kızgın' },
 ] as const;
 const EMOJI_MS = 3000;
+const FIREWORK_MS = 5000;
+const FIRE_KINDS = [
+  { id: 'burst', label: 'Havai fişek', mark: '🎆' },
+  { id: 'roses', label: 'Gül yağmuru', mark: '🌹' },
+  { id: 'fire', label: 'Ateş', mark: '🔥' },
+  { id: 'hearts', label: 'Kalp', mark: '❤️' },
+] as const;
+type FireKind = typeof FIRE_KINDS[number]['id'];
 const COUPLE_GAPS = [
   { a: 0, b: 1, left: 0, top: 0 },
   { a: 1, b: 2, left: 25, top: 0 },
@@ -133,16 +141,14 @@ function roomDrive(room: PublicRoom) {
 
 const MIC_AUDIO = {
   echoCancellation: true,
-  noiseSuppression: true,
+  noiseSuppression: false,
   autoGainControl: true,
   channelCount: 1,
   sampleRate: 48000,
-  voiceIsolation: true,
   googEchoCancellation: true,
-  googNoiseSuppression: true,
+  googNoiseSuppression: false,
   googAutoGainControl: true,
-  googHighpassFilter: true,
-  googTypingNoiseDetection: true,
+  googHighpassFilter: false,
   googAudioMirroring: false,
 } as MediaTrackConstraints;
 
@@ -350,7 +356,7 @@ function createFilmPlayer(box: HTMLElement, hooks: {
     },
     playVideo: () => { void video.play().catch(() => undefined); },
     pauseVideo: () => { video.pause(); },
-    seekTo: (seconds: number) => {
+    seekTo: (seconds: number, _allow?: boolean) => {
       try { video.currentTime = Math.max(0, seconds); } catch { /* ignore */ }
     },
     getCurrentTime: () => video.currentTime || 0,
@@ -412,18 +418,244 @@ function fileToCover(file: File) {
 function loadYoutube() {
   if (window.YT?.Player) return Promise.resolve();
   return new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
     const prev = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = () => {
       prev?.();
-      resolve();
+      finish();
     };
     if (!document.getElementById('yt-iframe-api')) {
       const script = document.createElement('script');
       script.id = 'yt-iframe-api';
       script.src = 'https://www.youtube.com/iframe_api';
-      document.body.appendChild(script);
+      script.onerror = finish;
+      document.head.appendChild(script);
     }
+    window.setTimeout(() => {
+      if (window.YT?.Player) finish();
+    }, 900);
   });
+}
+
+function createCinemaPlayer(box: HTMLElement, hooks: {
+  onReady: () => void;
+  onStateChange: (event: { data: number }) => void;
+  onError: () => void;
+}): YtPlayer {
+  let inner: YtPlayer | null = null;
+  let mode: 'yt' | 'html5' | '' = '';
+  let gen = 0;
+  let volume = 70;
+  let muted = true;
+  let destroyed = false;
+
+  const applyVol = () => {
+    if (!inner) return;
+    inner.setVolume(volume);
+    if (muted) inner.mute();
+    else inner.unMute();
+  };
+
+  const clear = () => {
+    try { inner?.destroy(); } catch { /* ignore */ }
+    inner = null;
+    box.innerHTML = '';
+  };
+
+  const attachHtml5 = (id: string, start: number, token: number) => {
+    if (destroyed || token !== gen) return;
+    clear();
+    mode = 'html5';
+    inner = createFilmPlayer(box, {
+      onReady: () => {
+        if (token !== gen) return;
+        applyVol();
+        hooks.onReady();
+      },
+      onStateChange: (event) => {
+        if (token === gen) hooks.onStateChange(event);
+      },
+      onError: () => {
+        if (token === gen) hooks.onError();
+      },
+    });
+    inner.loadVideoById(id, start);
+    applyVol();
+  };
+
+  const attachYoutube = async (id: string, start: number, token: number) => {
+    try {
+      await loadYoutube();
+    } catch {
+      attachHtml5(id, start, token);
+      return;
+    }
+    if (destroyed || token !== gen) return;
+    if (!window.YT?.Player) {
+      attachHtml5(id, start, token);
+      return;
+    }
+    clear();
+    mode = 'yt';
+    const host = document.createElement('div');
+    host.style.cssText = 'width:100%;height:100%';
+    box.appendChild(host);
+    let fell = false;
+    const fallback = () => {
+      if (fell || token !== gen) return;
+      fell = true;
+      window.clearTimeout(timer);
+      attachHtml5(id, start, token);
+    };
+    const timer = window.setTimeout(fallback, 4500);
+    inner = new window.YT.Player(host, {
+      width: '100%',
+      height: '100%',
+      videoId: id,
+      playerVars: {
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        modestbranding: 1,
+        rel: 0,
+        playsinline: 1,
+        origin: window.location.origin,
+        start: Math.max(0, Math.floor(start)),
+        iv_load_policy: 3,
+      },
+      events: {
+        onReady: () => {
+          if (token !== gen || fell) return;
+          window.clearTimeout(timer);
+          applyVol();
+          try {
+            inner?.seekTo(start, true);
+            inner?.playVideo();
+          } catch {
+            /* autoplay */
+          }
+          hooks.onReady();
+        },
+        onStateChange: (event: { data: number }) => {
+          if (token === gen && !fell) hooks.onStateChange(event);
+        },
+        onError: fallback,
+      },
+    });
+  };
+
+  const load = (id: string, start = 0) => {
+    if (mode === 'yt' && inner) {
+      try {
+        inner.loadVideoById(id, start);
+        return;
+      } catch {
+        /* remount */
+      }
+    }
+    const token = ++gen;
+    void attachYoutube(id, start, token);
+  };
+
+  return {
+    loadVideoById: (id: string, start = 0) => load(id, start),
+    cueVideoById: (id: string, start = 0) => load(id, start),
+    playVideo: () => { inner?.playVideo(); },
+    pauseVideo: () => { inner?.pauseVideo(); },
+    seekTo: (seconds: number, allow: boolean) => { inner?.seekTo(seconds, allow); },
+    getCurrentTime: () => inner?.getCurrentTime() || 0,
+    getDuration: () => inner?.getDuration() || 0,
+    getPlayerState: () => inner?.getPlayerState() ?? 5,
+    getVideoData: () => inner?.getVideoData?.() || { video_id: '' },
+    setVolume: (value: number) => {
+      volume = Math.max(0, Math.min(100, value));
+      inner?.setVolume(volume);
+    },
+    getVolume: () => volume,
+    mute: () => { muted = true; inner?.mute(); },
+    unMute: () => { muted = false; inner?.unMute(); },
+    isMuted: () => muted || Boolean(inner?.isMuted()),
+    setPlaybackRate: (value: number) => { inner?.setPlaybackRate(value); },
+    destroy: () => {
+      destroyed = true;
+      gen += 1;
+      clear();
+    },
+  };
+}
+
+function fireBits(at: number, count: number) {
+  const bits: { i: number; x: number; y: number; delay: number; size: number; dx: number; dy: number; mark: string }[] = [];
+  let seed = (at || 1) >>> 0;
+  for (let i = 0; i < count; i += 1) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    bits.push({
+      i,
+      x: (seed % 1000) / 10,
+      y: ((seed >>> 10) % 1000) / 10,
+      delay: ((seed >>> 20) % 28) / 10,
+      size: 10 + (seed % 16),
+      dx: ((seed % 71) - 35),
+      dy: (((seed >>> 7) % 81) - 48),
+      mark: '',
+    });
+  }
+  return bits;
+}
+
+function RoomFireworks({ firework }: { firework: { text: string; kind?: string; at: number } }) {
+  const kind = firework.kind === 'roses' || firework.kind === 'fire' || firework.kind === 'hearts' ? firework.kind : 'burst';
+  const marks = kind === 'roses' ? ['🌹', '🥀', '🌺'] : kind === 'fire' ? ['🔥', '✨'] : kind === 'hearts' ? ['❤️', '💗', '💖'] : ['✦'];
+  const bits = fireBits(firework.at, kind === 'burst' ? 88 : 56).map((bit, index) => ({
+    ...bit,
+    mark: marks[index % marks.length],
+  }));
+  return (
+    <div className={`room-fireworks is-${kind}`} aria-hidden="true">
+      {kind === 'burst' && bits.map((bit) => (
+        <i
+          key={bit.i}
+          className={`room-spark tone-${bit.i % 6}`}
+          style={{
+            left: `${bit.x}%`,
+            top: `${bit.y}%`,
+            animationDelay: `${bit.delay}s`,
+            ['--dx' as string]: `${bit.dx * 8}px`,
+            ['--dy' as string]: `${bit.dy * 7}px`,
+          }}
+        />
+      ))}
+      {kind !== 'burst' && bits.map((bit) => (
+        <span
+          key={bit.i}
+          className="room-fire-drop"
+          style={{
+            left: `${bit.x}%`,
+            top: kind === 'fire' ? `${70 + (bit.y % 28)}%` : `${(bit.i % 18) - 8}%`,
+            fontSize: `${bit.size + (kind === 'hearts' ? 6 : 4)}px`,
+            animationDelay: `${bit.delay}s`,
+            animationDuration: `${4.4 + (bit.i % 6) * 0.12}s`,
+          }}
+        >
+          {bit.mark}
+        </span>
+      ))}
+      {kind === 'burst' && bits.slice(0, 18).map((bit) => (
+        <span
+          key={`bloom-${bit.i}`}
+          className="room-fire-bloom"
+          style={{ left: `${bit.x}%`, top: `${bit.y}%`, animationDelay: `${bit.delay}s` }}
+        />
+      ))}
+      {firework.text ? <strong className="room-fire-text">{firework.text}</strong> : null}
+    </div>
+  );
 }
 
 function cinemaTime(room: PublicRoom, receivedAt: number) {
@@ -478,6 +710,7 @@ export function WatchRoomsPage({
   const [filmHud, setFilmHud] = useState(false);
   const [fireOpen, setFireOpen] = useState(false);
   const [fireText, setFireText] = useState('');
+  const [fireKind, setFireKind] = useState<FireKind>('burst');
   const localReact = useRef<{ id: string; at: number } | null>(null);
   const knownMembers = useRef<Set<string>>(new Set());
   const playerRef = useRef<YtPlayer | null>(null);
@@ -511,6 +744,8 @@ export function WatchRoomsPage({
   const speakerOnRef = useRef(true);
   const wantMicRef = useRef(false);
   const revivingMic = useRef(false);
+  const pendingRevive = useRef(false);
+  const leftRef = useRef(false);
   const reclaimAt = useRef(0);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
@@ -565,9 +800,10 @@ export function WatchRoomsPage({
     if (!open) return;
     let live = true;
     const tick = async () => {
+      if (leftRef.current) return;
       try {
         const data = await fetchWatchRoom(open.id);
-        if (!live) return;
+        if (!live || leftRef.current) return;
         roomRef.current = data.room;
         receivedAtRef.current = Date.now();
         setOpen(data.room);
@@ -582,6 +818,7 @@ export function WatchRoomsPage({
         await syncVoice(data.room);
       } catch (err) {
         if ((err as Error).message === 'banned' || (err as Error).message === 'member' || (err as Error).message === 'missing') {
+          leftRef.current = true;
           teardownVoice();
           writeStayRoom(null);
           setMinimized(false);
@@ -739,7 +976,7 @@ export function WatchRoomsPage({
       const room = roomRef.current;
       bootVideo.current = room?.videoId || '';
       const startAt = room?.videoId ? cinemaTime(room, receivedAtRef.current) : 0;
-      const player = createFilmPlayer(box, {
+      const player = createCinemaPlayer(box, {
         onReady: () => {
           playerReady.current = true;
           const live = roomRef.current;
@@ -759,10 +996,8 @@ export function WatchRoomsPage({
           }
         },
         onError: () => {
-          const live = roomRef.current;
-          setNotice('Bu video YouTube gömmede kapalı, başka kaynaktan açmayı deniyoruz.');
-          if (live?.you.host) void playNextVideo();
-          else setNeedStart(true);
+          setNotice('Bu video açılamadı. Başka bir video dene.');
+          setNeedStart(true);
         },
         onStateChange: (event: { data: number }) => {
           const live = roomRef.current;
@@ -842,6 +1077,7 @@ export function WatchRoomsPage({
   useEffect(() => {
     if (!open) return;
     const keepAlive = () => {
+      if (leftRef.current) return;
       void pingWatchRoom(open.id).catch(() => undefined);
     };
     const onHidden = () => {
@@ -884,6 +1120,8 @@ export function WatchRoomsPage({
     };
     navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
     const watchdog = window.setInterval(() => {
+      if (leftRef.current) return;
+      keepAlive();
       if (document.hidden || !wantMicRef.current) return;
       if (!micLive()) void reviveMic(true);
     }, 1800);
@@ -918,6 +1156,7 @@ export function WatchRoomsPage({
   }, [speakerOn]);
 
   function adopt(room: PublicRoom, remount = false) {
+    leftRef.current = false;
     writeStayRoom(room.id);
     roomRef.current = room;
     receivedAtRef.current = Date.now();
@@ -1240,25 +1479,35 @@ export function WatchRoomsPage({
 
   async function reviveMic(force = false) {
     const room = roomRef.current;
-    if (!room || !wantMicRef.current || revivingMic.current || room.you.muted) return;
+    if (!room || !wantMicRef.current || room.you.muted) return;
+    if (revivingMic.current) {
+      pendingRevive.current = true;
+      return;
+    }
     if (!force && micLive()) {
       unlockAudio();
       for (const peer of peers.current.values()) await attachLocal(peer);
       return;
     }
-    if (force && Date.now() - reclaimAt.current < 700) return;
+    if (force && micLive() && Date.now() - reclaimAt.current < 250) return;
     if (force) reclaimAt.current = Date.now();
     revivingMic.current = true;
     try {
       await acquireMic();
       await syncVoice(room);
       await applyMicToPeers(room);
-      const next = await pingWatchRoom(room.id, { micOn: true });
-      setOpen(next.room);
+      if (!leftRef.current) {
+        const next = await pingWatchRoom(room.id, { micOn: true });
+        setOpen(next.room);
+      }
     } catch {
       setNotice('Mikrofon koptu. Mik aç-kapa yap.');
     } finally {
       revivingMic.current = false;
+      if (pendingRevive.current) {
+        pendingRevive.current = false;
+        void reviveMic(true);
+      }
     }
   }
 
@@ -1560,6 +1809,8 @@ export function WatchRoomsPage({
 
   async function onLeave() {
     if (!open) return;
+    leftRef.current = true;
+    writeStayRoom(null);
     if (roomDrive(open) && playerRef.current && playerReady.current) {
       try {
         const time = playerRef.current.getCurrentTime() || open.position;
@@ -1569,7 +1820,6 @@ export function WatchRoomsPage({
         /* keep last cinema clock */
       }
     }
-    writeStayRoom(null);
     teardownVoice();
     await leaveWatchRoom(open.id).catch(() => undefined);
     try { playerRef.current?.destroy(); } catch { /* ignore */ }
@@ -1604,7 +1854,7 @@ export function WatchRoomsPage({
   async function launchFirework() {
     if (!open) return;
     try {
-      adopt((await pingWatchRoom(open.id, { firework: fireText.trim() })).room);
+      adopt((await pingWatchRoom(open.id, { firework: { text: fireText.trim(), kind: fireKind } })).room);
       setFireOpen(false);
       setFireText('');
     } catch {
@@ -1653,6 +1903,7 @@ export function WatchRoomsPage({
     try {
       writeStayRoom(null);
       if (open?.id === id) {
+        leftRef.current = true;
         teardownVoice();
         try { playerRef.current?.destroy(); } catch { /* ignore */ }
         playerRef.current = null;
@@ -1826,7 +2077,7 @@ export function WatchRoomsPage({
   let roomPage: ReactNode = null;
   if (open) {
     const iHost = Boolean(open.you.host);
-    const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < 7000);
+    const fireLive = Boolean(open.firework && open.serverNow + (Date.now() - receivedAtRef.current) - open.firework.at < FIREWORK_MS + 400);
     roomPage = (
       <div
         className={`page-view room-page ${minimized ? 'is-pip' : ''} ${!minimized && kbInset > 0 && focusField === 'chat' ? 'is-keyboard' : ''}`}
@@ -1841,12 +2092,7 @@ export function WatchRoomsPage({
             : undefined}
       >
         {fireLive && open.firework && (
-          <div className="room-fireworks" key={open.firework.at} aria-hidden="true">
-            {Array.from({ length: 22 }, (_, index) => (
-              <i key={index} className={`room-spark tone-${index % 6}`} style={{ animationDelay: `${(index % 8) * 0.08}s`, ['--rot' as string]: `${index * 16}deg` }} />
-            ))}
-            {open.firework.text ? <strong className="room-fire-text">{open.firework.text}</strong> : null}
-          </div>
+          <RoomFireworks key={open.firework.at} firework={open.firework} />
         )}
         {joinBanner && (
           <div className="room-join-banner" key={joinStamp}>
@@ -1943,6 +2189,60 @@ export function WatchRoomsPage({
             )}
             {!open.videoId && <div className="room-empty-tv">Yönetici YouTube’dan bir video açınca herkes aynı anda izler.</div>}
           </div>
+          <div className="room-dock">
+            <button type="button" className={`room-mic ${open.you.micOn ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
+              {open.you.micOn ? <Mic size={14} /> : <MicOff size={14} />}
+              <span>{open.you.muted ? 'Susturuldu' : open.you.micOn ? 'Mik' : 'Mik'}</span>
+            </button>
+            <button type="button" className={`room-mic ${speakerOn ? 'is-on' : 'is-off'}`} onClick={toggleSpeaker}>
+              {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              <span>Ses</span>
+            </button>
+            {ownsOpen && (
+              <button type="button" className={`room-mic room-cp ${open.cpOn ? 'is-on' : ''}`} onClick={() => void toggleCp()}>
+                <Heart size={14} fill={open.cpOn ? 'currentColor' : 'none'} />
+                <span>CP</span>
+              </button>
+            )}
+            {iHost && (
+              <button type="button" className={`room-mic room-fire ${fireOpen ? 'is-on' : ''}`} onClick={() => setFireOpen((value) => !value)}>
+                <Sparkles size={14} />
+                <span>Fişek</span>
+              </button>
+            )}
+          </div>
+          {fireOpen && iHost && (
+            <form
+              className="room-fire-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void launchFirework();
+              }}
+            >
+              <div className="room-fire-kinds">
+                {FIRE_KINDS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={fireKind === item.id ? 'is-on' : ''}
+                    onClick={() => setFireKind(item.id)}
+                  >
+                    {item.mark} {item.label}
+                  </button>
+                ))}
+              </div>
+              <div className="room-fire-row">
+                <input
+                  value={fireText}
+                  onChange={(event) => setFireText(event.target.value)}
+                  maxLength={48}
+                  placeholder="Yazı (isteğe bağlı, alta devam eder)"
+                />
+                <button type="submit">Patlat</button>
+                <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
+              </div>
+            </form>
+          )}
           <div className="room-vol">
             <button type="button" onClick={() => setVideoMuted((value) => !value)}>
               {videoMuted || videoVol === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
@@ -2129,46 +2429,6 @@ export function WatchRoomsPage({
             )}
           </div>
         </div>
-        <div className="room-dock">
-          <button type="button" className={`room-mic ${open.you.micOn ? 'is-on' : ''} ${open.you.muted ? 'is-off' : ''}`} onClick={() => void toggleMic()}>
-            {open.you.micOn ? <Mic size={16} /> : <MicOff size={16} />}
-            {open.you.muted ? 'Susturuldu' : open.you.micOn ? 'Mik açık' : 'Mik aç'}
-          </button>
-          <button type="button" className={`room-mic ${speakerOn ? 'is-on' : 'is-off'}`} onClick={toggleSpeaker}>
-            {speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
-            {speakerOn ? 'Oda sesi açık' : 'Oda sesi kapalı'}
-          </button>
-          {ownsOpen && (
-            <button type="button" className={`room-mic room-cp ${open.cpOn ? 'is-on' : ''}`} onClick={() => void toggleCp()}>
-              <Heart size={16} fill={open.cpOn ? 'currentColor' : 'none'} />
-              CP
-            </button>
-          )}
-          {iHost && (
-            <button type="button" className="room-mic room-fire" onClick={() => setFireOpen((value) => !value)}>
-              <Sparkles size={16} />
-              Havai fişek
-            </button>
-          )}
-        </div>
-        {fireOpen && iHost && (
-          <form
-            className="room-fire-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void launchFirework();
-            }}
-          >
-            <input
-              value={fireText}
-              onChange={(event) => setFireText(event.target.value)}
-              maxLength={24}
-              placeholder="Yazı (boş bırakınca normal patlar)"
-            />
-            <button type="submit">Patlat</button>
-            <button type="button" onClick={() => { setFireOpen(false); setFireText(''); }}>Vazgeç</button>
-          </form>
-        )}
         <div className="room-emoji-pack">
           {SEAT_EMOJIS.map((item) => (
             <button
@@ -2210,7 +2470,10 @@ export function WatchRoomsPage({
               maxLength={240}
               placeholder="Mesaj yaz..."
               inputMode="text"
+              enterKeyHint="send"
               autoComplete="off"
+              autoCapitalize="sentences"
+              autoCorrect="on"
             />
             <button
               type="submit"

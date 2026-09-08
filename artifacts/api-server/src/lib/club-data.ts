@@ -1,6 +1,6 @@
 import { query } from "./pg";
 import { publicSlot, readSlot } from "./olympus-slot";
-import { readHideGrants } from "./room-hide";
+import { readHideGrants, readSeeGrants } from "./room-hide";
 
 export type ClubRole = "ADMIN" | "ÜYE" | "MODERATOR";
 
@@ -291,6 +291,7 @@ export async function snapshot(username?: string) {
   const me = username ? accounts.find((item) => nickKey(item.username) === nickKey(username)) : undefined;
   const staff = me?.role === "ADMIN" || me?.role === "MODERATOR";
   const hideGrants = me?.role === "ADMIN" ? await readHideGrants() : {};
+  const seeGrants = me?.role === "ADMIN" ? await readSeeGrants() : {};
   return {
     installed: isInstalled(settings),
     settings: settings
@@ -314,6 +315,7 @@ export async function snapshot(username?: string) {
     guessGame: publicGuessGame(guessGame, staff),
     slot: publicSlot(slot),
     hideGrants,
+    seeGrants,
   };
 }
 

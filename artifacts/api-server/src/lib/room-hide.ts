@@ -48,3 +48,35 @@ export async function grantHideRooms(username: string, days: number) {
   await setDoc(DOC, grants);
   return grants;
 }
+
+const SEE_DOC = "room_see_grants";
+
+export async function readSeeGrants() {
+  const raw = await getDoc<Record<string, number>>(SEE_DOC, {});
+  const now = Date.now();
+  const live: Record<string, number> = {};
+  for (const [name, until] of Object.entries(raw || {})) {
+    if (typeof until === "number" && until > now) live[nickKey(name)] = until;
+  }
+  return live;
+}
+
+export async function seeUntilOf(username: string) {
+  const grants = await readSeeGrants();
+  return grants[nickKey(username)] || 0;
+}
+
+export async function canSeeHiddenRooms(username: string, role?: string) {
+  if (role === "ADMIN") return true;
+  return (await seeUntilOf(username)) > Date.now();
+}
+
+export async function grantSeeHidden(username: string, days: number) {
+  const grants = await readSeeGrants();
+  const key = nickKey(username);
+  if (!key) throw new Error("missing");
+  if (days <= 0) delete grants[key];
+  else grants[key] = Date.now() + days * 24 * 60 * 60 * 1000;
+  await setDoc(SEE_DOC, grants);
+  return grants;
+}

@@ -58,6 +58,7 @@ export type ClubSnapshot = {
   slot?: PublicSlot;
   spin?: SlotSpin;
   hideGrants?: Record<string, number>;
+  seeGrants?: Record<string, number>;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -146,6 +147,10 @@ export async function patchMe(body: { nick?: string; appId?: string; photo?: str
 
 export async function grantRoomHide(username: string, days: number) {
   return request<ClubSnapshot>('/api/club/hide-grant', { method: 'POST', body: JSON.stringify({ username, days }) });
+}
+
+export async function grantRoomSee(username: string, days: number) {
+  return request<ClubSnapshot>('/api/club/see-grant', { method: 'POST', body: JSON.stringify({ username, days }) });
 }
 
 export async function patchClubUser(username: string, body: { role?: string; title?: string | null }) {
@@ -277,7 +282,7 @@ export type PublicRoom = {
   cpOn?: boolean;
   hidden?: boolean;
   lastJoin?: { nick: string; username: string; at: number };
-  firework?: { text: string; at: number };
+  firework?: { text: string; kind?: string; at: number };
   pairs?: [string, string][];
   you: { username: string; owner: boolean; host?: boolean; drive?: boolean; muted: boolean; micOn: boolean; seat: number };
 };
@@ -306,7 +311,7 @@ export async function joinWatchRoom(id: string, password = '') {
 }
 
 export async function leaveWatchRoom(id: string) {
-  return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/leave`, { method: 'POST', body: '{}' });
+  return request<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}/leave`, { method: 'POST', body: '{}', keepalive: true });
 }
 
 export async function closeWatchRoom(id: string) {
@@ -317,7 +322,7 @@ export async function fetchWatchRoom(id: string) {
   return request<{ room: PublicRoom; signals: RoomSignal[] }>(`/api/rooms/${encodeURIComponent(id)}`);
 }
 
-export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false } = {}) {
+export async function pingWatchRoom(id: string, body: { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string } } = {}) {
   return request<{ room: PublicRoom }>(`/api/rooms/${encodeURIComponent(id)}/ping`, { method: 'POST', body: JSON.stringify(body) });
 }
 

@@ -155,13 +155,15 @@ router.post("/rooms/:id/ping", async (req, res) => {
   const account = await currentAccount(req);
   if (!account) return fail(res, "auth");
   try {
-    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false };
+    const body = (req.body || {}) as { micOn?: boolean; speaking?: boolean; cpOn?: boolean; emoji?: string; firework?: string | false | { text?: string; kind?: string } };
     const room = await pingRoom(req.params.id, account.username, {
       micOn: typeof body.micOn === "boolean" ? body.micOn : undefined,
       speaking: typeof body.speaking === "boolean" ? body.speaking : undefined,
       cpOn: typeof body.cpOn === "boolean" ? body.cpOn : undefined,
       emoji: typeof body.emoji === "string" ? body.emoji : undefined,
-      firework: body.firework === false || typeof body.firework === "string" ? body.firework : undefined,
+      firework: body.firework === false || typeof body.firework === "string" || (body.firework && typeof body.firework === "object")
+        ? body.firework
+        : undefined,
     });
     res.json({ room: await packRoom(room, account.username) });
   } catch (err) {
