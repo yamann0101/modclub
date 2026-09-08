@@ -456,7 +456,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     iframe.setAttribute('allowfullscreen', 'true');
     iframe.setAttribute('playsinline', 'true');
     iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#000';
+    iframe.style.cssText = 'width:100%;height:100%;border:0;background:#000;pointer-events:none';
     iframe.src = embedSrc(host, id, start);
     clear();
     mode = 'frame';
@@ -515,7 +515,7 @@ function createCinemaPlayer(box: HTMLElement, hooks: {
     clear();
     mode = 'yt';
     const holder = document.createElement('div');
-    holder.style.cssText = 'width:100%;height:100%';
+    holder.style.cssText = 'width:100%;height:100%;pointer-events:none';
     box.appendChild(holder);
     let fell = false;
     let ready = false;
@@ -865,6 +865,8 @@ export function WatchRoomsPage({
   const hiddenAt = useRef(0);
   const resumeTimer = useRef(0);
   const parkTimer = useRef(0);
+  const micUserAt = useRef(0);
+  const hudPauseAt = useRef(0);
   const levelGen = useRef(0);
   const chatBusy = useRef(false);
   const videoVolRef = useRef(70);
@@ -1145,11 +1147,11 @@ export function WatchRoomsPage({
               }, 400);
             } else ready.pauseVideo();
           } catch {
-            if (!filmUnlocked.current) setNeedStart(Boolean(live.videoId));
+            askFilmStart();
           }
           window.setTimeout(() => {
-            if (cancelled || filmUnlocked.current) return;
-            if (roomRef.current?.videoId && roomRef.current.playing) setNeedStart(true);
+            if (cancelled) return;
+            askFilmStart();
           }, 1600);
         },
         onError: () => {
@@ -1157,18 +1159,18 @@ export function WatchRoomsPage({
           setNotice('Bu video açılamadı, sıradaki açılıyor.');
           setEndCover(true);
           if (live && roomSteer(live, user.role)) void playNextVideo();
-          else setNeedStart(true);
+          else askFilmStart();
         },
         onStateChange: (event: { data: number }) => {
           const live = roomRef.current;
           const ready = playerRef.current;
           if (!live || !ready) return;
-          if (event.data === 1) {
+          if (event.data === 1 || event.data === 3) {
             filmUnlocked.current = true;
             applyLocalVolume(ready);
             setNeedStart(false);
             setEndCover(false);
-            setFilmHud(false);
+            if (event.data === 1) setFilmHud(false);
           }
           if (event.data === 0) {
             setEndCover(true);
@@ -1180,6 +1182,12 @@ export function WatchRoomsPage({
             const playing = event.data === 1;
             if (document.hidden && event.data === 2) return;
             if (event.data === 2 && Date.now() - lastLoadAt.current < 2500) return;
+            if (event.data === 2 && Date.now() - hudPauseAt.current > 900) {
+              if (live.playing) {
+                try { ready.playVideo(); } catch { /* keep film on */ }
+              }
+              return;
+            }
             if (playing === live.playing) return;
             void claimCinema(live, ready, playing);
             return;
@@ -1192,8 +1200,9 @@ export function WatchRoomsPage({
           if (live.playing && event.data === 2) {
             try { ready.playVideo(); } catch { /* blocked */ }
           }
-          if (live.playing && (event.data === -1 || event.data === 5) && !filmUnlocked.current) {
-            setNeedStart(true);
+          if (live.playing && (event.data === -1 || event.data === 5)) {
+            try { ready.playVideo(); } catch { /* autoplay */ }
+            askFilmStart();
           }
         },
       });
@@ -1267,8 +1276,10 @@ export function WatchRoomsPage({
       hiddenAt.current = Date.now();
       window.clearTimeout(parkTimer.current);
       parkTimer.current = window.setTimeout(() => {
-        if (document.hidden) parkMic(true);
-      }, 650);
+        if (!document.hidden || micBusyRef.current) return;
+        if (!wantMicRef.current && !localStream.current) return;
+        parkMic(true);
+      }, 2200);
       keepAlive();
       keepFilmPlaying();
     };
@@ -1326,8 +1337,6 @@ export function WatchRoomsPage({
       else onVisible();
     };
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', onHidden);
-    window.addEventListener('freeze', onHidden);
     window.addEventListener('pageshow', onVisible);
     const onDevices = () => {
       if (document.hidden || !wantMicRef.current || micBusyRef.current) return;
@@ -1349,8 +1358,6 @@ export function WatchRoomsPage({
     }, 1200);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', onHidden);
-      window.removeEventListener('freeze', onHidden);
       window.removeEventListener('pageshow', onVisible);
       navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices);
       window.clearInterval(watchdog);
@@ -1385,6 +1392,37 @@ export function WatchRoomsPage({
     });
   }, [speakerOn]);
 
+  function filmIsOn(player?: YtPlayer | null) {
+    if (!player) return false;
+    try {
+      const state = player.getPlayerState();
+      return state === 1 || state === 3;
+    } catch {
+      return false;
+    }
+  }
+
+  function hideStartIfPlaying() {
+    if (filmUnlocked.current || filmIsOn(playerRef.current)) {
+      filmUnlocked.current = true;
+      setNeedStart(false);
+      return true;
+    }
+    return false;
+  }
+
+  function askFilmStart() {
+    if (hideStartIfPlaying()) return;
+    const room = roomRef.current;
+    if (!room?.videoId || !room.playing) return;
+    try {
+      const state = playerRef.current?.getPlayerState();
+      if (state === 2) setNeedStart(true);
+    } catch {
+      /* don't pin a start overlay until we know the film is paused */
+    }
+  }
+
   function adopt(room: PublicRoom, remount = false) {
     leftRef.current = false;
     writeStayRoom(room.id);
@@ -1412,9 +1450,6 @@ export function WatchRoomsPage({
       micBusyRef.current = false;
       localStream.current?.getTracks().forEach((track) => track.stop());
       localStream.current = null;
-      void pingWatchRoom(room.id, { micOn: false, speaking: false }).then((data) => {
-        if (!leftRef.current) setOpen(data.room);
-      }).catch(() => undefined);
     }
   }
 
@@ -1449,7 +1484,6 @@ export function WatchRoomsPage({
               applyLocalVolume(player);
             } catch { /* ignore */ }
           }, 280);
-          if (!filmUnlocked.current) setNeedStart(true);
         } else {
           player.cueVideoById(room.videoId, startAt);
           try { player.pauseVideo(); } catch { /* ignore */ }
@@ -1465,8 +1499,8 @@ export function WatchRoomsPage({
       }
       if (state === 0 || state === 3) return;
       if (state === -1 || state === 5) {
-        if (!filmUnlocked.current && Date.now() - lastLoadAt.current > 1500) setNeedStart(true);
         player.playVideo();
+        askFilmStart();
         return;
       }
       if (state === 2) player.playVideo();
@@ -1480,7 +1514,7 @@ export function WatchRoomsPage({
         /* duration unknown */
       }
     } catch {
-      if (room.playing && !filmUnlocked.current) setNeedStart(true);
+      askFilmStart();
     }
   }
 
@@ -1517,8 +1551,10 @@ export function WatchRoomsPage({
       if (room.playing) {
         if (!same || state < 1) {
           player.loadVideoById(room.videoId, cinemaTime(room, receivedAtRef.current));
+          player.playVideo();
+        } else if (state !== 1) {
+          player.playVideo();
         }
-        player.playVideo();
         player.unMute();
         applyLocalVolume(player);
         window.setTimeout(() => {
@@ -1660,6 +1696,8 @@ export function WatchRoomsPage({
   }
 
   function parkMic(keepWant: boolean) {
+    if (micBusyRef.current) return;
+    if (keepWant && Date.now() - micUserAt.current < 4500) return;
     if (!keepWant) setWantMic(false);
     stopLocalMic();
     const room = roomRef.current;
@@ -1827,7 +1865,6 @@ export function WatchRoomsPage({
       }
     } catch (err) {
       if ((err as Error).message === 'parked') return;
-      if (wantMicRef.current) setNotice('Mikrofon koptu. Mik aç-kapa yap.');
     } finally {
       revivingMic.current = false;
       if (pendingRevive.current && wantMicRef.current && !micBusyRef.current) {
@@ -2071,13 +2108,15 @@ export function WatchRoomsPage({
   async function toggleMic() {
     if (!open || micBusyRef.current) return;
     unlockAudio();
+    window.clearTimeout(parkTimer.current);
+    micUserAt.current = Date.now();
     if (open.you.muted) {
       setWantMic(false);
       stopLocalMic();
       setNotice('Yönetici mikrofonunu kapattı');
       return;
     }
-    if (!wantMicRef.current) {
+    if (!wantMicRef.current || !micLive()) {
       micBusyRef.current = true;
       setWantMic(true);
       try {
@@ -2649,6 +2688,7 @@ export function WatchRoomsPage({
                       type="button"
                       onClick={() => {
                         const nextPlaying = !open.playing;
+                        hudPauseAt.current = Date.now();
                         if (nextPlaying) playerRef.current?.playVideo();
                         else playerRef.current?.pauseVideo();
                         const time = playerRef.current?.getCurrentTime() || open.position;
