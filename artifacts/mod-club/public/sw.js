@@ -6,6 +6,22 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+function notifyOptions(data) {
+  return {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    vibrate: [240, 90, 240, 90, 360],
+    silent: false,
+    renotify: true,
+    requireInteraction: data.type === 'admin' || data.type === 'giveaway' || data.type === 'winner' || data.type === 'chat',
+    tag: data.tag || `n-${Date.now()}`,
+    timestamp: Date.now(),
+    actions: [{ action: 'open', title: 'Aç' }],
+    data: { url: data.url || (data.type === 'chat' || data.type === 'guess' ? '/?chat=1' : '/') },
+  };
+}
+
 self.addEventListener('push', (event) => {
   let data = { title: 'MOD CLUB', body: '', url: '/', tag: `n-${Date.now()}`, type: 'admin' };
   try {
@@ -18,17 +34,7 @@ self.addEventListener('push', (event) => {
     } catch { /* ignore */ }
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'MOD CLUB', {
-      body: data.body || '',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      vibrate: [220, 80, 220, 80, 320],
-      silent: false,
-      renotify: true,
-      requireInteraction: data.type === 'admin' || data.type === 'giveaway' || data.type === 'winner',
-      tag: data.tag || `n-${Date.now()}`,
-      data: { url: data.url || '/' },
-    }),
+    self.registration.showNotification(data.title || 'MOD CLUB', notifyOptions(data)),
   );
 });
 
@@ -53,14 +59,6 @@ self.addEventListener('message', (event) => {
   const data = event.data;
   if (!data || data.type !== 'notify') return;
   event.waitUntil(
-    self.registration.showNotification(data.title || 'MOD CLUB', {
-      body: data.body || '',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      vibrate: [220, 80, 220],
-      silent: false,
-      tag: data.tag || 'mod-club',
-      renotify: true,
-    }),
+    self.registration.showNotification(data.title || 'MOD CLUB', notifyOptions(data)),
   );
 });

@@ -82,6 +82,12 @@ const publicDirCandidates = [
 const publicDir = publicDirCandidates.find((dir) => existsSync(dir));
 
 if (publicDir) {
+  app.get("/sw.js", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.type("application/javascript");
+    res.sendFile(path.join(publicDir, "sw.js"));
+  });
   app.use(express.static(publicDir));
   app.use((req, res, next) => {
     if (req.method !== "GET" || req.path.startsWith("/api")) {

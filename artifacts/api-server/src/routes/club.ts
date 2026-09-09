@@ -126,18 +126,22 @@ router.patch("/club", async (req, res) => {
     res.status(403).json({ error: "staff" });
     return;
   }
-  await patchClub({
-    banners: account.role === "ADMIN" ? (body.banners as never) : undefined,
-    giveaways: body.giveaways as never,
-    films: account.role === "ADMIN" ? (body.films as never) : undefined,
-    apps: account.role === "ADMIN" ? (body.apps as never) : undefined,
-    news: account.role === "ADMIN" ? (body.news as never) : undefined,
-    announcements: account.role === "ADMIN" ? (body.announcements as never) : undefined,
-    homeEvents: account.role === "ADMIN" ? (body.homeEvents as never) : undefined,
-    chat: body.chat as never,
-    timeouts: staff ? (body.timeouts as never) : undefined,
-    notices: body.notices as never,
-  });
+  const deviceId = String((body as { deviceId?: string }).deviceId || "").slice(0, 40);
+  await patchClub(
+    {
+      banners: account.role === "ADMIN" ? (body.banners as never) : undefined,
+      giveaways: body.giveaways as never,
+      films: account.role === "ADMIN" ? (body.films as never) : undefined,
+      apps: account.role === "ADMIN" ? (body.apps as never) : undefined,
+      news: account.role === "ADMIN" ? (body.news as never) : undefined,
+      announcements: account.role === "ADMIN" ? (body.announcements as never) : undefined,
+      homeEvents: account.role === "ADMIN" ? (body.homeEvents as never) : undefined,
+      chat: body.chat as never,
+      timeouts: staff ? (body.timeouts as never) : undefined,
+      notices: body.notices as never,
+    },
+    { username: account.username, deviceId: deviceId || undefined },
+  );
   res.json(await snapshot(account.username));
 });
 

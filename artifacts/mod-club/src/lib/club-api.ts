@@ -143,7 +143,14 @@ export async function fetchClub() {
 }
 
 export async function patchClub(body: Partial<Pick<ClubSnapshot, 'banners' | 'giveaways' | 'films' | 'apps' | 'news' | 'announcements' | 'homeEvents' | 'chat' | 'timeouts' | 'notices'>>) {
-  return request<ClubSnapshot>('/api/club', { method: 'PATCH', body: JSON.stringify(body) });
+  let deviceId = '';
+  try {
+    deviceId = window.localStorage.getItem('mod-club-device-id') || '';
+  } catch { /* ignore */ }
+  return request<ClubSnapshot>('/api/club', {
+    method: 'PATCH',
+    body: JSON.stringify(deviceId ? { ...body, deviceId } : body),
+  });
 }
 
 export async function patchMe(body: { nick?: string; appId?: string; photo?: string }) {

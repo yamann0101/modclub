@@ -762,18 +762,21 @@ export async function endGuessGame(by: string) {
   return game;
 }
 
-export async function patchClub(input: {
-  banners?: Banner[];
-  giveaways?: Giveaway[];
-  films?: ContentCard[];
-  apps?: ContentCard[];
-  news?: HomeNews[];
-  announcements?: HomeAnnouncement[];
-  homeEvents?: HomeEvent[];
-  chat?: unknown[];
-  timeouts?: ChatTimeout[];
-  notices?: ClubNotice[];
-}) {
+export async function patchClub(
+  input: {
+    banners?: Banner[];
+    giveaways?: Giveaway[];
+    films?: ContentCard[];
+    apps?: ContentCard[];
+    news?: HomeNews[];
+    announcements?: HomeAnnouncement[];
+    homeEvents?: HomeEvent[];
+    chat?: unknown[];
+    timeouts?: ChatTimeout[];
+    notices?: ClubNotice[];
+  },
+  meta?: { username?: string; deviceId?: string },
+) {
   if (input.banners) await setDoc("banners", input.banners.length ? input.banners : DEFAULT_BANNERS);
   if (input.giveaways) await setDoc("giveaways", settleGiveaways(input.giveaways));
   if (input.films) await setDoc("films", input.films);
@@ -781,7 +784,36 @@ export async function patchClub(input: {
   if (input.news) await setDoc("home_news", input.news.slice(0, 40));
   if (input.announcements) await setDoc("home_announcements", input.announcements.slice(0, 40));
   if (input.homeEvents) await setDoc("home_events", input.homeEvents.slice(0, 40));
-  if (input.chat) await setDoc("chat", input.chat.slice(-400));
+  if (input.chat) {
+    const prev = await getDoc<Record<string, unknown>[]>("chat", []);
+    const next = input.chat.slice(-400) as Record<string, unknown>[];
+    await setDoc("chat", next);
+    const last = next[next.length - 1];
+    const prevLast = Array.isArray(prev) ? prev[prev.length - 1] : undefined;
+    const lastId = last && typeof last.id === "string" ? last.id : "";
+    const prevId = prevLast && typeof prevLast.id === "string" ? prevLast.id : "";
+    const kind = last && typeof last.kind === "string" ? last.kind : "";
+    const systemKind = kind.startsWith("guess-") || kind === "system";
+    if (
+      lastId &&
+      lastId !== prevId &&
+      !systemKind &&
+      typeof last?.message === "string" &&
+      last.message.trim() &&
+      typeof last.author === "string" &&
+      last.author !== "MOD CLUB"
+    ) {
+      void addEvent({
+        id: `chat-msg-${lastId}`,
+        type: "chat",
+        title: String(last.author).slice(0, 80),
+        body: String(last.message).slice(0, 180),
+        from: meta?.username,
+        sender: meta?.deviceId,
+        at: typeof last.at === "number" ? last.at : Date.now(),
+      });
+    }
+  }
   if (input.timeouts) await setDoc("timeouts", input.timeouts);
   if (input.notices) await setDoc("notices", input.notices.slice(0, 40));
 }
@@ -793,6 +825,9 @@ export async function readEvents() {
 
 export async function addEvent(event: ClubEvent) {
   const items = await readEvents();
+  if (items.some((item) => item.id === event.id)) {
+    return items.find((item) => item.id === event.id)!;
+  }
   items.push(event);
   await setDoc("events", items.slice(-250));
   void dispatchClubPush(event);

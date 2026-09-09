@@ -88,14 +88,19 @@ export async function dispatchClubPush(event: {
   webpush.setVapidDetails("mailto:modclub@app.local", keys.publicKey, keys.privateKey);
   const subs = await readSubs();
   if (!subs.length) return;
+  const tag = event.type === "chat"
+    ? `chat-${event.id || Date.now()}`
+    : `${event.type}-${event.id || Date.now()}`;
   const payload = JSON.stringify({
     title: event.title,
     body: event.body,
-    tag: event.type === "chat" ? `chat-${event.id || Date.now()}` : `${event.type}-${event.id || Date.now()}`,
+    tag,
     url: event.type === "chat" || event.type === "guess" ? "/?chat=1" : "/",
     type: event.type,
+    id: event.id,
   });
   const stale: string[] = [];
+  const urgent = event.type === "admin" || event.type === "giveaway" || event.type === "winner" || event.type === "chat" || event.type === "guess";
   await Promise.all(subs.map(async (sub) => {
     if (event.from && sub.username && sub.username.toLowerCase() === event.from.toLowerCase()) return;
     if (event.sender && sub.deviceId && sub.deviceId === event.sender) return;
@@ -104,7 +109,7 @@ export async function dispatchClubPush(event: {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
         payload,
-        { TTL: 120, urgency: event.type === "admin" || event.type === "giveaway" || event.type === "winner" ? "high" : "normal" },
+        { TTL: urgent ? 86400 : 600, urgency: urgent ? "high" : "normal" },
       );
     } catch (err) {
       const status = Number((err as { statusCode?: number }).statusCode || 0);

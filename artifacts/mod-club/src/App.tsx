@@ -16,7 +16,7 @@ import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { Banner, ChatTimeout, ClubAccount, ContentCard, CosmeticTitle, Giveaway, HomeAnnouncement, HomeEvent, HomeNews, RoomFrame } from '@/lib/club-store';
 import { DEFAULT_BANNERS, activeChatTimeout, applyColorMode, avatarFor, formatCountdown, formatMuteRemaining, giveawayStatus, groupGiveawaysByDay, isCosmeticTitle, loadColorMode, nickKey, storeColorMode, type ClubNotice, type ColorMode } from '@/lib/club-store';
-import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, startNotifyPolling, syncClubPush, wasNotifyPrompted } from '@/lib/notifications';
+import { getDeviceId, isChatMuted, loadChatReadAt, markNotifyPrompted, publishClubEvent, registerClubWorker, requestNotifyPermission, saveChatReadAt, setChatMuted as persistChatMute, shouldAskNotify, startNotifyPolling, syncClubPush } from '@/lib/notifications';
 import { PRIZE_TEMPLATES } from '@/lib/prize-art';
 
 const queryClient = new QueryClient();
@@ -923,7 +923,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   const [chatOpen, setChatOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('chat') === '1');
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [chatMuted, setChatMutedOn] = useState(() => typeof window !== 'undefined' && isChatMuted());
-  const [notifyPromptOpen, setNotifyPromptOpen] = useState(() => typeof window !== 'undefined' && !wasNotifyPrompted() && 'Notification' in window && Notification.permission === 'default');
+  const [notifyPromptOpen, setNotifyPromptOpen] = useState(() => typeof window !== 'undefined' && shouldAskNotify());
+  const chatOpenRef = useRef(false);
   const [chatText, setChatText] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -1235,10 +1236,21 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
   }, [nick, guessGame?.status, activeNav]);
 
   useEffect(() => {
+    chatOpenRef.current = chatOpen;
+  }, [chatOpen]);
+
+  useEffect(() => {
     void registerClubWorker();
     void syncClubPush();
+    if (shouldAskNotify()) setNotifyPromptOpen(true);
     const stop = startNotifyPolling((event) => {
-      if (event.type !== 'chat') pushNotice(event.title, event.body);
+      if (event.type === 'chat') {
+        if (!chatOpenRef.current || document.visibilityState === 'hidden') {
+          setTicker({ id: `chat-${event.id || Date.now()}`, title: event.title, body: event.body });
+        }
+        return;
+      }
+      pushNotice(event.title, event.body);
       if (event.type === 'guess') {
         setNotice(event.body);
         setChatOpen(true);
@@ -1248,6 +1260,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
         setNotice(event.body);
         void fetchClub().then(applySnapshot).catch(() => undefined);
       }
+    }, {
+      shouldNotifyChat: () => !chatOpenRef.current || document.visibilityState === 'hidden',
     });
     return stop;
   }, [session.username]);
@@ -1441,12 +1455,6 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
     setReplyTo(null);
     setEmojiPickerOpen(false);
     setNotice('Mesajın topluluğa gönderildi');
-    void publishClubEvent({
-      type: 'chat',
-      title: 'Yeni sohbet',
-      body: `${nick}: ${message}`,
-      sender: getDeviceId(),
-    });
   };
 
   const clearChatHistory = () => {
@@ -2903,8 +2911,8 @@ function Home({ session, onLogout, onSession }: { session: UserSession; onLogout
           <div className="flex items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#a02bf3,#6321ca)] text-white"><Bell size={18} /></span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold">Telefon bildirimleri</p>
-              <p className="mt-1 text-[.72rem] leading-relaxed text-[hsl(var(--muted-foreground))]">Sohbet mesajı ve admin duyurusu kilitli telefona sesli bildirim gider. Ana ekrana ekli PWA gerekir.</p>
+              <p className="text-sm font-bold">Sesli telefon bildirimi</p>
+              <p className="mt-1 text-[.72rem] leading-relaxed text-[hsl(var(--muted-foreground))]">WhatsApp gibi: sohbet mesajı gelince kilit ekranında sesli bildirim düşer. İzin Ver’e bas; iPhone’da uygulamayı Ana Ekran’a eklemiş olman gerekir.</p>
               <div className="mt-3 flex gap-2">
                 <button type="button" onClick={() => void allowPhoneNotify()} className="rounded-xl bg-[hsl(var(--primary))] px-3 py-2 text-[.68rem] font-bold text-white">İzin ver</button>
                 <button type="button" onClick={() => { markNotifyPrompted(); setNotifyPromptOpen(false); }} className="rounded-xl bg-[hsl(var(--muted))] px-3 py-2 text-[.68rem] font-bold text-[hsl(var(--muted-foreground))]">Şimdi değil</button>
